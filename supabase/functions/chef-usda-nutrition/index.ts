@@ -3,6 +3,11 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json", "Cache-Control": "no-store" };
 const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 const value = (nutrients: any[], names: string[]) => { const item = nutrients.find((nutrient) => names.includes(String(nutrient.nutrientName))); return typeof item?.value === "number" ? Math.round(item.value * 10) / 10 : null; };
+const kcal = (nutrients: any[]) => {
+  const item = nutrients.find((nutrient) => String(nutrient.nutrientNumber) === "208")
+    || nutrients.find((nutrient) => String(nutrient.nutrientName) === "Energy" && String(nutrient.unitName).toLowerCase() === "kcal");
+  return typeof item?.value === "number" ? Math.round(item.value * 10) / 10 : null;
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -26,7 +31,7 @@ Deno.serve(async (req) => {
         const food = (await response.json() as any).foods?.[0];
         if (!food) return { ingredient, found: false };
         const nutrients = food.foodNutrients || [];
-        return { ingredient, found: true, description: String(food.description || ingredient), fdcId: food.fdcId, per100g: { kcal: value(nutrients, ["Energy"]), protein_g: value(nutrients, ["Protein"]), carbs_g: value(nutrients, ["Carbohydrate, by difference"]), fat_g: value(nutrients, ["Total lipid (fat)"]) } };
+        return { ingredient, found: true, description: String(food.description || ingredient), fdcId: food.fdcId, per100g: { kcal: kcal(nutrients), protein_g: value(nutrients, ["Protein"]), carbs_g: value(nutrients, ["Carbohydrate, by difference"]), fat_g: value(nutrients, ["Total lipid (fat)"]) } };
       } catch { return { ingredient, found: false }; }
     }));
     return respond({ source: "USDA FoodData Central", foods });

@@ -12,6 +12,12 @@ function value(nutrients: Array<Record<string, unknown>>, names: string[]) {
   return typeof nutrient?.value === "number" ? Math.round(nutrient.value * 10) / 10 : null;
 }
 
+function kcal(nutrients: Array<Record<string, unknown>>) {
+  const nutrient = nutrients.find((item) => String(item.nutrientNumber) === "208")
+    || nutrients.find((item) => String(item.nutrientName) === "Energy" && String(item.unitName).toLowerCase() === "kcal");
+  return typeof nutrient?.value === "number" ? Math.round(nutrient.value * 10) / 10 : null;
+}
+
 export default async (req: Request, _context: Context) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
   const key = Netlify.env.get("USDA_FDC_API_KEY");
@@ -46,7 +52,7 @@ export default async (req: Request, _context: Context) => {
       description: String(food.description || ingredient),
       fdcId: food.fdcId,
       per100g: {
-        kcal: value(nutrients, ["Energy"]),
+        kcal: kcal(nutrients),
         protein_g: value(nutrients, ["Protein"]),
         carbs_g: value(nutrients, ["Carbohydrate, by difference"]),
         fat_g: value(nutrients, ["Total lipid (fat)"]),

@@ -3,6 +3,7 @@ const baseRenderPlanChefMode = window.renderPlan;
 const baseRenderProfileChefMode = window.renderProfile;
 const baseOnboardingChefMode = window.onboarding;
 let chefEquipmentAdaptations = [];
+let activeRecipeId = null;
 
 function sayInstruction(text) {
   if (!('speechSynthesis' in window)) return toast(text);
@@ -13,6 +14,13 @@ function sayInstruction(text) {
 function chefRenderPlan(query) {
   chefEquipmentAdaptations = typeof query === 'object' ? (query.equipment_adaptations || []) : [];
   baseRenderPlanChefMode(query);
+  if (typeof query !== 'object') {
+    renderSavedPlans();
+    return;
+  }
+  activeRecipeId = query.saved_recipe_id || null;
+  renderMealEstimate(query);
+  renderPlanPersistenceControls(query);
   const ingredients = typeof query === 'object' && Array.isArray(query.ingredients) ? query.ingredients : [];
   const photo = document.querySelector('#plan .recipe-photo');
   if (photo) {
@@ -36,6 +44,56 @@ function chefRenderPlan(query) {
   panel.className = 'reuse card chef-adaptations';
   panel.innerHTML = `<p class="eyebrow">DEVICE ALTERNATIVES</p><h2>Made for your kitchen setup.</h2><p>These swaps use the equipment saved in your profile.</p><div class="adaptation-grid">${chefEquipmentAdaptations.slice(0, 3).map(item => `<article><b>${esc(item.original)} → ${esc(item.alternative)}</b><p>${esc(item.instructions)}</p><small>${esc(item.why || '')}</small></article>`).join('')}</div>`;
   document.querySelector('#plan').append(panel);
+}
+
+function renderMealEstimate(query) {
+  const macro = document.querySelector('#plan .macros');
+  if (!macro) return;
+  const labels = macro.querySelectorAll('small');
+  ['est. kcal · whole meal', 'est. protein · whole meal', 'est. carbs · whole meal', 'est. fat · whole meal'].forEach((label, index) => { if (labels[index]) labels[index].textContent = label; });
+  const note = document.createElement('p');
+  note.className = 'meal-estimate-note';
+  note.innerHTML = `<b>Meal estimate</b> · Whole recipe (${query.servings || 2} servings). Generated from recipe portions; adjust it after choosing swaps or changing quantities.`;
+  macro.insertAdjacentElement('afterend', note);
+}
+
+function renderPlanPersistenceControls(query) {
+  const title = document.querySelector('#plan .title');
+  if (!title || !activeRecipeId) return;
+  const controls = document.createElement('div');
+  controls.className = 'plan-persistence-controls';
+  controls.innerHTML = `<span>Saved to your recipes</span><button class="cream" id="cook-later">Cook later ✓</button>`;
+  title.append(controls);
+  controls.querySelector('#cook-later').onclick = () => {
+    controls.querySelector('#cook-later').textContent = 'Saved for later ✓';
+    toast('This meal is saved. Find it under Recent plans whenever you are ready to cook.');
+  };
+  const start = document.querySelector('#start-guided-cook');
+  if (start) start.onclick = () => {
+    activeRecipe = { title: query.title, ingredients: query.ingredients || [], steps: query.steps || fallbackCookingSteps, equipment_adaptations: query.equipment_adaptations || [], substitutions: query.substitutions || [], saved_recipe_id: activeRecipeId };
+    cookingStepIndex = 0;
+    timers = [];
+    renderCook();
+    show('cook');
+  };
+}
+
+function planFromSavedRow(row) {
+  const recipe = row.recipe || {};
+  const nutrition = row.nutrition?.estimate || row.nutrition || {};
+  return { ...recipe, title: row.title, minutes: row.minutes || recipe.minutes, servings: row.servings || recipe.servings || 2, kcal: nutrition.kcal ?? recipe.kcal, protein_g: nutrition.protein_g ?? recipe.protein_g, carbs_g: nutrition.carbs_g ?? recipe.carbs_g, fat_g: nutrition.fat_g ?? recipe.fat_g, userRequest: recipe.userRequest || row.title, saved_recipe_id: row.id };
+}
+
+async function renderSavedPlans() {
+  const root = document.querySelector('#plan');
+  if (!root || !user) return;
+  const { data, error } = await sb.from('recipes').select('id,title,servings,minutes,recipe,nutrition,created_at').eq('user_id', user.id).eq('is_saved', true).order('updated_at', { ascending: false }).limit(6);
+  if (error || !data?.length) return;
+  const card = document.createElement('article');
+  card.className = 'card recent-plans';
+  card.innerHTML = `<div><p class="eyebrow">YOUR SAVED COOKING PLANS</p><h2>Pick up where you left off.</h2><p>Generated meals stay here after switching tabs or refreshing the page.</p></div><div class="recent-plan-list">${data.map((row, index) => `<article><div><b>${esc(row.title)}</b><small>${row.minutes || 30} min · ${row.servings || 2} servings · saved ${new Date(row.created_at).toLocaleDateString()}</small></div><button class="dark" data-resume-plan="${index}">Open plan →</button></article>`).join('')}</div>`;
+  root.append(card);
+  card.querySelectorAll('[data-resume-plan]').forEach(button => button.onclick = () => chefRenderPlan(planFromSavedRow(data[Number(button.dataset.resumePlan)])));
 }
 
 function renderPersonalizedSwaps(query, ingredients) {
@@ -109,7 +167,7 @@ async function renderUsdaReference(ingredients) {
     const data = await response.json();
     const foods = (data.foods || []).filter(food => food.found);
     if (!foods.length) throw new Error('No USDA matches found');
-    card.innerHTML = `<p class="eyebrow">USDA FOODDATA CENTRAL · REFERENCE DATA</p><h2>Ingredient nutrition verified.</h2><p>Per 100 g reference values. Final recipe totals still depend on exact brands, portions and cooking oil.</p><div class="usda-grid">${foods.slice(0, 8).map(food => `<div><b>${esc(food.ingredient)}</b><span>${food.per100g.kcal ?? '—'} kcal</span><small>P ${food.per100g.protein_g ?? '—'}g · C ${food.per100g.carbs_g ?? '—'}g · F ${food.per100g.fat_g ?? '—'}g</small></div>`).join('')}</div>`;
+    card.innerHTML = `<p class="eyebrow">USDA FOODDATA CENTRAL · INGREDIENT REFERENCE</p><h2>Per-100 g ingredient data.</h2><p>This is not your meal total. The card above is a whole-recipe estimate; these values are independent USDA reference matches for individual ingredients.</p><div class="usda-grid">${foods.slice(0, 8).map(food => `<div><b>${esc(food.ingredient)}</b><span>${food.per100g.kcal ?? '—'} kcal / 100 g</span><small>P ${food.per100g.protein_g ?? '—'}g · C ${food.per100g.carbs_g ?? '—'}g · F ${food.per100g.fat_g ?? '—'}g</small></div>`).join('')}</div>`;
   } catch {
     card.innerHTML = '<p class="eyebrow">USDA FOODDATA CENTRAL</p><h2>Reference lookup is taking longer.</h2><p>Your plan and grocery list are ready. Try again later to refresh USDA ingredient references.</p>';
   }
@@ -121,7 +179,16 @@ async function generatePlan(request) {
   const response = await fetch(`${SUPABASE_URL}/functions/v1/chef-meal-plan`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ request, profile }) });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Jarvis could not create a plan.');
-  return { ...data.plan, userRequest: request };
+  const plan = { ...data.plan, userRequest: request };
+  try {
+    const { data: saved, error } = await sb.from('recipes').insert({ user_id: user.id, app_user_id: user.id, title: plan.title || request.slice(0, 160), servings: plan.servings || 2, minutes: plan.minutes || null, recipe: plan, nutrition: { estimate: { kcal: plan.kcal ?? null, protein_g: plan.protein_g ?? null, carbs_g: plan.carbs_g ?? null, fat_g: plan.fat_g ?? null, basis: 'AI recipe estimate for the whole recipe' } }, adaptations: plan.substitutions || [], is_saved: true }).select('id').single();
+    if (error) throw error;
+    plan.saved_recipe_id = saved.id;
+  } catch (error) {
+    console.warn('Could not save meal plan', error);
+    toast('Your plan is ready, but it could not be saved yet.');
+  }
+  return plan;
 }
 
 function renderCook() {
