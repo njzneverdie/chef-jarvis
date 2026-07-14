@@ -1,0 +1,12 @@
+# Local deployment state
+.netlify
+.wrangler
+
+# Dependencies and operating-system files
+node_modules
+.DS_Store
+
+# Local secrets
+.env
+.env.*
+!.env.example

@@ -1,0 +1,16 @@
+{
+  "name": "chef-jarvis",
+  "version": "1.0.0",
+  "description": "Personalized AI cooking companion deployed on Cloudflare Pages with Supabase Auth, data, and Edge Functions.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@netlify/functions": "^5.3.0"
+  }
+}
