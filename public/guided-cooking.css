@@ -1,1 +1,140 @@
-.guided-preview{display:grid;grid-template-columns:1fr 1.1fr;gap:15px;margin-top:18px}.ingredient-guide,.step-guide{padding:23px}.ingredient-guide h2,.step-guide h2{font:28px var(--serif);margin:3px 0 15px}.ingredient-guide>div{display:flex;justify-content:space-between;gap:14px;border-top:1px solid var(--line);padding:10px 0;font-size:12px}.ingredient-guide span{color:var(--muted);text-align:right}.step-guide ol{margin:0;padding-left:20px;color:#5d564e;font-size:12px;line-height:1.7}.current-step{background:#dce7d8;border-radius:18px;padding:22px;max-width:680px;margin:23px 0 14px}.current-step span{font-size:10px;font-weight:800;letter-spacing:1.3px;color:#8e714e}.current-step h2{font:30px/1.12 var(--serif);margin:8px 0}.current-step p,.timer-note{font-size:11px;color:#59665c;line-height:1.6;margin:0}.guide-actions{display:flex;gap:9px;flex-wrap:wrap;margin:15px 0 22px}.guide-actions button:disabled{opacity:.45;cursor:not-allowed}.step-progress{display:grid;gap:7px;margin-top:25px}.step-progress button{display:grid;grid-template-columns:30px 1fr;gap:9px;align-items:center;text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:10px;color:#6e675e;font-size:11px}.step-progress button b{width:23px;height:23px;border:1px solid #cfc5b7;border-radius:50%;display:grid;place-items:center;font-size:10px}.step-progress button.current{border-color:var(--green);color:var(--green);background:#e4eee1}.step-progress button.current b{background:var(--green);color:#fff;border-color:var(--green)}.step-progress button.done{color:#79917c}.step-progress button.done b{background:#79917c;color:#fff;border-color:#79917c}.timer-note{margin:8px 0 15px}@media(max-width:850px){.guided-preview{grid-template-columns:1fr}.current-step h2{font-size:26px}.guide-actions{display:grid;grid-template-columns:1fr 1fr}.guide-actions .dark{grid-column:1/-1}}
+.guided-preview {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr;
+  gap: 15px;
+  margin-top: 18px;
+}
+.ingredient-guide,
+.step-guide {
+  padding: 23px;
+}
+.ingredient-guide h2,
+.step-guide h2 {
+  font: 28px var(--serif);
+  margin: 3px 0 15px;
+}
+.ingredient-guide > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+  font-size: 12px;
+}
+.ingredient-guide b {
+  overflow-wrap: anywhere;
+}
+.ingredient-guide span {
+  color: var(--muted);
+  text-align: right;
+  font-weight: 700;
+}
+.ingredient-guide small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.step-guide ol {
+  margin: 0;
+  padding-left: 20px;
+  color: #5d564e;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.current-step {
+  background: #dce7d8;
+  border-radius: 18px;
+  padding: 22px;
+  max-width: 680px;
+  margin: 23px 0 14px;
+}
+.current-step span {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.3px;
+  color: #8e714e;
+}
+.current-step h2 {
+  font: 30px/1.12 var(--serif);
+  margin: 8px 0;
+}
+.current-step p,
+.timer-note {
+  font-size: 11px;
+  color: #59665c;
+  line-height: 1.6;
+  margin: 0;
+}
+.guide-actions {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin: 15px 0 22px;
+}
+.guide-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.step-progress {
+  display: grid;
+  gap: 7px;
+  margin-top: 25px;
+}
+.step-progress button {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 9px;
+  align-items: center;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: 12px;
+  padding: 10px;
+  color: #6e675e;
+  font-size: 11px;
+}
+.step-progress button b {
+  width: 23px;
+  height: 23px;
+  border: 1px solid #cfc5b7;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+}
+.step-progress button.current {
+  border-color: var(--green);
+  color: var(--green);
+  background: #e4eee1;
+}
+.step-progress button.current b {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+}
+.step-progress button.done {
+  color: #79917c;
+}
+.step-progress button.done b {
+  background: #79917c;
+  color: #fff;
+  border-color: #79917c;
+}
+.timer-note {
+  margin: 8px 0 15px;
+}
+@media (max-width: 850px) {
+  .guided-preview {
+    grid-template-columns: 1fr;
+  }
+  .current-step h2 {
+    font-size: 26px;
+  }
+  .guide-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .guide-actions .dark {
+    grid-column: 1/-1;
+  }
+}

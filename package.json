@@ -2,15 +2,13 @@
   "name": "chef-jarvis",
   "version": "1.0.0",
   "description": "Personalized AI cooking companion deployed on Cloudflare Pages with Supabase Auth, data, and Edge Functions.",
-  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "serve": "npx serve public",
+    "check": "node --check public/app.js && node --check public/chef-mode.js",
+    "test": "node --test tests/*.test.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
-  "dependencies": {
-    "@netlify/functions": "^5.3.0"
-  }
+  "type": "module"
 }

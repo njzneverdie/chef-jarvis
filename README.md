@@ -21,23 +21,30 @@ Its primary product principle is **personalized healthy swaps**:
 
 1. **Create an account and food profile** — body data, calorie/macronutrient targets, health goal, allergies, dietary preferences, dislikes, and kitchen equipment.
 2. **Ask for a meal** — enter a dish or a free-form request such as “high-protein Kung Pao chicken for two.”
-3. **Receive a personalized plan** — ingredients, portions, macros, cooking steps, equipment alternatives, and ideas that reuse purchased ingredients.
-4. **Build a grocery checklist** — select only what is needed and save the list to the user’s account.
+3. **Receive a personalized plan** — exact purchasable ingredient names, measured quantities, preparation notes, macros, cooking steps, equipment alternatives, and ideas that reuse purchased ingredients.
+4. **Build and use a grocery checklist** — save only what is needed, then check off or delete lists from the Shopping page.
 5. **Choose healthy swaps** — review profile-safe replacements before cooking.
-6. **Cook in Chef Mode** — work through step-by-step instructions with multiple independent countdowns and stopwatches.
+6. **Cook in Chef Mode** — work through persistent step-by-step instructions with independent countdowns, stopwatches, completion alarms, notifications, and screen wake lock.
 7. **Verify nutrition** — USDA FoodData Central reference values load in the background so the recipe is usable immediately.
 
 ## Feature set
 
-| Area | Included capabilities |
-| --- | --- |
-| Personalization | Macro target calculator or custom targets, body-composition goals, allergies, dietary preferences, dislikes, equipment profile |
-| AI meal planning | Gemini-powered recipe plan, ingredients, realistic portions, macros, steps, substitutions, reuse ideas |
-| Smart swaps | Fat-loss, recomposition, muscle-gain, lactose-free, gluten-free, nut-safe, and shellfish-safe alternatives |
-| Grocery planning | Checkable ingredient list, quantities, persistent saved shopping lists |
-| Chef Mode | Guided steps, spoken instruction, multiple parallel timers, countdowns, stopwatches, custom clocks |
-| Pantry and planning | Pantry inventory, saved meal cards, ingredient-reuse ideas for later meal planning |
-| Nutrition | USDA FoodData Central ingredient reference data, loaded after the plan so it does not block the user |
+| Area                | Included capabilities                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Personalization     | Macro target calculator or custom targets, body-composition goals, allergies, dietary preferences, dislikes, equipment profile |
+| AI meal planning    | Gemini-powered bilingual plan using the server-verified profile and pantry, with strict validation and per-user quotas         |
+| Smart swaps         | Fat-loss, recomposition, muscle-gain, lactose-free, gluten-free, nut-safe, and shellfish-safe alternatives                     |
+| Grocery planning    | Checkable, separately listed ingredients with exact units and a dedicated page for persistent shopping lists                   |
+| Chef Mode           | Persistent guided steps, language-aware speech, parallel timers, completion alerts, notifications, and wake lock               |
+| Pantry and planning | Pantry inventory, saved meal cards, ingredient-reuse ideas for later meal planning                                             |
+| Nutrition           | USDA FoodData Central ingredient reference data, loaded after the plan so it does not block the user                           |
+| Language and images | English / Traditional Chinese UI toggle plus dish-specific Wikimedia Commons images with source and license attribution        |
+
+## Product preview
+
+| Personalized home                                                                 | Exact recipe and grocery list                                                              | Guided Chef Mode                                                                  |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| ![Chef Jarvis Traditional Chinese home](docs/screenshots/chef-jarvis-home-zh.png) | ![Chef Jarvis precise Kung Pao recipe](docs/screenshots/chef-jarvis-precise-recipe-zh.png) | ![Chef Jarvis guided cooking mode](docs/screenshots/chef-jarvis-chef-mode-zh.png) |
 
 ## Architecture
 
@@ -62,13 +69,15 @@ Cloudflare Pages
 
 ```text
 public/                         Cloudflare Pages static web app
-  app.js                        Auth, profile, planning, pantry UI
-  chef-mode.js                  Guided cooking, timers, grocery list, healthy swaps
-  *.css                         Visual system and feature-specific styles
+  app.js                        Auth, shell, profile, and pantry UI
+  chef-mode.js                  Planning, shopping, guided cooking, and one timer loop
+  domain.js                     Tested nutrition and timer domain functions
+  *.css                         Readable visual system and feature styles
 supabase/functions/
   chef-meal-plan/               Authenticated Gemini meal-plan endpoint
   chef-usda-nutrition/          Authenticated USDA nutrition endpoint
-netlify/                        Legacy migration reference only; not used in production
+supabase/migrations/            AI quota table, RLS, grants, and atomic quota function
+tests/                          Node tests for nutrition and timer behavior
 ```
 
 ## Local development
@@ -76,7 +85,14 @@ netlify/                        Legacy migration reference only; not used in pro
 This project is currently a dependency-light static app. Serve `public/` with any local static server, then sign in with a test Supabase account.
 
 ```bash
-npx serve public
+npm run serve
+```
+
+Run the local checks before deploying:
+
+```bash
+npm test
+npm run check
 ```
 
 The deployed client calls these Supabase functions:
@@ -95,9 +111,23 @@ Set these in **Supabase Dashboard → Edge Functions → Secrets**. Do not place
 ```text
 GEMINI_API_KEY=<Google AI Studio key>
 USDA_FDC_API_KEY=<USDA FoodData Central key>
+ALLOWED_ORIGINS=https://chef-jarvis.pages.dev,https://your-preview.example
 ```
 
-Supabase-provided runtime variables (`SUPABASE_URL`, publishable keys, and JWT verification) are used automatically by the functions.
+Supabase-provided runtime variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`) are read by the functions. The service role never leaves the server; it is used to read the authenticated user’s profile and pantry and to consume the internal quota RPC.
+
+## Applying Supabase changes
+
+Link the local folder to the intended Supabase project, inspect the pending migration, then apply and deploy it before the updated meal-plan function:
+
+```bash
+npx supabase link --project-ref <project-ref>
+npx supabase db push
+npx supabase functions deploy chef-meal-plan
+npx supabase functions deploy chef-usda-nutrition
+```
+
+The meal-plan quota defaults to 5 requests per minute and 100 per rolling 24 hours per user.
 
 ## Deploying to Cloudflare Pages
 
