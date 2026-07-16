@@ -144,6 +144,21 @@ test("recipe steps never create timers for reading menus or untimed prep", () =>
   assert.equal(buildRecipeTimers(steps)[0].name, "Simmer sauce");
 });
 
+test("recipe steps are not truncated to an arbitrary fixed count", () => {
+  const steps = normalizeRecipeSteps(
+    Array.from({ length: 14 }, (_, index) => ({
+      instruction: `Cook the requested component in step ${index + 1}.`,
+      timer: null,
+    })),
+  );
+
+  assert.equal(steps.length, 14);
+  assert.equal(
+    steps.at(-1).instruction,
+    "Cook the requested component in step 14.",
+  );
+});
+
 test("structured ingredients retain an exact quantity, unit, and preparation", () => {
   const ingredient = normalizeIngredient({
     name: "Boneless skinless chicken breast",

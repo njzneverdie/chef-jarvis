@@ -105,7 +105,6 @@
   function normalizeRecipeSteps(steps) {
     if (!Array.isArray(steps)) return [];
     return steps
-      .slice(0, 8)
       .map((step) => {
         if (typeof step === "string") {
           const instruction = step.trim();
@@ -120,9 +119,10 @@
         const label = String(step.timer.label || "").trim();
         const kind = String(step.timer.kind || "").trim();
         const duration = Math.round(Number(step.timer.duration_seconds));
-        const isFakeTask = /^(?:read|review|look at|check)\b|^(?:閱讀|朗讀|查看|看|檢查)(?:食譜|菜單|步驟)/i.test(
-          label,
-        );
+        const isFakeTask =
+          /^(?:read|review|look at|check)\b|^(?:閱讀|朗讀|查看|看|檢查)(?:食譜|菜單|步驟)/i.test(
+            label,
+          );
         const timer =
           label &&
           recipeTimerKinds.has(kind) &&
