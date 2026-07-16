@@ -195,6 +195,7 @@
         : String(item.amount || "").trim();
     return {
       name,
+      usda_query: String(item.usda_query || "").trim(),
       quantity,
       unit,
       amount,
@@ -282,6 +283,11 @@
     return normalizeGroceryItem({
       ...original,
       name: String(substitution.to || original.name).trim() || original.name,
+      usda_query:
+        String(substitution.usda_query || "").trim() ||
+        (/^[\x00-\x7F]+$/.test(String(substitution.to || ""))
+          ? String(substitution.to || "").trim()
+          : ""),
       quantity:
         substitution.quantity == null
           ? original.quantity

@@ -162,6 +162,7 @@ test("recipe steps are not truncated to an arbitrary fixed count", () => {
 test("structured ingredients retain an exact quantity, unit, and preparation", () => {
   const ingredient = normalizeIngredient({
     name: "Boneless skinless chicken breast",
+    usda_query: "boneless skinless chicken breast",
     quantity: 400,
     unit: "g",
     preparation: "cut into 2 cm cubes",
@@ -171,6 +172,7 @@ test("structured ingredients retain an exact quantity, unit, and preparation", (
   assert.equal(ingredientDetails(ingredient), "400 g · cut into 2 cm cubes");
   assert.equal(ingredient.quantity, 400);
   assert.equal(ingredient.category, "protein");
+  assert.equal(ingredient.usda_query, "boneless skinless chicken breast");
 });
 
 test("legacy saved ingredients remain readable", () => {
@@ -203,6 +205,7 @@ test("ingredient substitutions update the final grocery quantity and unit", () =
     { name: "Large eggs", quantity: 3, unit: "piece", category: "protein" },
     {
       to: "Extra-firm tofu",
+      usda_query: "extra firm tofu",
       quantity: 200,
       unit: "g",
       preparation: "pressed and crumbled",
@@ -214,6 +217,7 @@ test("ingredient substitutions update the final grocery quantity and unit", () =
   assert.equal(replacement.unit, "g");
   assert.equal(replacement.amount, "200 g");
   assert.equal(replacement.preparation, "pressed and crumbled");
+  assert.equal(replacement.usda_query, "extra firm tofu");
 });
 
 test("Chinese ingredients use readable units and hide no-op preparation text", () => {

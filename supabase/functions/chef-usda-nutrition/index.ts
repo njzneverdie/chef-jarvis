@@ -79,13 +79,19 @@ Deno.serve(async (req) => {
         401,
       );
     const { ingredients = [] } = (await req.json()) as {
-      ingredients?: Array<{ name?: string }>;
+      ingredients?: Array<{ name?: string; usda_query?: string }>;
     };
-    const names = ingredients
-      .map((item) => item.name?.trim())
-      .filter((name): name is string => Boolean(name))
+    const searches = ingredients
+      .map((item) => ({
+        ingredient: (item.name?.trim() || "").slice(0, 140),
+        query: (item.usda_query?.trim() || item.name?.trim() || "").slice(
+          0,
+          140,
+        ),
+      }))
+      .filter((item) => item.ingredient && item.query)
       .slice(0, 10);
-    if (!names.length)
+    if (!searches.length)
       return respond(req, { error: "No ingredients were supplied." }, 400);
     const key = Deno.env.get("USDA_FDC_API_KEY");
     if (!key)
@@ -95,7 +101,7 @@ Deno.serve(async (req) => {
         503,
       );
     const foods = await Promise.all(
-      names.map(async (ingredient) => {
+      searches.map(async ({ ingredient, query }) => {
         try {
           const response = await fetch(
             `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${encodeURIComponent(key)}`,
@@ -103,7 +109,7 @@ Deno.serve(async (req) => {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                query: ingredient,
+                query,
                 pageSize: 1,
                 dataType: ["Foundation", "SR Legacy", "Survey (FNDDS)"],
               }),
