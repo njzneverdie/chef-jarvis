@@ -56,6 +56,7 @@
     "Tell Jarvis what you want to make. It will keep your pantry, preferences, allergies, and nutrition target in view.":
       "告訴 Jarvis 你想做什麼，它會同時考量庫存、偏好、過敏原與營養目標。",
     "Tell Jarvis what you want to cook…": "告訴 Jarvis 你想做什麼料理…",
+    Generate: "產生食譜",
     "High-protein dinner for 2": "兩人份高蛋白晚餐",
     "Use my pantry": "優先使用我的庫存",
     "30-minute meal prep": "30 分鐘備餐",
@@ -155,6 +156,10 @@
     "great.": "好料理。",
     "＋ New meal": "＋ 新餐點",
     "Pantry and profile applied": "已套用庫存與個人資料",
+    "Tell Jarvis what you would like to cook.": "告訴 Jarvis 你想做什麼料理。",
+    "Created for your preferences; substitutions and nutrition reflect your profile.":
+      "已依照你的偏好建立，替換食材與營養資訊也會套用個人資料。",
+    "High-protein tomato chicken pasta": "高蛋白番茄雞肉義大利麵",
     "Your dish": "你的料理",
     "YOUR DISH": "你的料理",
     "Ingredients and cooking steps below": "食材與烹飪步驟如下",
@@ -169,6 +174,9 @@
     "Start guided cooking →": "開始引導烹飪 →",
     "Saved to your recipes": "已儲存到食譜",
     "Cook later ✓": "稍後再煮 ✓",
+    "Saved for later ✓": "已留待稍後烹煮 ✓",
+    "Find this meal under Recent plans whenever you are ready to cook.":
+      "準備好下廚時，可隨時從最近的食譜中找到這道料理。",
     "WHAT TO PREPARE": "需要準備",
     "Ingredients for this meal": "這道料理的食材",
     "HOW JARVIS WILL GUIDE YOU": "JARVIS 如何引導",
@@ -185,6 +193,7 @@
     "Generated meals stay here after switching tabs or refreshing the page.":
       "切換頁面或重新整理後，產生的食譜仍會保留在這裡。",
     "Open plan →": "開啟食譜 →",
+    "NEXT WEEK": "下週",
     "DEVICE ALTERNATIVES": "設備替代方案",
     "Made for your kitchen setup.": "依你的廚房設備調整。",
     "These swaps use the equipment saved in your profile.":
@@ -199,6 +208,8 @@
     "Your grocery checklist is saved ✓": "購物清單已儲存 ✓",
     "Select at least one grocery item first.": "請至少選擇一項購物食材。",
     "Shopping list deleted": "購物清單已刪除",
+    "Delete list": "刪除清單",
+    Ingredient: "食材",
     "PERSONALIZED HEALTHY SWAPS": "個人化健康替換",
     "Make this meal work for": "讓這道料理真正適合",
     "you.": "你。",
@@ -244,6 +255,17 @@
       "這份食譜沒有需要計時的加熱或等待步驟；只有需要時才自行新增計時器。",
     Finished: "已完成",
     "Recipe countdown": "食譜倒數",
+    "Your guided meal": "你的引導料理",
+    "Prepare and measure every ingredient before turning on the heat.":
+      "開火前先備妥並量好每一項食材。",
+    "Heat your pan over medium heat and add the cooking oil.":
+      "以中火加熱鍋具，再加入食用油。",
+    "Cook the protein until browned and safely cooked through.":
+      "將蛋白質食材煎至上色並完全熟透。",
+    "Add vegetables and sauce, then stir until evenly coated.":
+      "加入蔬菜與醬汁，翻炒至均勻裹上醬汁。",
+    "Taste, adjust seasoning, plate, and serve while hot.":
+      "試味並調整調味，盛盤後趁熱享用。",
     "ADD A KITCHEN CLOCK": "新增廚房計時器",
     "Track another task.": "追蹤另一項工作。",
     "Task name": "工作名稱",
@@ -252,13 +274,21 @@
     Stopwatch: "碼表",
     Minutes: "分鐘",
     "Add clock →": "新增計時器 →",
+    "e.g. Rice resting": "例如：白飯靜置",
     Start: "開始",
     Pause: "暫停",
     Resume: "繼續",
     Reset: "重設",
+    Restart: "重新開始",
+    "Remove clock": "移除計時器",
     "Task complete": "工作完成",
     "YOUR EQUIPMENT OPTION": "你的設備選項",
     "USDA FOODDATA CENTRAL": "USDA 食品資料庫",
+    "USDA FOODDATA CENTRAL · INGREDIENT REFERENCE":
+      "USDA 食品資料庫 · 食材參考",
+    "Per-100 g ingredient data.": "每 100 克食材營養資料。",
+    "This is not your meal total. These are independent USDA reference matches.":
+      "這不是整份料理的總營養，而是各食材獨立對應的 USDA 參考資料。",
     "Verifying ingredient nutrition…": "正在核對食材營養資料…",
     "Jarvis is matching your ingredient list to USDA reference foods in the background.":
       "Jarvis 正在背景中將食材清單與 USDA 參考食品進行比對。",
@@ -267,6 +297,7 @@
       "食譜與購物清單已準備完成，稍後可再重新整理 USDA 食材參考資料。",
     "Gemini is temporarily busy, so Jarvis prepared a fully measured fallback recipe.":
       "Gemini 暫時忙碌，Jarvis 已準備一份份量完整的備用食譜。",
+    "A profile-safe alternative for this meal.": "符合你個人飲食資料的替代選項。",
     "Your plan is ready, but it could not be saved yet.":
       "食譜已準備完成，但目前無法儲存。",
     "YOUR FOOD PROFILE": "你的飲食資料",
@@ -278,6 +309,14 @@
     ALLERGIES: "過敏原",
     DISLIKES: "不喜歡的食物",
     EQUIPMENT: "廚房設備",
+    "Cooked cold rice": "冷藏熟飯",
+    Eggs: "雞蛋",
+    "Cooked protein": "已煮熟的蛋白質食材",
+    Scallions: "青蔥",
+    "Main protein for your requested dish": "這道料理的主要蛋白質食材",
+    "Fresh vegetables and aromatics": "新鮮蔬菜與辛香料",
+    "Carbohydrate base, if needed": "需要時使用的主食",
+    "Sauce and seasonings": "醬汁與調味料",
   };
 
   const regexTranslations = [
@@ -313,6 +352,10 @@
     [/^(\d+) items selected$/, "已選擇 $1 項食材"],
     [/^(\d+) item selected$/, "已選擇 $1 項食材"],
     [/^(\d+) clear cooking steps$/, "$1 個清楚的料理步驟"],
+    [/^Shopping · (.+)$/, "購物 · $1"],
+    [/^(\d+) min · (\d+) servings · saved (.+)$/, "$1 分鐘 · $2 人份 · 儲存於 $3"],
+    [/^(\d+(?:\.\d+)?) cups?$/, "$1 杯"],
+    [/^(\d+(?:\.\d+)?) portions?$/, "$1 份"],
     [/^STEP (\d+) \/ (\d+)$/, "步驟 $1 / $2"],
     [/^Step (\d+) · Recipe countdown$/, "步驟 $1 · 食譜倒數"],
     [/^(\d+) min · (\d+) servings$/, "$1 分鐘 · $2 人份"],
