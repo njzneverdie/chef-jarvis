@@ -383,8 +383,11 @@
     "Restart timer": "重新開始倒數",
     "Start this timer": "開始這個倒數",
     "Pause this timer": "暫停這個倒數",
+    "Restart this timer": "重新開始這個倒數",
     "Dish completed — great cooking! ✓": "料理完成，辛苦了！✓",
     "Not saved yet": "尚未儲存",
+    "This draft can be restored for 30 minutes after a refresh.":
+      "重新整理後，這份草稿仍可在 30 分鐘內自動恢復。",
     "Cook later": "稍後再煮",
     "Saved to your recipes ✓": "已儲存到食譜 ✓",
     "Only meals you chose to save appear here. You can remove experiments at any time.":
