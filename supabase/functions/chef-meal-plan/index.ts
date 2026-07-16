@@ -50,7 +50,15 @@ type Ingredient = {
   preparation: string;
   category: IngredientCategory;
 };
-type Substitution = { from: string; to: string; reason: string };
+type Substitution = {
+  from: string;
+  to: string;
+  quantity: number;
+  unit: IngredientUnit;
+  preparation: string;
+  category: IngredientCategory;
+  reason: string;
+};
 type EquipmentAdaptation = {
   original: string;
   alternative: string;
@@ -302,8 +310,92 @@ function validatePlan(value: unknown): MealPlan {
   const plan = object(value, "plan");
   if (!Array.isArray(plan.ingredients) || plan.ingredients.length < 2)
     throw new Error("ingredients must contain at least two exact items");
+  if (!Array.isArray(plan.substitutions) || plan.substitutions.length < 1)
+    throw new Error("substitutions must contain at least one actionable option");
   const steps = array(plan.steps, "steps", 8, recipeStep);
   if (!steps.length) throw new Error("steps must contain cooking instructions");
+  const ingredients = array(plan.ingredients, "ingredients", 24, (item, index) => {
+    const ingredient = object(item, `ingredients[${index}]`);
+    return {
+      name: specificIngredientName(
+        ingredient.name,
+        `ingredients[${index}].name`,
+      ),
+      quantity: preciseNumber(
+        ingredient.quantity,
+        `ingredients[${index}].quantity`,
+        0.01,
+        50000,
+      ),
+      unit: enumeration(
+        ingredient.unit,
+        `ingredients[${index}].unit`,
+        ingredientUnits,
+      ),
+      preparation: text(
+        ingredient.preparation,
+        `ingredients[${index}].preparation`,
+        160,
+      ),
+      category: enumeration(
+        ingredient.category,
+        `ingredients[${index}].category`,
+        ingredientCategories,
+      ),
+    };
+  });
+  const substitutions = array(
+    plan.substitutions ?? [],
+    "substitutions",
+    4,
+    (item, index) => {
+      const swap = object(item, `substitutions[${index}]`);
+      const from = text(swap.from, `substitutions[${index}].from`, 160);
+      if (
+        !ingredients.some(
+          (ingredient) =>
+            ingredient.name.toLocaleLowerCase() === from.toLocaleLowerCase(),
+        )
+      ) {
+        throw new Error(
+          `substitutions[${index}].from must exactly match an ingredient name`,
+        );
+      }
+      return {
+        from,
+        to: specificIngredientName(
+          swap.to,
+          `substitutions[${index}].to`,
+        ),
+        quantity: preciseNumber(
+          swap.quantity,
+          `substitutions[${index}].quantity`,
+          0.01,
+          50000,
+        ),
+        unit: enumeration(
+          swap.unit,
+          `substitutions[${index}].unit`,
+          ingredientUnits,
+        ),
+        preparation: text(
+          swap.preparation,
+          `substitutions[${index}].preparation`,
+          160,
+        ),
+        category: enumeration(
+          swap.category,
+          `substitutions[${index}].category`,
+          ingredientCategories,
+        ),
+        reason: text(
+          swap.reason,
+          `substitutions[${index}].reason`,
+          300,
+        ),
+      };
+    },
+  );
   return {
     title: text(plan.title, "title", 120),
     image_query: text(plan.image_query, "image_query", 120),
@@ -314,50 +406,9 @@ function validatePlan(value: unknown): MealPlan {
     protein_g: number(plan.protein_g, "protein_g", 0, 1000),
     carbs_g: number(plan.carbs_g, "carbs_g", 0, 2000),
     fat_g: number(plan.fat_g, "fat_g", 0, 1000),
-    ingredients: array(plan.ingredients, "ingredients", 24, (item, index) => {
-      const ingredient = object(item, `ingredients[${index}]`);
-      return {
-        name: specificIngredientName(
-          ingredient.name,
-          `ingredients[${index}].name`,
-        ),
-        quantity: preciseNumber(
-          ingredient.quantity,
-          `ingredients[${index}].quantity`,
-          0.01,
-          50000,
-        ),
-        unit: enumeration(
-          ingredient.unit,
-          `ingredients[${index}].unit`,
-          ingredientUnits,
-        ),
-        preparation: text(
-          ingredient.preparation,
-          `ingredients[${index}].preparation`,
-          160,
-        ),
-        category: enumeration(
-          ingredient.category,
-          `ingredients[${index}].category`,
-          ingredientCategories,
-        ),
-      };
-    }),
+    ingredients,
     steps,
-    substitutions: array(
-      plan.substitutions ?? [],
-      "substitutions",
-      4,
-      (item, index) => {
-        const swap = object(item, `substitutions[${index}]`);
-        return {
-          from: text(swap.from, "substitution.from", 160),
-          to: text(swap.to, "substitution.to", 160),
-          reason: text(swap.reason, "substitution.reason", 300),
-        };
-      },
-    ),
+    substitutions,
     equipment_adaptations: array(
       plan.equipment_adaptations ?? [],
       "equipment_adaptations",
@@ -443,6 +494,7 @@ function fallbackPlan(
     "Cooked jasmine rice": "煮熟的茉莉香米飯",
     "Large eggs": "大型雞蛋",
     "Canned chickpeas": "罐裝鷹嘴豆",
+    "Cooked green lentils": "煮熟綠扁豆",
     "Frozen green peas": "冷凍青豆仁",
     Carrot: "胡蘿蔔",
     "Ground white pepper": "白胡椒粉",
@@ -476,6 +528,8 @@ function fallbackPlan(
     "thinly sliced": "切薄片",
     "rinsed until water runs clear": "洗至水清",
     "drained and rinsed": "瀝乾後沖洗",
+    "pressed and cut to match the recipe": "壓乾後依食譜切成適當大小",
+    "cut to match the recipe": "依食譜切成適當大小",
     "peeled and thinly sliced": "去皮後切薄片",
   };
   const localized = (value: string) =>
@@ -700,6 +754,46 @@ function fallbackPlan(
             timedStep("Add chickpeas, garlic, cumin, smoked paprika, and the remaining oil, then cook for 5 minutes.", "Warm the chickpeas", "cook", 300),
             untimedStep("Season with lemon juice, salt, and black pepper, then serve over the rice."),
           ];
+  const originalProtein = ingredients.find(
+    (ingredient) => ingredient.category === "protein",
+  );
+  const substitutions: Substitution[] = [];
+  if (originalProtein) {
+    const usePlantReplacement = !/tofu|chickpea|豆腐|鷹嘴豆|鹰嘴豆/i.test(
+      originalProtein.name,
+    );
+    const replacementName = usePlantReplacement
+      ? avoidsSoy
+        ? "Canned chickpeas"
+        : "Extra-firm tofu"
+      : isVegetarian
+        ? avoidsSoy
+          ? "Cooked green lentils"
+          : "Extra-firm tofu"
+        : "Boneless skinless chicken breast";
+    const localizedReplacementName = localized(replacementName);
+    if (localizedReplacementName !== originalProtein.name) {
+      substitutions.push({
+        from: originalProtein.name,
+        to: localizedReplacementName,
+        quantity:
+          originalProtein.unit === "piece" ? 200 : originalProtein.quantity,
+        unit: originalProtein.unit === "piece" ? "g" : originalProtein.unit,
+        preparation: localized(
+          replacementName === "Extra-firm tofu"
+            ? "pressed and cut to match the recipe"
+            : replacementName === "Canned chickpeas"
+              ? "drained and rinsed"
+              : "cut to match the recipe",
+        ),
+        category: "protein",
+        reason:
+          language === "zh-TW"
+            ? "提供另一種可直接套用的蛋白質選擇，份量與單位已同步調整。"
+            : "Offers an actionable protein alternative with its quantity and unit already adjusted.",
+      });
+    }
+  }
   return {
     title,
     image_query: imageQuery,
@@ -718,7 +812,7 @@ function fallbackPlan(
     fat_g: Math.max(0, Math.round((profile.fat_g || 60) / 3)),
     ingredients,
     steps: fallbackSteps,
-    substitutions: [],
+    substitutions,
     equipment_adaptations: [],
     reuse_ideas: [],
     fallback: true,
@@ -973,6 +1067,13 @@ Ingredient accuracy is mandatory:
 - category must be exactly one of: protein, produce, grain, dairy, seasoning, oil, other.
 - Quantities must match the stated servings, and every ingredient named in a cooking step must appear in the ingredient list.
 
+Ingredient substitution accuracy is mandatory:
+- Provide at least one directly usable substitution for this recipe.
+- Every substitution.from must exactly equal one ingredients[].name. Never use a category or a vague phrase as the source.
+- substitution.to must name one specific purchasable replacement, never multiple alternatives joined with "or".
+- Every replacement must include its own exact quantity, unit, preparation and category. Do not assume the original ingredient's measurement is valid for the replacement.
+- Substitutions are decisions made before the grocery list, so each option must be directly usable as the final ingredient entry.
+
 Cooking-step timer accuracy is mandatory:
 - Every steps item must contain one instruction and either one genuinely useful cooking timer or null.
 - Set timer to null for reading the recipe, gathering or measuring ingredients, chopping, plating, serving, tasting, cleaning, or any other task that does not require a clock.
@@ -982,7 +1083,7 @@ Cooking-step timer accuracy is mandatory:
 - timer.kind must be exactly one of: preheat, cook, bake, simmer, boil, steam, rest, marinate, chill, proof, cool.
 - timer.label must name the actual timed cooking action, never "read recipe", "review menu", or similar busywork.
 
-Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact finished dish name in English","summary":"string","minutes":number,"servings":number,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,"ingredients":[{"name":"string","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other"}],"steps":[{"instruction":"string","timer":null|{"label":"string","kind":"preheat|cook|bake|simmer|boil|steam|rest|marinate|chill|proof|cool","duration_seconds":number}}],"substitutions":[{"from":"string","to":"string","reason":"string"}],"equipment_adaptations":[{"original":"string","alternative":"string","instructions":"string","why":"string"}],"reuse_ideas":[{"title":"string","uses":["string"],"why":"string"}]}. Limit to 24 ingredients, 8 steps, 4 substitutions and 4 reuse ideas. User request: ${meal}. Server-verified profile: ${JSON.stringify(profile)}. Server-verified pantry: ${JSON.stringify(pantry)}`;
+Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact finished dish name in English","summary":"string","minutes":number,"servings":number,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,"ingredients":[{"name":"string","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other"}],"steps":[{"instruction":"string","timer":null|{"label":"string","kind":"preheat|cook|bake|simmer|boil|steam|rest|marinate|chill|proof|cool","duration_seconds":number}}],"substitutions":[{"from":"exact ingredients[].name","to":"specific replacement ingredient","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other","reason":"string"}],"equipment_adaptations":[{"original":"string","alternative":"string","instructions":"string","why":"string"}],"reuse_ideas":[{"title":"string","uses":["string"],"why":"string"}]}. Limit to 24 ingredients, 8 steps, 4 substitutions and 4 reuse ideas. User request: ${meal}. Server-verified profile: ${JSON.stringify(profile)}. Server-verified pantry: ${JSON.stringify(pantry)}`;
     const geminiBody = JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {

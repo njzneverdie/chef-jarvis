@@ -4,6 +4,24 @@
   gap: 16px;
 }
 
+.shopping-save-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 18px;
+  padding: 13px 16px;
+  border: 1px solid #a9c8a4;
+  border-radius: 12px;
+  color: #285d35;
+  background: #eef7eb;
+}
+
+.shopping-save-notice span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .saved-shopping-list,
 .shopping-empty {
   padding: 24px;

@@ -178,7 +178,17 @@
           can: "罐",
           pack: "包",
         }[unit] || unit
-      : unit;
+      : quantity === 1
+        ? unit
+        : {
+            cup: "cups",
+            piece: "pieces",
+            clove: "cloves",
+            slice: "slices",
+            can: "cans",
+            pack: "packs",
+            portion: "portions",
+          }[unit] || unit;
     const amount =
       quantity != null && displayUnit
         ? `${quantity.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${displayUnit}`
@@ -191,6 +201,99 @@
       preparation,
       category: String(item.category || "other").trim() || "other",
     };
+  }
+
+  function normalizeGroceryItem(item = {}) {
+    const ingredient = normalizeIngredient(item);
+    let { name, quantity, unit } = ingredient;
+
+    const canonicalUnit = (value) => {
+      const raw = String(value || "").trim();
+      const normalized = raw.toLowerCase();
+      return (
+        {
+          grams: "g",
+          gram: "g",
+          kilograms: "kg",
+          kilogram: "kg",
+          milliliters: "ml",
+          milliliter: "ml",
+          litres: "L",
+          litre: "L",
+          liters: "L",
+          liter: "L",
+          cups: "cup",
+          pieces: "piece",
+          pcs: "piece",
+          pc: "piece",
+          cloves: "clove",
+          slices: "slice",
+          cans: "can",
+          packs: "pack",
+          portions: "portion",
+          茶匙: "tsp",
+          湯匙: "tbsp",
+          汤匙: "tbsp",
+          杯: "cup",
+          個: "piece",
+          个: "piece",
+          瓣: "clove",
+          片: "slice",
+          罐: "can",
+          包: "pack",
+          份: "portion",
+        }[normalized] || raw
+      );
+    };
+
+    unit = canonicalUnit(unit);
+    if (quantity == null) {
+      const amountMatch = String(ingredient.amount || "").match(
+        /^(\d+(?:\.\d+)?)\s*(.*)$/,
+      );
+      if (amountMatch) {
+        quantity = Number(amountMatch[1]);
+        unit = canonicalUnit(amountMatch[2]);
+      }
+    }
+
+    if (quantity == null) {
+      const prefixedUnit = name.match(
+        /^(\d+(?:\.\d+)?)\s*(kg|g|ml|l|tsp|tbsp|cups?|pieces?|pcs?|cloves?|slices?|cans?|packs?|portions?)\b[\s,:-]*(.+)$/i,
+      );
+      const prefixedCount = name.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
+      if (prefixedUnit) {
+        quantity = Number(prefixedUnit[1]);
+        unit = canonicalUnit(prefixedUnit[2]);
+        name = prefixedUnit[3].trim();
+      } else if (prefixedCount) {
+        quantity = Number(prefixedCount[1]);
+        unit = "piece";
+        name = prefixedCount[2].trim();
+      }
+    }
+
+    if (quantity != null && !unit) unit = "piece";
+    return normalizeIngredient({ ...ingredient, name, quantity, unit });
+  }
+
+  function applyIngredientSubstitution(item, substitution = {}) {
+    const original = normalizeGroceryItem(item);
+    return normalizeGroceryItem({
+      ...original,
+      name: String(substitution.to || original.name).trim() || original.name,
+      quantity:
+        substitution.quantity == null
+          ? original.quantity
+          : substitution.quantity,
+      unit: substitution.unit || original.unit,
+      preparation:
+        substitution.preparation == null
+          ? original.preparation
+          : substitution.preparation,
+      category: substitution.category || original.category,
+      amount: "",
+    });
   }
 
   function ingredientPreparation(item) {
@@ -231,6 +334,8 @@
     normalizeRecipeSteps,
     buildRecipeTimers,
     normalizeIngredient,
+    normalizeGroceryItem,
+    applyIngredientSubstitution,
     ingredientPreparation,
     ingredientDetails,
     safeExternalUrl,
