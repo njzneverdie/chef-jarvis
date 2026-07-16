@@ -45,6 +45,7 @@ type IngredientUnit = (typeof ingredientUnits)[number];
 type IngredientCategory = (typeof ingredientCategories)[number];
 type Ingredient = {
   name: string;
+  usda_query: string;
   quantity: number;
   unit: IngredientUnit;
   preparation: string;
@@ -53,6 +54,7 @@ type Ingredient = {
 type Substitution = {
   from: string;
   to: string;
+  usda_query: string;
   quantity: number;
   unit: IngredientUnit;
   preparation: string;
@@ -333,6 +335,11 @@ function validatePlan(value: unknown): MealPlan {
           ingredient.name,
           `ingredients[${index}].name`,
         ),
+        usda_query: text(
+          ingredient.usda_query,
+          `ingredients[${index}].usda_query`,
+          140,
+        ),
         quantity: preciseNumber(
           ingredient.quantity,
           `ingredients[${index}].quantity`,
@@ -377,6 +384,11 @@ function validatePlan(value: unknown): MealPlan {
       return {
         from,
         to: specificIngredientName(swap.to, `substitutions[${index}].to`),
+        usda_query: text(
+          swap.usda_query,
+          `substitutions[${index}].usda_query`,
+          140,
+        ),
         quantity: preciseNumber(
           swap.quantity,
           `substitutions[${index}].quantity`,
@@ -558,6 +570,7 @@ function fallbackPlan(
     category: IngredientCategory,
   ): Ingredient => ({
     name: localized(name),
+    usda_query: name,
     quantity,
     unit,
     preparation: localized(preparation),
@@ -1272,6 +1285,7 @@ function fallbackPlan(
       substitutions.push({
         from: originalProtein.name,
         to: localizedReplacementName,
+        usda_query: replacementName,
         quantity:
           originalProtein.unit === "piece" ? 200 : originalProtein.quantity,
         unit: originalProtein.unit === "piece" ? "g" : originalProtein.unit,
@@ -1441,17 +1455,38 @@ Deno.serve(async (request) => {
   if (origin && !allowedOrigins.has(origin))
     return respond(request, { error: "Origin not allowed." }, 403);
 
+  let language: "en" | "zh-TW" = "en";
+  let admin: ReturnType<typeof createClient> | null = null;
+  let quotaRequestId: string | null = null;
+  let quotaUserId: string | null = null;
   try {
+    const body = (await request.json()) as {
+      request?: unknown;
+      language?: unknown;
+    };
+    language = body.language === "zh-TW" ? "zh-TW" : "en";
+    const meal = typeof body.request === "string" ? body.request.trim() : "";
     const authorization = request.headers.get("Authorization");
     if (!authorization?.startsWith("Bearer "))
-      return respond(request, { error: "Please sign in first." }, 401);
+      return respond(
+        request,
+        {
+          error: language === "zh-TW" ? "請先登入。" : "Please sign in first.",
+        },
+        401,
+      );
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!supabaseUrl || !anonKey || !serviceRoleKey)
       return respond(
         request,
-        { error: "Chef Jarvis is not configured correctly." },
+        {
+          error:
+            language === "zh-TW"
+              ? "Chef Jarvis 目前設定不完整。"
+              : "Chef Jarvis is not configured correctly.",
+        },
         503,
       );
 
@@ -1466,53 +1501,26 @@ Deno.serve(async (request) => {
     if (authError || !user)
       return respond(
         request,
-        { error: "Your sign-in session has expired. Please sign in again." },
+        {
+          error:
+            language === "zh-TW"
+              ? "登入工作階段已過期，請重新登入。"
+              : "Your sign-in session has expired. Please sign in again.",
+        },
         401,
       );
 
-    const admin = createClient(supabaseUrl, serviceRoleKey, {
+    admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const { data: quota, error: quotaError } = await admin.rpc(
-      "consume_chef_meal_plan_quota",
-      { p_user_id: user.id },
-    );
-    if (quotaError) {
-      console.error("quota error", quotaError.message);
-      return respond(
-        request,
-        { error: "Meal planning quota is temporarily unavailable." },
-        503,
-      );
-    }
-    const allowance = Array.isArray(quota) ? quota[0] : quota;
-    if (!allowance?.allowed) {
-      const retryAfter = String(allowance?.retry_after_seconds || 60);
-      return respond(
-        request,
-        {
-          error:
-            allowance?.reason === "daily_limit"
-              ? "You reached today’s meal-plan limit. Try again later."
-              : "Too many meal plans at once. Wait a minute and try again.",
-        },
-        429,
-        { "Retry-After": retryAfter },
-      );
-    }
-
-    const body = (await request.json()) as {
-      request?: unknown;
-      language?: unknown;
-    };
-    const meal = typeof body.request === "string" ? body.request.trim() : "";
-    const language = body.language === "zh-TW" ? "zh-TW" : "en";
     if (!meal || meal.length > 500)
       return respond(
         request,
         {
           error:
-            "Tell Jarvis what you would like to cook (up to 500 characters).",
+            language === "zh-TW"
+              ? "請告訴 Jarvis 你想做什麼料理（最多 500 個字元）。"
+              : "Tell Jarvis what you would like to cook (up to 500 characters).",
         },
         400,
       );
@@ -1551,11 +1559,50 @@ Deno.serve(async (request) => {
         fallback: true,
         notice: "Gemini is not configured yet.",
       });
+    quotaRequestId = crypto.randomUUID();
+    quotaUserId = user.id;
+    const { data: quota, error: quotaError } = await admin.rpc(
+      "consume_chef_meal_plan_quota",
+      { p_user_id: user.id, p_request_id: quotaRequestId },
+    );
+    if (quotaError) {
+      console.error("quota error", quotaError.message);
+      return respond(
+        request,
+        {
+          error:
+            language === "zh-TW"
+              ? "餐點規劃配額服務暫時無法使用。"
+              : "Meal planning quota is temporarily unavailable.",
+        },
+        503,
+      );
+    }
+    const allowance = Array.isArray(quota) ? quota[0] : quota;
+    if (!allowance?.allowed) {
+      const retryAfter = String(allowance?.retry_after_seconds || 60);
+      return respond(
+        request,
+        {
+          error:
+            allowance?.reason === "daily_limit"
+              ? language === "zh-TW"
+                ? "你今天的餐點規劃額度已用完，請稍後再試。"
+                : "You reached today’s meal-plan limit. Try again later."
+              : language === "zh-TW"
+                ? "短時間內產生太多餐點，請等一分鐘後再試。"
+                : "Too many meal plans at once. Wait a minute and try again.",
+        },
+        429,
+        { "Retry-After": retryAfter },
+      );
+    }
     const prompt = `You are Chef Jarvis. Create one realistic, concise meal plan in ${language === "zh-TW" ? "Traditional Chinese" : "English"}. Respect every allergy, dislike and dietary preference; never recommend an allergen. Prefer pantry items when they fit, explicitly avoiding items that conflict with restrictions. Only suggest equipment alternatives using available equipment. image_query must be a concise English name of the exact finished dish suitable for image search.
 
 Ingredient accuracy is mandatory:
 - List every ingredient separately, including cooking oil, water, salt, spices, sauces and garnishes.
 - Each name must identify one purchasable product and its exact form or cut, such as "boneless skinless chicken breast" or "low-sodium soy sauce". Never use generic names such as chicken, meat, protein, vegetables, seasonings or sauce.
+- usda_query must always give the same ingredient's specific English USDA search name, even when name and the rest of the recipe are in Traditional Chinese.
 - Never combine products in one entry with commas, slashes, "and" or "or".
 - quantity must be one exact positive number. Never use ranges, "to taste", "as needed", "some", "a little", portions or package-dependent amounts.
 - unit must be exactly one of: g, kg, ml, L, tsp, tbsp, cup, piece, clove, slice, can, pack.
@@ -1567,6 +1614,7 @@ Ingredient substitution accuracy is mandatory:
 - Provide at least one directly usable substitution for this recipe.
 - Every substitution.from must exactly equal one ingredients[].name. Never use a category or a vague phrase as the source.
 - substitution.to must name one specific purchasable replacement, never multiple alternatives joined with "or".
+- substitution.usda_query must give that replacement's specific English USDA search name.
 - Every replacement must include its own exact quantity, unit, preparation and category. Do not assume the original ingredient's measurement is valid for the replacement.
 - Substitutions are decisions made before the grocery list, so each option must be directly usable as the final ingredient entry.
 
@@ -1583,7 +1631,7 @@ Cooking-step timer accuracy is mandatory:
 - timer.kind must be exactly one of: preheat, cook, bake, simmer, boil, steam, rest, marinate, chill, proof, cool.
 - timer.label must name the actual timed cooking action, never "read recipe", "review menu", or similar busywork.
 
-Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact finished dish name in English","summary":"string","minutes":number,"servings":number,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,"ingredients":[{"name":"string","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other"}],"steps":[{"instruction":"string","timer":null|{"label":"string","kind":"preheat|cook|bake|simmer|boil|steam|rest|marinate|chill|proof|cool","duration_seconds":number}}],"substitutions":[{"from":"exact ingredients[].name","to":"specific replacement ingredient","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other","reason":"string"}],"equipment_adaptations":[{"original":"string","alternative":"string","instructions":"string","why":"string"}],"reuse_ideas":[{"title":"string","uses":["string"],"why":"string"}]}. The maximums below are safety ceilings only, never targets: 60 ingredients, 40 steps, 8 substitutions and 4 reuse ideas. User request: ${meal}. Server-verified profile: ${JSON.stringify(profile)}. Server-verified pantry: ${JSON.stringify(pantry)}`;
+Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact finished dish name in English","summary":"string","minutes":number,"servings":number,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,"ingredients":[{"name":"string","usda_query":"specific English USDA search name","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other"}],"steps":[{"instruction":"string","timer":null|{"label":"string","kind":"preheat|cook|bake|simmer|boil|steam|rest|marinate|chill|proof|cool","duration_seconds":number}}],"substitutions":[{"from":"exact ingredients[].name","to":"specific replacement ingredient","usda_query":"specific English USDA search name for replacement","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other","reason":"string"}],"equipment_adaptations":[{"original":"string","alternative":"string","instructions":"string","why":"string"}],"reuse_ideas":[{"title":"string","uses":["string"],"why":"string"}]}. The maximums below are safety ceilings only, never targets: 60 ingredients, 40 steps, 8 substitutions and 4 reuse ideas. User request: ${meal}. Server-verified profile: ${JSON.stringify(profile)}. Server-verified pantry: ${JSON.stringify(pantry)}`;
     const geminiBody = JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
@@ -1614,6 +1662,7 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
         const plan = await addRecipeImage(
           parsePlan(textFromGemini(await response.json())),
         );
+        quotaRequestId = null;
         return respond(request, { plan, model });
       } catch (error) {
         console.warn(
@@ -1623,18 +1672,36 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
         );
       }
     }
+    if (quotaRequestId && quotaUserId) {
+      await admin.rpc("refund_chef_meal_plan_quota", {
+        p_user_id: quotaUserId,
+        p_request_id: quotaRequestId,
+      });
+      quotaRequestId = null;
+    }
     return respond(request, {
       plan: await addRecipeImage(fallbackPlan(meal, profile, pantry, language)),
       fallback: true,
     });
   } catch (error) {
+    if (admin && quotaRequestId && quotaUserId) {
+      await admin.rpc("refund_chef_meal_plan_quota", {
+        p_user_id: quotaUserId,
+        p_request_id: quotaRequestId,
+      });
+    }
     console.error(
       "meal-plan error",
       error instanceof Error ? error.message : "unknown",
     );
     return respond(
       request,
-      { error: "Jarvis could not create a plan right now. Please try again." },
+      {
+        error:
+          language === "zh-TW"
+            ? "Jarvis 目前無法產生食譜，請再試一次。"
+            : "Jarvis could not create a plan right now. Please try again.",
+      },
       500,
     );
   }

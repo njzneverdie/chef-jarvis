@@ -55,6 +55,43 @@ function toast(text) {
   setTimeout(() => element.remove(), 3200);
 }
 
+function bindDismissibleModal(modal, onClose = () => modal.remove()) {
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener("keydown", onKeyDown);
+    onClose();
+  };
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") close();
+  };
+  document.addEventListener("keydown", onKeyDown);
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) close();
+  });
+  return close;
+}
+
+function confirmAction({ title, message, confirmLabel = "Confirm" }) {
+  return new Promise((resolve) => {
+    let accepted = false;
+    const modal = document.createElement("div");
+    modal.className = "modal confirm-modal";
+    modal.innerHTML = `<div class="modal-card confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><p class="eyebrow">PLEASE CONFIRM</p><h2 id="confirm-title">${esc(title)}</h2><p>${esc(message)}</p><div class="form-actions"><button type="button" class="cream" data-confirm-cancel>Cancel</button><button type="button" class="dark" data-confirm-accept>${esc(confirmLabel)}</button></div></div>`;
+    document.body.append(modal);
+    const close = bindDismissibleModal(modal, () => {
+      modal.remove();
+      resolve(accepted);
+    });
+    modal.querySelector("[data-confirm-cancel]").onclick = close;
+    modal.querySelector("[data-confirm-accept]").onclick = () => {
+      accepted = true;
+      close();
+    };
+  });
+}
+
 function initials() {
   return (user?.email || "J")[0].toUpperCase();
 }
@@ -183,7 +220,8 @@ function showPasswordUpdate() {
       <div class="form-actions"><button type="button" class="cream" id="cancel-password-update">Cancel</button><button class="dark">Update password →</button></div>
     </form>`;
   document.body.append(modal);
-  modal.querySelector("#cancel-password-update").onclick = () => modal.remove();
+  const closeModal = bindDismissibleModal(modal);
+  modal.querySelector("#cancel-password-update").onclick = closeModal;
   modal.querySelector("#password-update-form").onsubmit = async (event) => {
     event.preventDefault();
     const password = String(
@@ -201,7 +239,7 @@ function showPasswordUpdate() {
       errorElement.classList.remove("hidden");
       return;
     }
-    modal.remove();
+    closeModal();
     window.history.replaceState({}, document.title, window.location.pathname);
     toast("Your password has been updated ✓");
   };
@@ -241,9 +279,21 @@ function shell() {
     button.onclick = () => show(button.dataset.view);
   });
   document.querySelector("#signout").onclick = async () => {
+    if (
+      typeof activeRecipe !== "undefined" &&
+      activeRecipe &&
+      !(await confirmAction({
+        title: "Sign out while cooking?",
+        message:
+          "Your cooking progress will stay saved on this device and return after you sign in again.",
+        confirmLabel: "Sign out",
+      }))
+    )
+      return;
+    if (typeof persistCookingState === "function") persistCookingState();
     await releaseWakeLock();
-    clearCookingState();
-    await sb.auth.signOut();
+    const { error } = await sb.auth.signOut();
+    if (error) return toast(error.message);
     user = null;
     profile = null;
     authScreen();
@@ -281,7 +331,7 @@ function renderHome() {
         <h1>Good cooking,<br><em>made personal.</em></h1>
         <p class="lede">Tell Jarvis what you want to make. It will keep your pantry, preferences, allergies, and nutrition target in view.</p>
         <form class="ask" id="meal-form"><span>✦</span><input id="meal-input" required maxlength="500" placeholder="Tell Jarvis what you want to cook…"><button aria-label="Generate">→</button></form>
-        <div class="chips"><button data-prompt="High-protein dinner for two">High-protein dinner for 2</button><button data-prompt="Use my pantry ingredients first">Use my pantry</button><button data-prompt="30-minute meal prep">30-minute meal prep</button></div>
+        <div class="chips"><button data-prompt-en="High-protein dinner for two" data-prompt-zh="兩人份高蛋白晚餐">High-protein dinner for 2</button><button data-prompt-en="Use my pantry ingredients first" data-prompt-zh="優先使用我的庫存食材">Use my pantry</button><button data-prompt-en="30-minute meal prep" data-prompt-zh="30 分鐘備餐">30-minute meal prep</button></div>
       </div>
       <article class="tonight"><div><small>YOUR DAILY TARGET</small><h2>${esc(nutrition())}</h2><p>${esc((profile?.body_composition_goal || "personalized").replace("_", " "))} plan · pantry and preferences applied</p><button class="cream" data-go="plan">Plan a meal →</button></div></article>
     </div>
@@ -295,10 +345,13 @@ function renderHome() {
   document
     .querySelectorAll("[data-go]")
     .forEach((element) => (element.onclick = () => show(element.dataset.go)));
-  document.querySelectorAll("[data-prompt]").forEach(
+  document.querySelectorAll("[data-prompt-en]").forEach(
     (element) =>
       (element.onclick = () => {
-        document.querySelector("#meal-input").value = element.dataset.prompt;
+        document.querySelector("#meal-input").value =
+          window.I18n.code === "zh-TW"
+            ? element.dataset.promptZh
+            : element.dataset.promptEn;
       }),
   );
   document.querySelector("#meal-form").onsubmit = async (event) => {
@@ -495,6 +548,8 @@ function onboarding(edit = false) {
     </form>`;
   document.body.append(modal);
 
+  const closeModal = bindDismissibleModal(modal);
+
   const form = modal.querySelector("#profile-form");
   const toggleCustom = () =>
     modal
@@ -502,7 +557,7 @@ function onboarding(edit = false) {
       .classList.toggle("hidden", form.mode.value !== "custom");
   form.mode.onchange = toggleCustom;
   toggleCustom();
-  modal.querySelector("#cancel-profile").onclick = () => modal.remove();
+  modal.querySelector("#cancel-profile").onclick = closeModal;
   form.onsubmit = async (event) => {
     event.preventDefault();
     const formData = new FormData(form);
@@ -548,7 +603,7 @@ function onboarding(edit = false) {
       return;
     }
     profile = payload;
-    modal.remove();
+    closeModal();
     shell();
     toast("Your personal food profile is ready ✓");
   };

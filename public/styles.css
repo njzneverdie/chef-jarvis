@@ -785,6 +785,18 @@ h1 em {
   padding: 32px;
   border-radius: 25px;
 }
+.confirm-card {
+  width: min(460px, 100%);
+}
+.confirm-card h2 {
+  margin: 5px 0 10px;
+  color: var(--green);
+  font: 30px/1.05 var(--serif);
+}
+.confirm-card > p:not(.eyebrow) {
+  color: var(--muted);
+  line-height: 1.6;
+}
 .onboard-title {
   font: 42px/0.98 var(--serif);
   margin: 7px 0;

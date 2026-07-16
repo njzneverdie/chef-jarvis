@@ -240,6 +240,7 @@ function renderPlan(query) {
         reuse_ideas: Array.isArray(query.reuse_ideas) ? query.reuse_ideas : [],
         image: query.image || null,
         saved_recipe_id: query.saved_recipe_id || null,
+        is_saved: Boolean(query.is_saved),
       }
     : recipeFor(typeof query === "string" ? query : undefined);
   recipe.steps = window.ChefDomain.normalizeRecipeSteps(recipe.steps);
@@ -347,6 +348,14 @@ function renderPlan(query) {
         row.innerHTML = `<b>${esc(replacement.name)}</b><span>${esc(replacement.amount)}</span>${preparation ? `<small>${esc(preparation)}</small>` : ""}`;
       }
       shoppingChecklist?.updateIngredient(ingredientIndex, replacement);
+      renderUsdaReference(recipe.ingredients);
+
+      const cookingWarning = root.querySelector(".swap-cooking-warning");
+      if (cookingWarning) {
+        cookingWarning.classList.remove("hidden");
+        cookingWarning.textContent =
+          "Ingredient and grocery quantities are updated. Cooking steps may still describe the original ingredient, so review them before starting—especially for allergies.";
+      }
 
       if (activeRecipeId) {
         const { error } = await sb
@@ -396,11 +405,28 @@ function renderPlanPersistenceControls(recipe) {
   if (!title || !activeRecipeId) return;
   const controls = document.createElement("div");
   controls.className = "plan-persistence-controls";
-  controls.innerHTML =
-    '<span>Saved to your recipes</span><button class="cream" id="cook-later">Cook later ✓</button>';
+  controls.innerHTML = recipe.is_saved
+    ? "<span>Saved to your recipes ✓</span>"
+    : '<span>Not saved yet</span><button class="cream" id="cook-later">Cook later</button>';
   title.append(controls);
-  controls.querySelector("#cook-later").onclick = (event) => {
-    event.currentTarget.textContent = "Saved for later ✓";
+  const button = controls.querySelector("#cook-later");
+  if (!button) return;
+  button.onclick = async () => {
+    button.disabled = true;
+    button.textContent = "Saving…";
+    const { error } = await sb
+      .from("recipes")
+      .update({ is_saved: true, updated_at: new Date().toISOString() })
+      .eq("id", activeRecipeId)
+      .eq("user_id", user.id);
+    if (error) {
+      button.disabled = false;
+      button.textContent = "Cook later";
+      return toast(error.message);
+    }
+    recipe.is_saved = true;
+    if (currentPlan) currentPlan.is_saved = true;
+    controls.innerHTML = "<span>Saved to your recipes ✓</span>";
     toast("Find this meal under Recent plans whenever you are ready to cook.");
   };
 }
@@ -419,6 +445,7 @@ function planFromSavedRow(row) {
     fat_g: estimate.fat_g ?? recipe.fat_g,
     userRequest: recipe.userRequest || row.title,
     saved_recipe_id: row.id,
+    is_saved: Boolean(row.is_saved),
   };
 }
 
@@ -427,15 +454,15 @@ async function renderSavedPlans() {
   if (!root || !user) return;
   const { data, error } = await sb
     .from("recipes")
-    .select("id,title,servings,minutes,recipe,nutrition,created_at")
+    .select("id,title,servings,minutes,recipe,nutrition,created_at,is_saved")
     .eq("user_id", user.id)
     .eq("is_saved", true)
     .order("updated_at", { ascending: false })
-    .limit(6);
+    .limit(20);
   if (error || !data?.length) return;
   const card = document.createElement("article");
   card.className = "card recent-plans";
-  card.innerHTML = `<div><p class="eyebrow">YOUR SAVED COOKING PLANS</p><h2>Pick up where you left off.</h2><p>Generated meals stay here after switching tabs or refreshing the page.</p></div><div class="recent-plan-list">${data.map((row, index) => `<article><div><b>${esc(row.title)}</b><small>${window.I18n.code === "zh-TW" ? `${displayNumber(row.minutes)} 分鐘 · ${displayNumber(row.servings)} 人份 · 儲存於 ${esc(displayDate(row.created_at))}` : `${displayNumber(row.minutes, " min")} · ${displayNumber(row.servings, " servings")} · saved ${esc(displayDate(row.created_at))}`}</small></div><button class="dark" data-resume-plan="${index}">Open plan →</button></article>`).join("")}</div>`;
+  card.innerHTML = `<div><p class="eyebrow">YOUR SAVED COOKING PLANS</p><h2>Pick up where you left off.</h2><p>Only meals you chose to save appear here. You can remove experiments at any time.</p></div><div class="recent-plan-list">${data.map((row, index) => `<article data-saved-plan="${esc(row.id)}"><div><b>${esc(row.title)}</b><small>${window.I18n.code === "zh-TW" ? `${displayNumber(row.minutes)} 分鐘 · ${displayNumber(row.servings)} 人份 · 儲存於 ${esc(displayDate(row.created_at))}` : `${displayNumber(row.minutes, " min")} · ${displayNumber(row.servings, " servings")} · saved ${esc(displayDate(row.created_at))}`}</small></div><div class="recent-plan-actions"><button class="cream" data-delete-plan="${index}" aria-label="Delete recipe">Delete</button><button class="dark" data-resume-plan="${index}">Open plan →</button></div></article>`).join("")}</div>`;
   root.append(card);
   card
     .querySelectorAll("[data-resume-plan]")
@@ -446,6 +473,27 @@ async function renderSavedPlans() {
             planFromSavedRow(data[Number(button.dataset.resumePlan)]),
           )),
     );
+  card.querySelectorAll("[data-delete-plan]").forEach(
+    (button) =>
+      (button.onclick = async () => {
+        const row = data[Number(button.dataset.deletePlan)];
+        const confirmed = await confirmAction({
+          title: "Delete this saved recipe?",
+          message: `“${row.title}” will be removed from Recent plans.`,
+          confirmLabel: "Delete recipe",
+        });
+        if (!confirmed) return;
+        const { error: deleteError } = await sb
+          .from("recipes")
+          .delete()
+          .eq("id", row.id)
+          .eq("user_id", user.id);
+        if (deleteError) return toast(deleteError.message);
+        button.closest("[data-saved-plan]")?.remove();
+        if (!card.querySelector("[data-saved-plan]")) card.remove();
+        toast("Saved recipe deleted");
+      }),
+  );
 }
 
 async function saveCard(title, uses, why, sourceRecipeTitle) {
@@ -475,7 +523,9 @@ function renderPersonalizedSwaps(recipe, onApply) {
     window.ChefDomain.normalizeGroceryItem,
   );
   const ingredientIndexFor = (name) => {
-    const wanted = String(name || "").trim().toLowerCase();
+    const wanted = String(name || "")
+      .trim()
+      .toLowerCase();
     if (!wanted) return -1;
     const exact = normalizedIngredients.findIndex(
       (item) => item.name.toLowerCase() === wanted,
@@ -488,7 +538,10 @@ function renderPersonalizedSwaps(recipe, onApply) {
   };
   const aiSwaps = recipe.substitutions
     .filter((item) => item?.from && item?.to)
-    .map((item) => ({ ...item, ingredientIndex: ingredientIndexFor(item.from) }))
+    .map((item) => ({
+      ...item,
+      ingredientIndex: ingredientIndexFor(item.from),
+    }))
     .filter((item) => item.ingredientIndex >= 0);
   const defaults = [];
   const addDefault = (pattern, replacement) => {
@@ -580,7 +633,7 @@ function renderPersonalizedSwaps(recipe, onApply) {
   if (!swaps.length) return null;
   const card = document.createElement("article");
   card.className = "card personalized-swaps";
-  card.innerHTML = `<div class="swaps-heading"><div><p class="eyebrow">PERSONALIZED HEALTHY SWAPS</p><h2>Make this meal work for <em>you.</em></h2><p>Choose any replacements now. Your ingredient list and grocery list will update immediately.</p></div><span class="swap-badge">Profile applied ✓</span></div><div class="swap-grid">${swaps.map((swap, index) => `<article><small>SWAP ${index + 1}</small><b>${esc(swap.from)}</b><i>→</i><strong>${esc(swap.to)}</strong><p>${esc(swap.reason || "A profile-safe alternative for this meal.")}</p><button class="cream" data-apply-swap="${index}">Use this swap</button></article>`).join("")}</div><p class="swap-note">Jarvis avoids your saved allergies and dietary restrictions. Check packaged ingredients when allergies are severe.</p>`;
+  card.innerHTML = `<div class="swaps-heading"><div><p class="eyebrow">PERSONALIZED HEALTHY SWAPS</p><h2>Make this meal work for <em>you.</em></h2><p>Choose any replacements now. Your ingredient list and grocery list will update immediately.</p></div><span class="swap-badge">Profile applied ✓</span></div><div class="swap-grid">${swaps.map((swap, index) => `<article><small>SWAP ${index + 1}</small><b>${esc(swap.from)}</b><i>→</i><strong>${esc(swap.to)}</strong><p>${esc(swap.reason || "A profile-safe alternative for this meal.")}</p><button class="cream" data-apply-swap="${index}">Use this swap</button></article>`).join("")}</div><p class="swap-cooking-warning hidden" role="alert"></p><p class="swap-note">Jarvis avoids your saved allergies and dietary restrictions. Check packaged ingredients when allergies are severe.</p>`;
   document
     .querySelector("#plan .guided-preview")
     .insertAdjacentElement("beforebegin", card);
@@ -632,7 +685,11 @@ function renderShoppingChecklist(title, ingredients) {
       .insert({
         user_id: user.id,
         app_user_id: user.id,
-        title: `${window.I18n.code === "zh-TW" ? "購物" : "Shopping"} · ${title}`.slice(0, 120),
+        title:
+          `${window.I18n.code === "zh-TW" ? "購物" : "Shopping"} · ${title}`.slice(
+            0,
+            120,
+          ),
         status: "active",
       })
       .select("id")
@@ -689,8 +746,7 @@ async function renderShoppingLists() {
   if (!root || !user) return;
   const showSavedNotice = shoppingSavedNotice;
   shoppingSavedNotice = false;
-  root.innerHTML =
-    `<div class="title"><div><p class="eyebrow">AT THE STORE</p><h1>Your shopping<br><em>lists.</em></h1></div></div>${showSavedNotice ? '<div class="shopping-save-notice" role="status"><b>Saved to your grocery list ✓</b><span>The checked ingredients, quantities, and units are ready below.</span></div>' : ""}<div id="saved-shopping-lists"><p>Loading your lists…</p></div>`;
+  root.innerHTML = `<div class="title"><div><p class="eyebrow">AT THE STORE</p><h1>Your shopping<br><em>lists.</em></h1></div></div>${showSavedNotice ? '<div class="shopping-save-notice" role="status"><b>Saved to your grocery list ✓</b><span>The checked ingredients, quantities, and units are ready below.</span></div>' : ""}<div id="saved-shopping-lists"><p>Loading your lists…</p></div>`;
   const { data, error } = await sb
     .from("shopping_lists")
     .select(
@@ -746,7 +802,13 @@ async function renderShoppingLists() {
   container.querySelectorAll("[data-delete-list]").forEach(
     (button) =>
       (button.onclick = async (event) => {
-        if (!window.confirm("Delete this shopping list?")) return;
+        const confirmed = await confirmAction({
+          title: "Delete this shopping list?",
+          message:
+            "The list and all of its checked-item progress will be removed.",
+          confirmLabel: "Delete list",
+        });
+        if (!confirmed) return;
         const listCard = event.currentTarget.closest("[data-list-id]");
         const itemIds = [...listCard.querySelectorAll("[data-list-item]")].map(
           (input) => input.dataset.listItem,
@@ -776,6 +838,7 @@ async function renderShoppingLists() {
 }
 
 async function renderUsdaReference(ingredients) {
+  document.querySelector("#plan .usda-reference")?.remove();
   const card = document.createElement("article");
   card.className = "card usda-reference";
   card.innerHTML =
@@ -783,6 +846,14 @@ async function renderUsdaReference(ingredients) {
   document
     .querySelector("#plan .shopping-checklist")
     .insertAdjacentElement("afterend", card);
+  const lookupIngredients = ingredients
+    .map(window.ChefDomain.normalizeIngredient)
+    .filter((item) => item.usda_query || !/[\u3400-\u9fff]/.test(item.name));
+  if (!lookupIngredients.length) {
+    card.innerHTML =
+      '<p class="eyebrow">USDA FOODDATA CENTRAL</p><h2>No matching USDA reference is available.</h2><p>This older localized recipe does not include English USDA search names. The recipe and grocery quantities are still available.</p>';
+    return;
+  }
   try {
     const {
       data: { session },
@@ -797,7 +868,7 @@ async function renderUsdaReference(ingredients) {
           apikey: SUPABASE_KEY,
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ ingredients }),
+        body: JSON.stringify({ ingredients: lookupIngredients }),
       },
     );
     if (!response.ok) throw new Error("USDA lookup unavailable");
@@ -811,9 +882,12 @@ async function renderUsdaReference(ingredients) {
           `<div><b>${esc(food.ingredient)}</b><span>${displayNumber(food.per100g?.kcal)} kcal / 100 g</span><small>P ${displayNumber(food.per100g?.protein_g, "g")} · C ${displayNumber(food.per100g?.carbs_g, "g")} · F ${displayNumber(food.per100g?.fat_g, "g")}</small></div>`,
       )
       .join("")}</div>`;
-  } catch {
-    card.innerHTML =
-      '<p class="eyebrow">USDA FOODDATA CENTRAL</p><h2>Reference lookup is taking longer.</h2><p>Your plan and grocery list are ready. Try again later to refresh USDA ingredient references.</p>';
+  } catch (error) {
+    const noMatches =
+      error instanceof Error && error.message === "No USDA matches found";
+    card.innerHTML = noMatches
+      ? '<p class="eyebrow">USDA FOODDATA CENTRAL</p><h2>No matching USDA reference is available.</h2><p>USDA did not return a reliable match for these ingredients. Your recipe and grocery quantities are unaffected.</p>'
+      : '<p class="eyebrow">USDA FOODDATA CENTRAL</p><h2>USDA reference data is unavailable right now.</h2><p>Your recipe and grocery quantities are ready; only the optional nutrition reference could not be loaded.</p>';
   }
 }
 
@@ -865,12 +939,13 @@ async function persistGeneratedPlan(plan, request) {
         adaptations: Array.isArray(plan.substitutions)
           ? plan.substitutions
           : [],
-        is_saved: true,
+        is_saved: false,
       })
       .select("id")
       .single();
     if (error) throw error;
     plan.saved_recipe_id = saved.id;
+    plan.is_saved = false;
   } catch (error) {
     console.warn("Could not save meal plan", error);
     toast("Your plan is ready, but it could not be saved yet.");
@@ -879,24 +954,37 @@ async function persistGeneratedPlan(plan, request) {
 }
 
 function renderCook() {
-  const recipe = activeRecipe || {
-    title: "Your guided meal",
-    ingredients: [],
-    steps: fallbackCookingSteps,
-    equipment_adaptations: chefEquipmentAdaptations,
-  };
-  const steps = window.ChefDomain.normalizeRecipeSteps(
-    recipe.steps?.length ? recipe.steps : fallbackCookingSteps,
-  );
+  const root = document.querySelector("#cook");
+  if (!root) return;
+  if (!activeRecipe) {
+    releaseWakeLock();
+    root.innerHTML = `<div class="chef-empty-state card"><span>CHEF MODE · READY</span><h1>No recipe is cooking yet.</h1><p>Generate a meal or open a saved recipe, then choose “Start guided cooking”.</p><button class="dark" id="empty-cook-plan">Plan a recipe →</button></div>`;
+    root.querySelector("#empty-cook-plan").onclick = () => show("home");
+    return;
+  }
+  const recipe = activeRecipe;
+  const steps = window.ChefDomain.normalizeRecipeSteps(recipe.steps);
+  if (!steps.length) {
+    clearCookingState();
+    return renderCook();
+  }
   const adaptations = recipe.equipment_adaptations?.length
     ? recipe.equipment_adaptations
     : chefEquipmentAdaptations;
   cookingStepIndex = Math.max(0, Math.min(cookingStepIndex, steps.length - 1));
   const currentStep = steps[cookingStepIndex];
   const current = currentStep.instruction;
-  document.querySelector("#cook").innerHTML = `
+  const currentTimerIndex = timers.findIndex(
+    (timer) =>
+      timer.source === "recipe" && timer.stepIndex === cookingStepIndex,
+  );
+  const currentTimer = timers[currentTimerIndex];
+  const currentTimerMarkup = currentStep.timer
+    ? `<button type="button" class="current-step-timer" id="start-current-step-timer" data-timer-index="${currentTimerIndex}" aria-label="${esc(currentTimer?.running ? "Pause this timer" : "Start this timer")}"><b>⏱ ${esc(currentStep.timer.label)}<small>${currentTimer?.running ? "Pause timer" : currentTimer?.completed ? "Restart timer" : "Start timer"}</small></b><span>${formatTime(currentTimer?.sec ?? currentStep.timer.duration_seconds)}</span></button>`
+    : "";
+  root.innerHTML = `
     <div class="chef-mode-heading"><div><p class="eyebrow">CHEF MODE · ${activeRecipe ? "ACTIVE RECIPE" : "READY"}</p><h1>${esc(recipe.title)}<br><em>cook with Jarvis.</em></h1></div><button class="cream" id="chef-read">🔊 Read current step</button></div>
-    <div class="chef-mode-grid"><section class="chef-guide"><div class="chef-step-counter"><span>STEP ${cookingStepIndex + 1} / ${steps.length}</span><div>${steps.map((_, index) => `<i class="${index < cookingStepIndex ? "done" : index === cookingStepIndex ? "now" : ""}"></i>`).join("")}</div></div><article class="current-step chef-current"><span>DO THIS NOW</span><h2>${esc(current)}</h2>${currentStep.timer ? `<div class="current-step-timer"><b>⏱ ${esc(currentStep.timer.label)}</b><span>${formatTime(currentStep.timer.duration_seconds)}</span></div>` : ""}<p>Only real cooking and waiting times become recipe countdowns. Your progress survives a refresh.</p></article><div class="guide-actions"><button class="cream" id="previous-step" ${cookingStepIndex === 0 ? "disabled" : ""}>← Previous</button><button class="cream" id="repeat-step">↻ Repeat</button><button class="dark" id="complete-step">${cookingStepIndex === steps.length - 1 ? "Finish dish ✓" : "Complete step →"}</button></div><div class="chef-queue"><p class="eyebrow">RECIPE QUEUE</p>${steps.map((step, index) => `<button class="${index === cookingStepIndex ? "current" : index < cookingStepIndex ? "done" : ""}" data-jump-step="${index}"><b>${index < cookingStepIndex ? "✓" : index + 1}</b><span>${esc(step.instruction)}</span></button>`).join("")}</div>${
+    <div class="chef-mode-grid"><section class="chef-guide"><div class="chef-step-counter"><span>STEP ${cookingStepIndex + 1} / ${steps.length}</span><div>${steps.map((_, index) => `<i class="${index < cookingStepIndex ? "done" : index === cookingStepIndex ? "now" : ""}"></i>`).join("")}</div></div><article class="current-step chef-current"><span>DO THIS NOW</span><h2>${esc(current)}</h2>${currentTimerMarkup}<p>Only real cooking and waiting times become recipe countdowns. Your progress survives a refresh.</p></article><div class="guide-actions"><button class="cream" id="previous-step" ${cookingStepIndex === 0 ? "disabled" : ""}>← Previous</button><button class="cream" id="repeat-step">↻ Repeat</button><button class="dark" id="complete-step">${cookingStepIndex === steps.length - 1 ? "Finish dish ✓" : "Complete step →"}</button></div><div class="chef-queue"><p class="eyebrow">RECIPE QUEUE</p>${steps.map((step, index) => `<button class="${index === cookingStepIndex ? "current" : index < cookingStepIndex ? "done" : ""}" data-jump-step="${index}"><b>${index < cookingStepIndex ? "✓" : index + 1}</b><span>${esc(step.instruction)}</span></button>`).join("")}</div>${
       adaptations.length
         ? `<div class="chef-adaptation-inline"><p class="eyebrow">YOUR EQUIPMENT OPTION</p>${adaptations
             .slice(0, 2)
@@ -908,15 +996,29 @@ function renderCook() {
         : ""
     }</section>
       <aside class="timers chef-timers"><div class="timer-head"><div><p class="eyebrow">RECIPE TIMERS</p><h2>Kitchen clocks</h2></div><button class="dark" id="add-timer">＋ Add clock</button></div><p class="timer-note">Jarvis adds countdowns only for real cooking or waiting intervals. You can add a separate clock when needed.</p><div class="timer-list" id="timer-list"></div></aside></div>`;
-  document.querySelector("#chef-read").onclick = () => sayInstruction(current);
-  document.querySelector("#previous-step").onclick = () => {
+  root.querySelector("#chef-read").onclick = () => sayInstruction(current);
+  root.querySelector("#previous-step").onclick = () => {
     cookingStepIndex--;
     persistCookingState();
     renderCook();
   };
-  document.querySelector("#repeat-step").onclick = () =>
-    sayInstruction(current);
-  document.querySelector("#complete-step").onclick = () => {
+  root.querySelector("#repeat-step").onclick = () => sayInstruction(current);
+  root
+    .querySelector("#start-current-step-timer")
+    ?.addEventListener("click", async (event) => {
+      let timerIndex = Number(event.currentTarget.dataset.timerIndex);
+      if (timerIndex < 0) {
+        const timer = window.ChefDomain.buildRecipeTimers([currentStep])[0];
+        if (!timer) return;
+        timer.stepIndex = cookingStepIndex;
+        timer.stepNumber = cookingStepIndex + 1;
+        timers.push(timer);
+        timerIndex = timers.length - 1;
+      }
+      await toggleTimer(timerIndex);
+      renderCook();
+    });
+  root.querySelector("#complete-step").onclick = () => {
     if (cookingStepIndex < steps.length - 1) {
       cookingStepIndex++;
       persistCookingState();
@@ -930,9 +1032,10 @@ function renderCook() {
       );
       clearCookingState();
       releaseWakeLock();
+      renderCook();
     }
   };
-  document.querySelectorAll("[data-jump-step]").forEach(
+  root.querySelectorAll("[data-jump-step]").forEach(
     (button) =>
       (button.onclick = () => {
         cookingStepIndex = Number(button.dataset.jumpStep);
@@ -940,7 +1043,7 @@ function renderCook() {
         renderCook();
       }),
   );
-  document.querySelector("#add-timer").onclick = openClockModal;
+  root.querySelector("#add-timer").onclick = openClockModal;
   renderTimerList();
 }
 
@@ -949,12 +1052,13 @@ function openClockModal() {
   modal.className = "modal";
   modal.innerHTML = `<form class="modal-card clock-modal" id="clock-form"><p class="eyebrow">ADD A KITCHEN CLOCK</p><h2>Track another task.</h2><div class="form-grid"><div class="field"><label>Task name</label><input name="name" required maxlength="70" placeholder="e.g. Rice resting"></div><div class="field"><label>Clock type</label><select name="mode"><option value="countdown">Countdown</option><option value="stopwatch">Stopwatch</option></select></div><div class="field" id="clock-minutes"><label>Minutes</label><input name="minutes" type="number" min="1" max="240" value="5"></div></div><div class="form-actions"><button type="button" class="cream" id="close-clock">Cancel</button><button class="dark">Add clock →</button></div></form>`;
   document.body.append(modal);
+  const closeModal = bindDismissibleModal(modal);
   const form = modal.querySelector("#clock-form");
   form.mode.onchange = () =>
     modal
       .querySelector("#clock-minutes")
       .classList.toggle("hidden", form.mode.value === "stopwatch");
-  modal.querySelector("#close-clock").onclick = () => modal.remove();
+  modal.querySelector("#close-clock").onclick = closeModal;
   form.onsubmit = (event) => {
     event.preventDefault();
     const data = new FormData(form);
@@ -971,7 +1075,7 @@ function openClockModal() {
       completed: false,
       source: "manual",
     });
-    modal.remove();
+    closeModal();
     persistCookingState();
     renderTimerList();
   };
@@ -979,6 +1083,28 @@ function openClockModal() {
 
 function formatTime(seconds) {
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+async function toggleTimer(index) {
+  const timer = timers[index];
+  if (!timer) return;
+  if (timer.completed || (timer.mode === "countdown" && timer.sec === 0)) {
+    timer.sec = timer.duration || 300;
+    timer.completed = false;
+  }
+  timer.running = !timer.running;
+  lastTimerTick = Date.now();
+  if (
+    timer.running &&
+    timer.mode === "countdown" &&
+    "Notification" in window &&
+    Notification.permission === "default"
+  )
+    Notification.requestPermission();
+  prepareAlarmAudio();
+  await requestWakeLock();
+  persistCookingState();
+  renderTimerList();
 }
 
 function renderTimerList() {
@@ -994,32 +1120,12 @@ function renderTimerList() {
         `<article class="timer chef-timer ${timer.completed ? "timer-complete" : ""} ${timer.stepIndex === cookingStepIndex ? "timer-current-step" : ""}"><span><i>${timer.completed ? "✓" : timer.mode === "stopwatch" ? "◷" : "◴"}</i>${esc(timer.name)}<small>${timer.completed ? "Finished" : timer.mode === "stopwatch" ? "Stopwatch" : timer.stepNumber ? `Step ${timer.stepNumber} · Recipe countdown` : "Countdown"}</small></span><b>${formatTime(timer.sec)}</b><div class="timer-actions"><button data-start="${index}">${timer.completed ? "Restart" : timer.running ? "Pause" : "Start"}</button><button data-reset="${index}">Reset</button><button class="timer-remove" data-remove="${index}" aria-label="Remove clock">×</button></div></article>`,
     )
     .join("");
-  list.querySelectorAll("[data-start]").forEach(
-    (button) =>
-      (button.onclick = async () => {
-        const timer = timers[Number(button.dataset.start)];
-        if (
-          timer.completed ||
-          (timer.mode === "countdown" && timer.sec === 0)
-        ) {
-          timer.sec = timer.duration || 300;
-          timer.completed = false;
-        }
-        timer.running = !timer.running;
-        lastTimerTick = Date.now();
-        if (
-          timer.running &&
-          timer.mode === "countdown" &&
-          "Notification" in window &&
-          Notification.permission === "default"
-        )
-          Notification.requestPermission();
-        prepareAlarmAudio();
-        await requestWakeLock();
-        persistCookingState();
-        renderTimerList();
-      }),
-  );
+  list
+    .querySelectorAll("[data-start]")
+    .forEach(
+      (button) =>
+        (button.onclick = () => toggleTimer(Number(button.dataset.start))),
+    );
   list.querySelectorAll("[data-reset]").forEach(
     (button) =>
       (button.onclick = () => {

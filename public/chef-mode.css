@@ -123,6 +123,7 @@
   grid-column: 1/-1;
 }
 .current-step-timer {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -132,6 +133,19 @@
   border-radius: 12px;
   background: #fff8ed;
   color: var(--orange);
+  border: 1px solid #efd6b5;
+  cursor: pointer;
+  text-align: left;
+}
+.current-step-timer:hover {
+  border-color: var(--orange);
+  transform: translateY(-1px);
+}
+.current-step-timer b small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
 }
 .current-step-timer b,
 .current-step-timer span {
@@ -156,6 +170,29 @@
 .timer-empty span {
   font-size: 10px;
   line-height: 1.5;
+}
+.chef-empty-state {
+  max-width: 680px;
+  margin: 72px auto;
+  padding: 48px;
+  text-align: center;
+}
+.chef-empty-state > span {
+  color: var(--orange);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+.chef-empty-state h1 {
+  margin: 10px 0;
+  color: var(--green);
+  font: 42px/1 var(--serif);
+}
+.chef-empty-state p {
+  margin: 0 auto 22px;
+  max-width: 470px;
+  color: var(--muted);
+  line-height: 1.6;
 }
 .timer-remove {
   background: transparent !important;

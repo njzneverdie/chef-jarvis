@@ -310,7 +310,8 @@
       "食譜與購物清單已準備完成，稍後可再重新整理 USDA 食材參考資料。",
     "Gemini is temporarily busy, so Jarvis prepared a fully measured fallback recipe.":
       "Gemini 暫時忙碌，Jarvis 已準備一份份量完整的備用食譜。",
-    "A profile-safe alternative for this meal.": "符合你個人飲食資料的替代選項。",
+    "A profile-safe alternative for this meal.":
+      "符合你個人飲食資料的替代選項。",
     "Your plan is ready, but it could not be saved yet.":
       "食譜已準備完成，但目前無法儲存。",
     "YOUR FOOD PROFILE": "你的飲食資料",
@@ -337,9 +338,81 @@
     "Fresh vegetables and aromatics": "新鮮蔬菜與辛香料",
     "Carbohydrate base, if needed": "需要時使用的主食",
     "Sauce and seasonings": "醬汁與調味料",
+    "Invalid login credentials": "電子郵件或密碼不正確。",
+    "Email not confirmed": "電子郵件尚未完成驗證。",
+    "User already registered": "這個電子郵件已經註冊。",
+    "Complete height, weight, and age with valid numbers.":
+      "請完整填寫有效的身高、體重與年齡。",
+    "Enter a valid kcal target (800–6000).":
+      "請輸入有效的熱量目標（800–6000 大卡）。",
+    "Enter a valid protein target (0–500).":
+      "請輸入有效的蛋白質目標（0–500 克）。",
+    "Enter a valid carbs target (0–1000).":
+      "請輸入有效的碳水化合物目標（0–1000 克）。",
+    "Enter a valid fat target (0–400).": "請輸入有效的脂肪目標（0–400 克）。",
+    "Please sign in first.": "請先登入。",
+    "Please sign in again.": "請重新登入。",
+    "Your sign-in session has expired. Please sign in again.":
+      "登入工作階段已過期，請重新登入。",
+    "Chef Jarvis is not configured correctly.": "Chef Jarvis 目前設定不完整。",
+    "Meal planning quota is temporarily unavailable.":
+      "餐點規劃配額服務暫時無法使用。",
+    "You reached today’s meal-plan limit. Try again later.":
+      "你今天的餐點規劃額度已用完，請稍後再試。",
+    "Too many meal plans at once. Wait a minute and try again.":
+      "短時間內產生太多餐點，請等一分鐘後再試。",
+    "Tell Jarvis what you would like to cook (up to 500 characters).":
+      "請告訴 Jarvis 你想做什麼料理（最多 500 個字元）。",
+    "Jarvis could not create a plan right now. Please try again.":
+      "Jarvis 目前無法產生食譜，請再試一次。",
+    "No matching USDA reference is available.": "找不到對應的 USDA 參考資料。",
+    "This older localized recipe does not include English USDA search names. The recipe and grocery quantities are still available.":
+      "這份較舊的中文食譜沒有 USDA 英文查詢名稱；食譜與購物份量仍可正常使用。",
+    "USDA did not return a reliable match for these ingredients. Your recipe and grocery quantities are unaffected.":
+      "USDA 沒有回傳可靠的食材對應；食譜與購物份量不受影響。",
+    "USDA reference data is unavailable right now.":
+      "USDA 參考資料目前無法使用。",
+    "Your recipe and grocery quantities are ready; only the optional nutrition reference could not be loaded.":
+      "食譜與購物份量都已備妥，只有選用的營養參考資料無法載入。",
+    "No recipe is cooking yet.": "目前沒有進行中的料理。",
+    "Generate a meal or open a saved recipe, then choose “Start guided cooking”.":
+      "請先產生餐點或開啟已儲存的食譜，再選擇「開始引導烹飪」。",
+    "Plan a recipe →": "先去產生一份食譜 →",
+    "Start timer": "開始倒數",
+    "Pause timer": "暫停倒數",
+    "Restart timer": "重新開始倒數",
+    "Start this timer": "開始這個倒數",
+    "Pause this timer": "暫停這個倒數",
+    "Dish completed — great cooking! ✓": "料理完成，辛苦了！✓",
+    "Not saved yet": "尚未儲存",
+    "Cook later": "稍後再煮",
+    "Saved to your recipes ✓": "已儲存到食譜 ✓",
+    "Only meals you chose to save appear here. You can remove experiments at any time.":
+      "只有你選擇保留的餐點會出現在這裡；測試用食譜可隨時刪除。",
+    Delete: "刪除",
+    "Delete recipe": "刪除食譜",
+    "Delete this saved recipe?": "刪除這份已儲存的食譜？",
+    "Saved recipe deleted": "已刪除儲存的食譜",
+    "PLEASE CONFIRM": "請確認",
+    "Sign out while cooking?": "要在烹飪途中登出嗎？",
+    "Your cooking progress will stay saved on this device and return after you sign in again.":
+      "料理進度會保留在這台裝置上，重新登入後可繼續。",
+    "Delete this shopping list?": "刪除這份購物清單？",
+    "The list and all of its checked-item progress will be removed.":
+      "清單及所有勾選進度都會被刪除。",
+    "Ingredient and grocery quantities are updated. Cooking steps may still describe the original ingredient, so review them before starting—especially for allergies.":
+      "食材與購物份量已更新，但烹飪步驟仍可能描述原食材；開始前請再次確認，尤其是過敏需求。",
   };
 
   const regexTranslations = [
+    [
+      /^Enter a valid email and a password with at least (\d+) characters\.$/,
+      "請輸入有效的電子郵件與至少 $1 個字元的密碼。",
+    ],
+    [
+      /^“(.+)” will be removed from Recent plans\.$/,
+      "「$1」將從最近的食譜中移除。",
+    ],
     [/^⌂\s+Home$/, "⌂　首頁"],
     [/^✦\s+Plan$/, "✦　食譜"],
     [/^▦\s+Pantry$/, "▦　庫存"],
@@ -373,7 +446,10 @@
     [/^(\d+) item selected$/, "已選擇 $1 項食材"],
     [/^(\d+) clear cooking steps$/, "$1 個清楚的料理步驟"],
     [/^Shopping · (.+)$/, "購物 · $1"],
-    [/^(\d+) min · (\d+) servings · saved (.+)$/, "$1 分鐘 · $2 人份 · 儲存於 $3"],
+    [
+      /^(\d+) min · (\d+) servings · saved (.+)$/,
+      "$1 分鐘 · $2 人份 · 儲存於 $3",
+    ],
     [/^(\d+(?:\.\d+)?) cups?$/, "$1 杯"],
     [/^(\d+(?:\.\d+)?) portions?$/, "$1 份"],
     [/^STEP (\d+) \/ (\d+)$/, "步驟 $1 / $2"],
