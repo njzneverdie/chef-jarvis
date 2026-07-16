@@ -1,0 +1,18 @@
+{
+  "name": "Chef Jarvis — Personal AI Sous-chef",
+  "short_name": "Chef Jarvis",
+  "description": "Personal meal planning, grocery lists, pantry tracking, and hands-free guided cooking.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f2e8",
+  "theme_color": "#17392d",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/chef-jarvis-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

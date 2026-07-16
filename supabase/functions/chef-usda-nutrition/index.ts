@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
         ),
       }))
       .filter((item) => item.ingredient && item.query)
-      .slice(0, 10);
+      .slice(0, 30);
     if (!searches.length)
       return respond(req, { error: "No ingredients were supplied." }, 400);
     const key = Deno.env.get("USDA_FDC_API_KEY");

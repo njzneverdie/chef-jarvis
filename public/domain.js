@@ -319,6 +319,154 @@
       : ingredient.amount;
   }
 
+  function quantityInBaseUnit(quantity, unit) {
+    const value = Number(quantity);
+    if (!Number.isFinite(value)) return null;
+    const conversions = {
+      g: ["mass", "g", 1],
+      kg: ["mass", "g", 1000],
+      ml: ["volume", "ml", 1],
+      L: ["volume", "ml", 1000],
+      tsp: ["volume", "ml", 5],
+      tbsp: ["volume", "ml", 15],
+      cup: ["volume", "ml", 240],
+      piece: ["piece", "piece", 1],
+      clove: ["clove", "clove", 1],
+      slice: ["slice", "slice", 1],
+      can: ["can", "can", 1],
+      pack: ["pack", "pack", 1],
+    };
+    const conversion = conversions[String(unit || "")];
+    if (!conversion) return null;
+    return {
+      family: conversion[0],
+      unit: conversion[1],
+      quantity: value * conversion[2],
+    };
+  }
+
+  function convertQuantity(quantity, fromUnit, toUnit) {
+    const source = quantityInBaseUnit(quantity, fromUnit);
+    const target = quantityInBaseUnit(1, toUnit);
+    if (!source || !target || source.family !== target.family) return null;
+    return source.quantity / target.quantity;
+  }
+
+  function mergeGroceryItems(items) {
+    const merged = new Map();
+    (Array.isArray(items) ? items : []).forEach((rawItem) => {
+      const item = normalizeGroceryItem(rawItem);
+      const base = quantityInBaseUnit(item.quantity, item.unit);
+      const unit = base?.unit || item.unit || "piece";
+      const quantity = base?.quantity ?? item.quantity;
+      const key = `${item.name.trim().toLocaleLowerCase()}|${unit}`;
+      const current = merged.get(key);
+      if (current && quantity != null) {
+        current.quantity = Number(current.quantity || 0) + quantity;
+        current.amount = "";
+        return;
+      }
+      merged.set(
+        key,
+        normalizeGroceryItem({
+          ...item,
+          quantity,
+          unit,
+          amount: "",
+        }),
+      );
+    });
+    return [...merged.values()].map((item) =>
+      normalizeGroceryItem({
+        ...item,
+        quantity:
+          item.quantity == null
+            ? null
+            : Math.round(Number(item.quantity) * 100) / 100,
+        amount: "",
+      }),
+    );
+  }
+
+  function ingredientWeightInGrams(rawItem) {
+    const item = normalizeGroceryItem(rawItem);
+    const base = quantityInBaseUnit(item.quantity, item.unit);
+    if (!base) return null;
+    if (base.family === "mass")
+      return { grams: base.quantity, estimated: false };
+    const name = `${item.name} ${item.usda_query}`.toLocaleLowerCase();
+    if (base.family === "volume") {
+      let density = 1;
+      let estimated = true;
+      if (/\b(?:oil|olive oil|sesame oil)\b|食用油|橄欖油|麻油/.test(name))
+        density = 0.92;
+      else if (/\b(?:honey|syrup)\b|蜂蜜|糖漿/.test(name)) density = 1.4;
+      else if (/\b(?:flour|starch)\b|麵粉|澱粉/.test(name)) density = 0.55;
+      else if (/\b(?:sugar)\b|砂糖|糖$/.test(name)) density = 0.85;
+      else if (/\b(?:salt)\b|鹽$/.test(name)) density = 1.2;
+      else if (
+        /\b(?:water|milk|broth|stock|vinegar|soy sauce|sauce)\b|水|牛奶|高湯|醋|醬油|醬$/.test(
+          name,
+        )
+      )
+        estimated = false;
+      return { grams: base.quantity * density, estimated };
+    }
+    if (base.family === "clove" && /garlic|蒜/.test(name))
+      return { grams: base.quantity * 3, estimated: true };
+    if (base.family === "piece" && /\begg\b|雞蛋|鸡蛋/.test(name))
+      return { grams: base.quantity * 50, estimated: true };
+    if (base.family === "slice" && /\bbread\b|吐司|麵包|面包/.test(name))
+      return { grams: base.quantity * 28, estimated: true };
+    if (base.family === "slice" && /\bcheese\b|起司|乳酪/.test(name))
+      return { grams: base.quantity * 28, estimated: true };
+    return null;
+  }
+
+  function calculateUsdaMealNutrition(ingredients, foods) {
+    const normalized = (Array.isArray(ingredients) ? ingredients : []).map(
+      normalizeGroceryItem,
+    );
+    const matches = new Map(
+      (Array.isArray(foods) ? foods : [])
+        .filter((food) => food?.found && food?.per100g)
+        .map((food) => [
+          String(food.ingredient || "")
+            .trim()
+            .toLocaleLowerCase(),
+          food,
+        ]),
+    );
+    const totals = { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+    let matched = 0;
+    let estimatedConversions = 0;
+    normalized.forEach((item) => {
+      const food = matches.get(item.name.trim().toLocaleLowerCase());
+      const weight = ingredientWeightInGrams(item);
+      if (!food || !weight) return;
+      matched += 1;
+      if (weight.estimated) estimatedConversions += 1;
+      const multiplier = weight.grams / 100;
+      Object.keys(totals).forEach((key) => {
+        const nutrient = Number(food.per100g[key]);
+        if (Number.isFinite(nutrient)) totals[key] += nutrient * multiplier;
+      });
+    });
+    Object.keys(totals).forEach((key) => {
+      totals[key] = Math.round(totals[key] * 10) / 10;
+    });
+    return {
+      ...totals,
+      matched_ingredients: matched,
+      total_ingredients: normalized.length,
+      coverage_percent: normalized.length
+        ? Math.round((matched / normalized.length) * 100)
+        : 0,
+      estimated_conversions: estimatedConversions,
+      source: "USDA FoodData Central",
+    };
+  }
+
   function safeExternalUrl(value, hosts) {
     try {
       const url = new URL(String(value || ""));
@@ -344,6 +492,11 @@
     applyIngredientSubstitution,
     ingredientPreparation,
     ingredientDetails,
+    quantityInBaseUnit,
+    convertQuantity,
+    mergeGroceryItems,
+    ingredientWeightInGrams,
+    calculateUsdaMealNutrition,
     safeExternalUrl,
   });
 })(globalThis);

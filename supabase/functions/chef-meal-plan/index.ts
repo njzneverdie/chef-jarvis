@@ -1538,6 +1538,7 @@ Deno.serve(async (request) => {
     const [
       { data: profileRow },
       { data: pantryRows },
+      { data: feedbackRows },
       { error: draftCleanupError },
     ] = await Promise.all([
       admin
@@ -1554,6 +1555,12 @@ Deno.serve(async (request) => {
         .order("expires_on", { ascending: true, nullsFirst: false })
         .limit(40),
       admin
+        .from("recipe_feedback")
+        .select("recipe_title,rating,note,created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(10),
+      admin
         .from("recipes")
         .delete()
         .eq("user_id", user.id)
@@ -1563,6 +1570,14 @@ Deno.serve(async (request) => {
     if (draftCleanupError)
       console.warn("draft cleanup failed", draftCleanupError.message);
     const profile = (profileRow || {}) as Profile;
+    const planningProfile = {
+      ...profile,
+      taste_feedback: (feedbackRows || []).map((item) => ({
+        recipe_title: String(item.recipe_title || "").slice(0, 160),
+        rating: Number(item.rating),
+        note: item.note ? String(item.note).slice(0, 300) : null,
+      })),
+    };
     const pantry = (pantryRows || [])
       .map((item) => ({
         name: String(item.name || "").slice(0, 120),
@@ -1653,7 +1668,9 @@ Cooking-step timer accuracy is mandatory:
 - timer.kind must be exactly one of: preheat, cook, bake, simmer, boil, steam, rest, marinate, chill, proof, cool.
 - timer.label must name the actual timed cooking action, never "read recipe", "review menu", or similar busywork.
 
-Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact finished dish name in English","summary":"string","minutes":number,"servings":number,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,"ingredients":[{"name":"string","usda_query":"specific English USDA search name","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other"}],"steps":[{"instruction":"string","timer":null|{"label":"string","kind":"preheat|cook|bake|simmer|boil|steam|rest|marinate|chill|proof|cool","duration_seconds":number}}],"substitutions":[{"from":"exact ingredients[].name","to":"specific replacement ingredient","usda_query":"specific English USDA search name for replacement","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other","reason":"string"}],"equipment_adaptations":[{"original":"string","alternative":"string","instructions":"string","why":"string"}],"reuse_ideas":[{"title":"string","uses":["string"],"why":"string"}]}. The maximums below are safety ceilings only, never targets: 60 ingredients, 40 steps, 8 substitutions and 4 reuse ideas. User request: ${meal}. Server-verified profile: ${JSON.stringify(profile)}. Server-verified pantry: ${JSON.stringify(pantry)}`;
+Taste memory is part of the verified profile. Use repeated high ratings and notes as soft preferences, but never let taste feedback override allergies, dislikes, dietary restrictions, or nutrition targets.
+
+Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact finished dish name in English","summary":"string","minutes":number,"servings":number,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,"ingredients":[{"name":"string","usda_query":"specific English USDA search name","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other"}],"steps":[{"instruction":"string","timer":null|{"label":"string","kind":"preheat|cook|bake|simmer|boil|steam|rest|marinate|chill|proof|cool","duration_seconds":number}}],"substitutions":[{"from":"exact ingredients[].name","to":"specific replacement ingredient","usda_query":"specific English USDA search name for replacement","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other","reason":"string"}],"equipment_adaptations":[{"original":"string","alternative":"string","instructions":"string","why":"string"}],"reuse_ideas":[{"title":"string","uses":["string"],"why":"string"}]}. The maximums below are safety ceilings only, never targets: 60 ingredients, 40 steps, 8 substitutions and 4 reuse ideas. User request: ${meal}. Server-verified profile: ${JSON.stringify(planningProfile)}. Server-verified pantry: ${JSON.stringify(pantry)}`;
     const geminiBody = JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
