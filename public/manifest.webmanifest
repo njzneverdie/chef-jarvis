@@ -9,14 +9,14 @@
   "lang": "en",
   "icons": [
     {
-      "src": "/chef-jarvis-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/chef-jarvis-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/chef-jarvis-icon-192.png",
-      "sizes": "192x192",
+      "src": "/chef-jarvis-icon-1024.png",
+      "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "any"
     },
