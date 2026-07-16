@@ -1,4 +1,4 @@
-const CACHE = "chef-jarvis-20260716-polish";
+const CACHE = "chef-jarvis-20260716-polish2";
 const SUPABASE_CDN =
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.5/dist/umd/supabase.min.js";
 const SUPABASE_INTEGRITY =
@@ -6,20 +6,20 @@ const SUPABASE_INTEGRITY =
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=20260716-polish",
-  "/guided-cooking.css?v=20260716-polish",
-  "/chef-mode.css?v=20260716-polish",
-  "/shopping-list.css?v=20260716-polish",
-  "/usda-reference.css?v=20260716-polish",
-  "/personalized-swaps.css?v=20260716-polish",
-  "/plan-persistence.css?v=20260716-polish",
-  "/shopping-page.css?v=20260716-polish",
-  "/product-features.css?v=20260716-polish",
-  "/i18n.js?v=20260716-polish",
-  "/domain.js?v=20260716-polish",
-  "/app.js?v=20260716-polish",
-  "/chef-mode.js?v=20260716-polish",
-  "/manifest.webmanifest",
+  "/styles.css?v=20260716-polish2",
+  "/guided-cooking.css?v=20260716-polish2",
+  "/chef-mode.css?v=20260716-polish2",
+  "/shopping-list.css?v=20260716-polish2",
+  "/usda-reference.css?v=20260716-polish2",
+  "/personalized-swaps.css?v=20260716-polish2",
+  "/plan-persistence.css?v=20260716-polish2",
+  "/shopping-page.css?v=20260716-polish2",
+  "/product-features.css?v=20260716-polish2",
+  "/i18n.js?v=20260716-polish2",
+  "/domain.js?v=20260716-polish2",
+  "/app.js?v=20260716-polish2",
+  "/chef-mode.js?v=20260716-polish2",
+  "/manifest.webmanifest?v=20260716-polish2",
   "/chef-jarvis-icon.svg",
   "/chef-jarvis-icon-192.png",
   "/chef-jarvis-icon-512.png",
