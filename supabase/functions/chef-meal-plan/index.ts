@@ -272,7 +272,11 @@ function instructionIncludesDuration(
 
 function recipeStep(value: unknown, index: number): RecipeStep {
   const step = object(value, `steps[${index}]`);
-  const instruction = text(step.instruction, `steps[${index}].instruction`, 500);
+  const instruction = text(
+    step.instruction,
+    `steps[${index}].instruction`,
+    500,
+  );
   if (step.timer === null) return { instruction, timer: null };
   const timer = object(step.timer, `steps[${index}].timer`);
   const label = text(timer.label, `steps[${index}].timer.label`, 100);
@@ -311,43 +315,52 @@ function validatePlan(value: unknown): MealPlan {
   if (!Array.isArray(plan.ingredients) || plan.ingredients.length < 2)
     throw new Error("ingredients must contain at least two exact items");
   if (!Array.isArray(plan.substitutions) || plan.substitutions.length < 1)
-    throw new Error("substitutions must contain at least one actionable option");
-  const steps = array(plan.steps, "steps", 8, recipeStep);
+    throw new Error(
+      "substitutions must contain at least one actionable option",
+    );
+  // This is an abuse guard, not a target. Recipes should use however many
+  // steps their requested dishes genuinely require.
+  const steps = array(plan.steps, "steps", 40, recipeStep);
   if (!steps.length) throw new Error("steps must contain cooking instructions");
-  const ingredients = array(plan.ingredients, "ingredients", 24, (item, index) => {
-    const ingredient = object(item, `ingredients[${index}]`);
-    return {
-      name: specificIngredientName(
-        ingredient.name,
-        `ingredients[${index}].name`,
-      ),
-      quantity: preciseNumber(
-        ingredient.quantity,
-        `ingredients[${index}].quantity`,
-        0.01,
-        50000,
-      ),
-      unit: enumeration(
-        ingredient.unit,
-        `ingredients[${index}].unit`,
-        ingredientUnits,
-      ),
-      preparation: text(
-        ingredient.preparation,
-        `ingredients[${index}].preparation`,
-        160,
-      ),
-      category: enumeration(
-        ingredient.category,
-        `ingredients[${index}].category`,
-        ingredientCategories,
-      ),
-    };
-  });
+  const ingredients = array(
+    plan.ingredients,
+    "ingredients",
+    60,
+    (item, index) => {
+      const ingredient = object(item, `ingredients[${index}]`);
+      return {
+        name: specificIngredientName(
+          ingredient.name,
+          `ingredients[${index}].name`,
+        ),
+        quantity: preciseNumber(
+          ingredient.quantity,
+          `ingredients[${index}].quantity`,
+          0.01,
+          50000,
+        ),
+        unit: enumeration(
+          ingredient.unit,
+          `ingredients[${index}].unit`,
+          ingredientUnits,
+        ),
+        preparation: text(
+          ingredient.preparation,
+          `ingredients[${index}].preparation`,
+          160,
+        ),
+        category: enumeration(
+          ingredient.category,
+          `ingredients[${index}].category`,
+          ingredientCategories,
+        ),
+      };
+    },
+  );
   const substitutions = array(
     plan.substitutions ?? [],
     "substitutions",
-    4,
+    8,
     (item, index) => {
       const swap = object(item, `substitutions[${index}]`);
       const from = text(swap.from, `substitutions[${index}].from`, 160);
@@ -363,10 +376,7 @@ function validatePlan(value: unknown): MealPlan {
       }
       return {
         from,
-        to: specificIngredientName(
-          swap.to,
-          `substitutions[${index}].to`,
-        ),
+        to: specificIngredientName(swap.to, `substitutions[${index}].to`),
         quantity: preciseNumber(
           swap.quantity,
           `substitutions[${index}].quantity`,
@@ -388,11 +398,7 @@ function validatePlan(value: unknown): MealPlan {
           `substitutions[${index}].category`,
           ingredientCategories,
         ),
-        reason: text(
-          swap.reason,
-          `substitutions[${index}].reason`,
-          300,
-        ),
+        reason: text(swap.reason, `substitutions[${index}].reason`, 300),
       };
     },
   );
@@ -469,6 +475,14 @@ function fallbackPlan(
     restrictions.includes("素食");
   const avoidsSoy =
     restrictions.includes("soy") || restrictions.includes("大豆");
+  const wantsKungPao = /宮保雞丁|宫保鸡丁|kung.?pao/i.test(request);
+  const wantsFriedRice = /蛋炒飯|蛋炒饭|fried rice/i.test(request);
+  const wantsCabbage = /高麗菜|高丽菜|cabbage/i.test(request);
+  const requestedDishCount = [
+    wantsKungPao,
+    wantsFriedRice,
+    wantsCabbage,
+  ].filter(Boolean).length;
   const fallbackZh: Record<string, string> = {
     "Exact vegetable rice bowl": "精準蔬菜鷹嘴豆飯碗",
     "Boneless skinless chicken breast": "去骨去皮雞胸肉",
@@ -506,6 +520,7 @@ function fallbackPlan(
     "Ground cumin": "孜然粉",
     "Smoked paprika": "煙燻紅椒粉",
     "Ground black pepper": "黑胡椒粉",
+    "Taiwanese cabbage": "高麗菜",
     divided: "分次使用",
     "no preparation": "無需處理",
     "cut into 2 cm cubes": "切成 2 公分丁",
@@ -531,6 +546,7 @@ function fallbackPlan(
     "pressed and cut to match the recipe": "壓乾後依食譜切成適當大小",
     "cut to match the recipe": "依食譜切成適當大小",
     "peeled and thinly sliced": "去皮後切薄片",
+    "cut into 4 cm pieces": "切成 4 公分片",
   };
   const localized = (value: string) =>
     language === "zh-TW" ? fallbackZh[value] || value : value;
@@ -547,6 +563,24 @@ function fallbackPlan(
     preparation: localized(preparation),
     category,
   });
+  let ingredients: Ingredient[] = [];
+  const addOrMergeIngredient = (item: Ingredient) => {
+    const existing = ingredients.find(
+      (ingredient) =>
+        ingredient.name.toLocaleLowerCase() === item.name.toLocaleLowerCase() &&
+        ingredient.unit === item.unit,
+    );
+    if (existing) {
+      existing.quantity =
+        Math.round((existing.quantity + item.quantity) * 100) / 100;
+      existing.preparation =
+        existing.preparation === item.preparation
+          ? existing.preparation
+          : localized("divided");
+      return;
+    }
+    ingredients.push(item);
+  };
   const untimedStep = (instruction: string): RecipeStep => ({
     instruction,
     timer: null,
@@ -562,8 +596,7 @@ function fallbackPlan(
   });
   let title = localized("Exact vegetable rice bowl");
   let imageQuery = "vegetable chickpea rice bowl";
-  let ingredients: Ingredient[];
-  if (/宮保雞丁|kung.?pao/i.test(request)) {
+  if (wantsKungPao) {
     const mainIngredient = isVegetarian
       ? avoidsSoy
         ? "Cauliflower florets"
@@ -627,7 +660,7 @@ function fallbackPlan(
       ),
       exact("Water", 60, "ml", "room temperature", "other"),
     ];
-  } else if (/蛋炒飯|fried rice/i.test(request)) {
+  } else if (wantsFriedRice) {
     imageQuery = isVegan
       ? avoidsSoy
         ? "chickpea vegetable fried rice"
@@ -678,6 +711,16 @@ function fallbackPlan(
       exact("Ground white pepper", 0.25, "tsp", "no preparation", "seasoning"),
       exact("Fine salt", 0.5, "tsp", "no preparation", "seasoning"),
     ];
+  } else if (wantsCabbage) {
+    imageQuery = "Taiwanese stir-fried cabbage";
+    title = language === "zh-TW" ? "蒜炒高麗菜" : "Garlic stir-fried cabbage";
+    ingredients = [
+      exact("Taiwanese cabbage", 500, "g", "cut into 4 cm pieces", "produce"),
+      exact("Garlic cloves", 3, "clove", "finely chopped", "produce"),
+      exact("Neutral cooking oil", 1, "tbsp", "no preparation", "oil"),
+      exact("Fine salt", 0.5, "tsp", "no preparation", "seasoning"),
+      exact("Water", 2, "tbsp", "no preparation", "other"),
+    ];
   } else {
     ingredients = [
       exact(
@@ -701,59 +744,512 @@ function fallbackPlan(
       exact("Ground black pepper", 0.5, "tsp", "no preparation", "seasoning"),
     ];
   }
-  const fallbackSteps: RecipeStep[] = /kung pao/i.test(imageQuery)
+  const primaryTitle = title;
+  const primaryImageQuery = imageQuery;
+  const friedRiceTitle =
+    language === "zh-TW"
+      ? isVegan
+        ? avoidsSoy
+          ? "鷹嘴豆蔬菜炒飯"
+          : "豆腐蔬菜炒飯"
+        : "蔬菜蛋炒飯"
+      : isVegan
+        ? avoidsSoy
+          ? "Chickpea vegetable fried rice"
+          : "Tofu vegetable fried rice"
+        : "Chinese egg fried rice";
+  const friedRiceImageQuery = isVegan
+    ? avoidsSoy
+      ? "chickpea vegetable fried rice"
+      : "tofu vegetable fried rice"
+    : "Chinese egg fried rice";
+  const cabbageTitle =
+    language === "zh-TW" ? "蒜炒高麗菜" : "Garlic stir-fried cabbage";
+
+  if (wantsFriedRice && !/fried rice/i.test(primaryImageQuery)) {
+    addOrMergeIngredient(
+      exact("Cooked jasmine rice", 500, "g", "chilled overnight", "grain"),
+    );
+    addOrMergeIngredient(
+      exact(
+        isVegan
+          ? avoidsSoy
+            ? "Canned chickpeas"
+            : "Extra-firm tofu"
+          : "Large eggs",
+        isVegan ? 200 : 3,
+        isVegan ? "g" : "piece",
+        isVegan
+          ? avoidsSoy
+            ? "drained, rinsed, and lightly mashed"
+            : "pressed and crumbled"
+          : "beaten",
+        "protein",
+      ),
+    );
+    addOrMergeIngredient(
+      exact("Frozen green peas", 100, "g", "thawed", "produce"),
+    );
+    addOrMergeIngredient(
+      exact("Carrot", 100, "g", "peeled and cut into 5 mm cubes", "produce"),
+    );
+    addOrMergeIngredient(
+      exact("Scallions", 3, "piece", "thinly sliced", "produce"),
+    );
+    addOrMergeIngredient(
+      exact("Garlic cloves", 2, "clove", "finely chopped", "produce"),
+    );
+    addOrMergeIngredient(
+      exact(
+        avoidsSoy
+          ? "Coconut aminos"
+          : restrictions.includes("gluten")
+            ? "Gluten-free tamari"
+            : "Low-sodium soy sauce",
+        2,
+        "tbsp",
+        "no preparation",
+        "seasoning",
+      ),
+    );
+    addOrMergeIngredient(
+      exact("Toasted sesame oil", 1, "tsp", "no preparation", "oil"),
+    );
+    addOrMergeIngredient(
+      exact("Neutral cooking oil", 1, "tbsp", "no preparation", "oil"),
+    );
+    addOrMergeIngredient(
+      exact("Ground white pepper", 0.25, "tsp", "no preparation", "seasoning"),
+    );
+    addOrMergeIngredient(
+      exact("Fine salt", 0.5, "tsp", "no preparation", "seasoning"),
+    );
+  }
+  if (wantsCabbage && !/cabbage/i.test(primaryImageQuery)) {
+    addOrMergeIngredient(
+      exact("Taiwanese cabbage", 500, "g", "cut into 4 cm pieces", "produce"),
+    );
+    addOrMergeIngredient(
+      exact("Garlic cloves", 3, "clove", "finely chopped", "produce"),
+    );
+    addOrMergeIngredient(
+      exact("Neutral cooking oil", 1, "tbsp", "no preparation", "oil"),
+    );
+    addOrMergeIngredient(
+      exact("Fine salt", 0.5, "tsp", "no preparation", "seasoning"),
+    );
+    addOrMergeIngredient(exact("Water", 2, "tbsp", "no preparation", "other"));
+  }
+
+  let fallbackSteps: RecipeStep[] = /kung pao/i.test(primaryImageQuery)
     ? language === "zh-TW"
       ? [
-          untimedStep("將醬油、米醋、砂糖、芝麻油、水與 1 湯匙玉米澱粉攪拌均勻。"),
-          untimedStep("將切好的主食材與剩餘 1 湯匙玉米澱粉拌勻，所有配料放在爐邊備用。"),
-          timedStep("中大火預熱炒鍋 2 分鐘，再加入 1 湯匙中性食用油。", "預熱炒鍋", "preheat", 120),
-          timedStep("將主食材鋪成單層，持續翻炒 5 分鐘；雞肉版本中心溫度須達 74°C。", "炒熟主食材", "cook", 300),
-          timedStep("盛出主食材，加入剩餘食用油、乾辣椒與花椒，爆香 45 秒。", "爆香辣椒與花椒", "cook", 45),
-          timedStep("加入甜椒、青蔥、蒜末與薑末，再倒回主食材及醬汁，翻炒收汁 2 分鐘。", "宮保醬汁收汁", "simmer", 120),
+          untimedStep(
+            "將醬油、米醋、砂糖、芝麻油、水與 1 湯匙玉米澱粉攪拌均勻。",
+          ),
+          untimedStep(
+            "將切好的主食材與剩餘 1 湯匙玉米澱粉拌勻，所有配料放在爐邊備用。",
+          ),
+          timedStep(
+            "中大火預熱炒鍋 2 分鐘，再加入 1 湯匙中性食用油。",
+            "預熱炒鍋",
+            "preheat",
+            120,
+          ),
+          timedStep(
+            "將主食材鋪成單層，持續翻炒 5 分鐘；雞肉版本中心溫度須達 74°C。",
+            "炒熟主食材",
+            "cook",
+            300,
+          ),
+          timedStep(
+            "盛出主食材，加入剩餘食用油、乾辣椒與花椒，爆香 45 秒。",
+            "爆香辣椒與花椒",
+            "cook",
+            45,
+          ),
+          timedStep(
+            "加入甜椒、青蔥、蒜末與薑末，再倒回主食材及醬汁，翻炒收汁 2 分鐘。",
+            "宮保醬汁收汁",
+            "simmer",
+            120,
+          ),
         ]
       : [
-          untimedStep("Whisk the soy sauce, rice vinegar, sugar, sesame oil, water, and 1 tbsp cornstarch until smooth."),
-          untimedStep("Coat the prepared main ingredient with the remaining 1 tbsp cornstarch and place every component beside the stove."),
-          timedStep("Preheat a wok over medium-high heat for 2 minutes, then add 1 tbsp neutral cooking oil.", "Preheat the wok", "preheat", 120),
-          timedStep("Spread the main ingredient in one layer and stir-fry for 5 minutes; for chicken, verify a 74°C center temperature.", "Cook the main ingredient", "cook", 300),
-          timedStep("Transfer it out, add the remaining oil, dried chilies, and Sichuan peppercorns, then cook for 45 seconds.", "Bloom chilies and peppercorns", "cook", 45),
-          timedStep("Add bell pepper, scallions, garlic, and ginger; return the main ingredient, add sauce, and stir until thickened for 2 minutes.", "Thicken the Kung Pao sauce", "simmer", 120),
+          untimedStep(
+            "Whisk the soy sauce, rice vinegar, sugar, sesame oil, water, and 1 tbsp cornstarch until smooth.",
+          ),
+          untimedStep(
+            "Coat the prepared main ingredient with the remaining 1 tbsp cornstarch and place every component beside the stove.",
+          ),
+          timedStep(
+            "Preheat a wok over medium-high heat for 2 minutes, then add 1 tbsp neutral cooking oil.",
+            "Preheat the wok",
+            "preheat",
+            120,
+          ),
+          timedStep(
+            "Spread the main ingredient in one layer and stir-fry for 5 minutes; for chicken, verify a 74°C center temperature.",
+            "Cook the main ingredient",
+            "cook",
+            300,
+          ),
+          timedStep(
+            "Transfer it out, add the remaining oil, dried chilies, and Sichuan peppercorns, then cook for 45 seconds.",
+            "Bloom chilies and peppercorns",
+            "cook",
+            45,
+          ),
+          timedStep(
+            "Add bell pepper, scallions, garlic, and ginger; return the main ingredient, add sauce, and stir until thickened for 2 minutes.",
+            "Thicken the Kung Pao sauce",
+            "simmer",
+            120,
+          ),
         ]
-    : /fried rice/i.test(imageQuery)
+    : /fried rice/i.test(primaryImageQuery)
       ? language === "zh-TW"
         ? [
             untimedStep("將冷藏米飯撥散；醬油、芝麻油與白胡椒先混合備用。"),
-            timedStep("中大火預熱炒鍋 2 分鐘，再加入一半中性食用油。", "預熱炒鍋", "preheat", 120),
-            timedStep("加入打散雞蛋或準備好的植物性蛋白質，快速翻炒 90 秒後盛出。", "炒熟蛋白質", "cook", 90),
-            timedStep("加入剩餘食用油、胡蘿蔔、青豆與蒜末，翻炒 3 分鐘。", "炒香蔬菜", "cook", 180),
-            timedStep("加入米飯與調味汁，以中大火持續翻炒 4 分鐘，再拌回蛋白質與青蔥。", "炒乾米飯", "cook", 240),
+            timedStep(
+              "中大火預熱炒鍋 2 分鐘，再加入一半中性食用油。",
+              "預熱炒鍋",
+              "preheat",
+              120,
+            ),
+            timedStep(
+              "加入打散雞蛋或準備好的植物性蛋白質，快速翻炒 90 秒後盛出。",
+              "炒熟蛋白質",
+              "cook",
+              90,
+            ),
+            timedStep(
+              "加入剩餘食用油、胡蘿蔔、青豆與蒜末，翻炒 3 分鐘。",
+              "炒香蔬菜",
+              "cook",
+              180,
+            ),
+            timedStep(
+              "加入米飯與調味汁，以中大火持續翻炒 4 分鐘，再拌回蛋白質與青蔥。",
+              "炒乾米飯",
+              "cook",
+              240,
+            ),
             untimedStep("試味後以細鹽調整，立即盛盤。"),
           ]
         : [
-            untimedStep("Break apart the chilled rice and combine the soy sauce, sesame oil, and white pepper."),
-            timedStep("Preheat a wok over medium-high heat for 2 minutes, then add half of the neutral oil.", "Preheat the wok", "preheat", 120),
-            timedStep("Add the beaten eggs or prepared plant protein, stir quickly for 90 seconds, then transfer out.", "Cook the protein", "cook", 90),
-            timedStep("Add the remaining oil, carrot, peas, and garlic, then stir-fry for 3 minutes.", "Cook the vegetables", "cook", 180),
-            timedStep("Add rice and seasoning sauce, stir-fry over medium-high heat for 4 minutes, then fold in the protein and scallions.", "Fry the rice", "cook", 240),
-            untimedStep("Taste, adjust with the measured salt, and serve immediately."),
+            untimedStep(
+              "Break apart the chilled rice and combine the soy sauce, sesame oil, and white pepper.",
+            ),
+            timedStep(
+              "Preheat a wok over medium-high heat for 2 minutes, then add half of the neutral oil.",
+              "Preheat the wok",
+              "preheat",
+              120,
+            ),
+            timedStep(
+              "Add the beaten eggs or prepared plant protein, stir quickly for 90 seconds, then transfer out.",
+              "Cook the protein",
+              "cook",
+              90,
+            ),
+            timedStep(
+              "Add the remaining oil, carrot, peas, and garlic, then stir-fry for 3 minutes.",
+              "Cook the vegetables",
+              "cook",
+              180,
+            ),
+            timedStep(
+              "Add rice and seasoning sauce, stir-fry over medium-high heat for 4 minutes, then fold in the protein and scallions.",
+              "Fry the rice",
+              "cook",
+              240,
+            ),
+            untimedStep(
+              "Taste, adjust with the measured salt, and serve immediately.",
+            ),
           ]
-      : language === "zh-TW"
-        ? [
-            timedStep("將 180 克長粒白米與 360 毫升水煮滾，轉小火加蓋燜煮 15 分鐘。", "燜煮白飯", "simmer", 900),
-            untimedStep("白飯烹煮時，依食材表切好櫛瓜、甜椒、胡蘿蔔與蒜末。"),
-            timedStep("中火預熱平底鍋 2 分鐘，再加入 1 湯匙橄欖油。", "預熱平底鍋", "preheat", 120),
-            timedStep("加入櫛瓜、甜椒與胡蘿蔔，翻炒 8 分鐘至邊緣上色。", "炒熟蔬菜", "cook", 480),
-            timedStep("加入鷹嘴豆、蒜末、孜然、煙燻紅椒粉與剩餘橄欖油，翻炒 5 分鐘。", "加熱鷹嘴豆", "cook", 300),
-            untimedStep("以檸檬汁、鹽與黑胡椒調味，鋪在白飯上享用。"),
-          ]
-        : [
-            timedStep("Bring 180 g long-grain rice and 360 ml water to a boil, cover, reduce to low heat, and simmer for 15 minutes.", "Simmer the rice", "simmer", 900),
-            untimedStep("While the rice cooks, cut the zucchini, bell pepper, carrot, and garlic as listed."),
-            timedStep("Preheat a skillet over medium heat for 2 minutes, then add 1 tbsp olive oil.", "Preheat the skillet", "preheat", 120),
-            timedStep("Add zucchini, bell pepper, and carrot, then cook for 8 minutes until the edges color.", "Cook the vegetables", "cook", 480),
-            timedStep("Add chickpeas, garlic, cumin, smoked paprika, and the remaining oil, then cook for 5 minutes.", "Warm the chickpeas", "cook", 300),
-            untimedStep("Season with lemon juice, salt, and black pepper, then serve over the rice."),
-          ];
+      : /cabbage/i.test(primaryImageQuery)
+        ? language === "zh-TW"
+          ? [
+              untimedStep(
+                "將高麗菜切成 4 公分片、蒜瓣切末，並量好食用油、鹽和水。",
+              ),
+              timedStep(
+                "中大火預熱炒鍋 2 分鐘，再加入中性食用油。",
+                "預熱炒鍋",
+                "preheat",
+                120,
+              ),
+              timedStep(
+                "加入蒜末爆香 30 秒，聞到香氣但不要燒焦。",
+                "爆香蒜末",
+                "cook",
+                30,
+              ),
+              timedStep(
+                "加入高麗菜，以中大火持續翻炒 4 分鐘。",
+                "翻炒高麗菜",
+                "cook",
+                240,
+              ),
+              timedStep(
+                "加入 2 湯匙水並蓋鍋蒸煮 2 分鐘，再以細鹽調味。",
+                "蒸熟高麗菜",
+                "steam",
+                120,
+              ),
+              untimedStep("確認高麗菜熟而仍爽脆後立即盛盤。"),
+            ]
+          : [
+              untimedStep(
+                "Cut the cabbage into 4 cm pieces, mince the garlic, and measure the oil, salt, and water.",
+              ),
+              timedStep(
+                "Preheat a wok over medium-high heat for 2 minutes, then add the neutral cooking oil.",
+                "Preheat the wok",
+                "preheat",
+                120,
+              ),
+              timedStep(
+                "Add the minced garlic and cook for 30 seconds until fragrant without browning.",
+                "Bloom the garlic",
+                "cook",
+                30,
+              ),
+              timedStep(
+                "Add the cabbage and stir-fry continuously over medium-high heat for 4 minutes.",
+                "Stir-fry the cabbage",
+                "cook",
+                240,
+              ),
+              timedStep(
+                "Add 2 tbsp water, cover, and steam for 2 minutes, then season with the measured salt.",
+                "Steam the cabbage",
+                "steam",
+                120,
+              ),
+              untimedStep(
+                "Check that the cabbage is tender-crisp and serve immediately.",
+              ),
+            ]
+        : language === "zh-TW"
+          ? [
+              timedStep(
+                "將 180 克長粒白米與 360 毫升水煮滾，轉小火加蓋燜煮 15 分鐘。",
+                "燜煮白飯",
+                "simmer",
+                900,
+              ),
+              untimedStep("白飯烹煮時，依食材表切好櫛瓜、甜椒、胡蘿蔔與蒜末。"),
+              timedStep(
+                "中火預熱平底鍋 2 分鐘，再加入 1 湯匙橄欖油。",
+                "預熱平底鍋",
+                "preheat",
+                120,
+              ),
+              timedStep(
+                "加入櫛瓜、甜椒與胡蘿蔔，翻炒 8 分鐘至邊緣上色。",
+                "炒熟蔬菜",
+                "cook",
+                480,
+              ),
+              timedStep(
+                "加入鷹嘴豆、蒜末、孜然、煙燻紅椒粉與剩餘橄欖油，翻炒 5 分鐘。",
+                "加熱鷹嘴豆",
+                "cook",
+                300,
+              ),
+              untimedStep("以檸檬汁、鹽與黑胡椒調味，鋪在白飯上享用。"),
+            ]
+          : [
+              timedStep(
+                "Bring 180 g long-grain rice and 360 ml water to a boil, cover, reduce to low heat, and simmer for 15 minutes.",
+                "Simmer the rice",
+                "simmer",
+                900,
+              ),
+              untimedStep(
+                "While the rice cooks, cut the zucchini, bell pepper, carrot, and garlic as listed.",
+              ),
+              timedStep(
+                "Preheat a skillet over medium heat for 2 minutes, then add 1 tbsp olive oil.",
+                "Preheat the skillet",
+                "preheat",
+                120,
+              ),
+              timedStep(
+                "Add zucchini, bell pepper, and carrot, then cook for 8 minutes until the edges color.",
+                "Cook the vegetables",
+                "cook",
+                480,
+              ),
+              timedStep(
+                "Add chickpeas, garlic, cumin, smoked paprika, and the remaining oil, then cook for 5 minutes.",
+                "Warm the chickpeas",
+                "cook",
+                300,
+              ),
+              untimedStep(
+                "Season with lemon juice, salt, and black pepper, then serve over the rice.",
+              ),
+            ];
+
+  if (requestedDishCount > 1) {
+    const markDish = (dish: string, steps: RecipeStep[]) =>
+      steps.map((step) => ({
+        ...step,
+        instruction: `【${dish}】${step.instruction}`,
+      }));
+    fallbackSteps = markDish(primaryTitle, fallbackSteps);
+
+    if (wantsFriedRice && !/fried rice/i.test(primaryImageQuery)) {
+      const friedRiceSteps =
+        language === "zh-TW"
+          ? [
+              untimedStep("將冷藏米飯撥散；醬油、芝麻油與白胡椒先混合備用。"),
+              timedStep(
+                "中大火預熱炒鍋 2 分鐘，再加入一半中性食用油。",
+                "預熱炒飯用炒鍋",
+                "preheat",
+                120,
+              ),
+              timedStep(
+                "加入打散雞蛋或準備好的植物性蛋白質，快速翻炒 90 秒後盛出。",
+                "炒熟炒飯蛋白質",
+                "cook",
+                90,
+              ),
+              timedStep(
+                "加入剩餘食用油、胡蘿蔔、青豆與蒜末，翻炒 3 分鐘。",
+                "炒香炒飯蔬菜",
+                "cook",
+                180,
+              ),
+              timedStep(
+                "加入米飯與調味汁，以中大火持續翻炒 4 分鐘，再拌回蛋白質與青蔥。",
+                "炒乾米飯",
+                "cook",
+                240,
+              ),
+              untimedStep("試味後以細鹽調整，立即盛盤。"),
+            ]
+          : [
+              untimedStep(
+                "Break apart the chilled rice and combine the soy sauce, sesame oil, and white pepper.",
+              ),
+              timedStep(
+                "Preheat a wok over medium-high heat for 2 minutes, then add half of the neutral oil.",
+                "Preheat the fried-rice wok",
+                "preheat",
+                120,
+              ),
+              timedStep(
+                "Add the beaten eggs or prepared plant protein, stir quickly for 90 seconds, then transfer out.",
+                "Cook the fried-rice protein",
+                "cook",
+                90,
+              ),
+              timedStep(
+                "Add the remaining oil, carrot, peas, and garlic, then stir-fry for 3 minutes.",
+                "Cook the fried-rice vegetables",
+                "cook",
+                180,
+              ),
+              timedStep(
+                "Add rice and seasoning sauce, stir-fry over medium-high heat for 4 minutes, then fold in the protein and scallions.",
+                "Fry the rice",
+                "cook",
+                240,
+              ),
+              untimedStep(
+                "Taste, adjust with the measured salt, and serve immediately.",
+              ),
+            ];
+      fallbackSteps.push(...markDish(friedRiceTitle, friedRiceSteps));
+    }
+
+    if (wantsCabbage && !/cabbage/i.test(primaryImageQuery)) {
+      const cabbageSteps =
+        language === "zh-TW"
+          ? [
+              untimedStep(
+                "將高麗菜切成 4 公分片、蒜瓣切末，並量好食用油、鹽和水。",
+              ),
+              timedStep(
+                "中大火預熱炒鍋 2 分鐘，再加入中性食用油。",
+                "預熱高麗菜用炒鍋",
+                "preheat",
+                120,
+              ),
+              timedStep(
+                "加入蒜末爆香 30 秒，聞到香氣但不要燒焦。",
+                "爆香高麗菜蒜末",
+                "cook",
+                30,
+              ),
+              timedStep(
+                "加入高麗菜，以中大火持續翻炒 4 分鐘。",
+                "翻炒高麗菜",
+                "cook",
+                240,
+              ),
+              timedStep(
+                "加入 2 湯匙水並蓋鍋蒸煮 2 分鐘，再以細鹽調味。",
+                "蒸熟高麗菜",
+                "steam",
+                120,
+              ),
+              untimedStep("確認高麗菜熟而仍爽脆後立即盛盤。"),
+            ]
+          : [
+              untimedStep(
+                "Cut the cabbage into 4 cm pieces, mince the garlic, and measure the oil, salt, and water.",
+              ),
+              timedStep(
+                "Preheat a wok over medium-high heat for 2 minutes, then add the neutral cooking oil.",
+                "Preheat the cabbage wok",
+                "preheat",
+                120,
+              ),
+              timedStep(
+                "Add the minced garlic and cook for 30 seconds until fragrant without browning.",
+                "Bloom the cabbage garlic",
+                "cook",
+                30,
+              ),
+              timedStep(
+                "Add the cabbage and stir-fry continuously over medium-high heat for 4 minutes.",
+                "Stir-fry the cabbage",
+                "cook",
+                240,
+              ),
+              timedStep(
+                "Add 2 tbsp water, cover, and steam for 2 minutes, then season with the measured salt.",
+                "Steam the cabbage",
+                "steam",
+                120,
+              ),
+              untimedStep(
+                "Check that the cabbage is tender-crisp and serve immediately.",
+              ),
+            ];
+      fallbackSteps.push(...markDish(cabbageTitle, cabbageSteps));
+    }
+
+    const dishTitles = [
+      wantsKungPao ? primaryTitle : "",
+      wantsFriedRice ? friedRiceTitle : "",
+      wantsCabbage ? cabbageTitle : "",
+    ].filter(Boolean);
+    const dishQueries = [
+      wantsKungPao ? primaryImageQuery : "",
+      wantsFriedRice ? friedRiceImageQuery : "",
+      wantsCabbage ? "Taiwanese stir-fried cabbage" : "",
+    ].filter(Boolean);
+    title = dishTitles.join(language === "zh-TW" ? "＋" : " + ");
+    imageQuery = dishQueries.join(" with ");
+  }
   const originalProtein = ingredients.find(
     (ingredient) => ingredient.category === "protein",
   );
@@ -804,7 +1300,7 @@ function fallbackPlan(
       : language === "zh-TW"
         ? "AI 暫時無法使用，因此 Jarvis 準備了一份份量完整、所有食材分開列出的備用餐點。"
         : "AI is briefly unavailable, so Jarvis prepared a fully measured fallback meal with every grocery item listed separately.",
-    minutes: 35,
+    minutes: Math.min(120, Math.max(20, 15 + fallbackSteps.length * 3)),
     servings: 2,
     kcal: Math.max(350, Math.round((profile.calorie_target || 1800) / 3)),
     protein_g: Math.max(30, Math.round((profile.protein_g || 120) / 3)),
@@ -1075,6 +1571,10 @@ Ingredient substitution accuracy is mandatory:
 - Substitutions are decisions made before the grocery list, so each option must be directly usable as the final ingredient entry.
 
 Cooking-step timer accuracy is mandatory:
+- Cover every distinct dish explicitly requested by the user. Never collapse several requested dishes into one generic recipe.
+- Use exactly as many steps as the requested dishes genuinely need. There is no preferred or fixed step count: do not stop at six or eight, and never pad a simple dish to reach a target.
+- When the request contains multiple dishes, name the relevant dish or component in every instruction and include the complete preparation and cooking flow for each dish.
+- Split materially different actions into separate steps. A step must remain clear enough for the cook to perform without guessing which dish it belongs to.
 - Every steps item must contain one instruction and either one genuinely useful cooking timer or null.
 - Set timer to null for reading the recipe, gathering or measuring ingredients, chopping, plating, serving, tasting, cleaning, or any other task that does not require a clock.
 - Add a timer only when the cook must track a real heat or waiting interval: preheating, cooking, baking, simmering, boiling, steaming, resting, marinating, chilling, proofing, or cooling.
@@ -1083,13 +1583,13 @@ Cooking-step timer accuracy is mandatory:
 - timer.kind must be exactly one of: preheat, cook, bake, simmer, boil, steam, rest, marinate, chill, proof, cool.
 - timer.label must name the actual timed cooking action, never "read recipe", "review menu", or similar busywork.
 
-Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact finished dish name in English","summary":"string","minutes":number,"servings":number,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,"ingredients":[{"name":"string","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other"}],"steps":[{"instruction":"string","timer":null|{"label":"string","kind":"preheat|cook|bake|simmer|boil|steam|rest|marinate|chill|proof|cool","duration_seconds":number}}],"substitutions":[{"from":"exact ingredients[].name","to":"specific replacement ingredient","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other","reason":"string"}],"equipment_adaptations":[{"original":"string","alternative":"string","instructions":"string","why":"string"}],"reuse_ideas":[{"title":"string","uses":["string"],"why":"string"}]}. Limit to 24 ingredients, 8 steps, 4 substitutions and 4 reuse ideas. User request: ${meal}. Server-verified profile: ${JSON.stringify(profile)}. Server-verified pantry: ${JSON.stringify(pantry)}`;
+Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact finished dish name in English","summary":"string","minutes":number,"servings":number,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,"ingredients":[{"name":"string","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other"}],"steps":[{"instruction":"string","timer":null|{"label":"string","kind":"preheat|cook|bake|simmer|boil|steam|rest|marinate|chill|proof|cool","duration_seconds":number}}],"substitutions":[{"from":"exact ingredients[].name","to":"specific replacement ingredient","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other","reason":"string"}],"equipment_adaptations":[{"original":"string","alternative":"string","instructions":"string","why":"string"}],"reuse_ideas":[{"title":"string","uses":["string"],"why":"string"}]}. The maximums below are safety ceilings only, never targets: 60 ingredients, 40 steps, 8 substitutions and 4 reuse ideas. User request: ${meal}. Server-verified profile: ${JSON.stringify(profile)}. Server-verified pantry: ${JSON.stringify(pantry)}`;
     const geminiBody = JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0.25,
         responseMimeType: "application/json",
-        maxOutputTokens: 3200,
+        maxOutputTokens: 6500,
       },
     });
 
@@ -1104,7 +1604,7 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
               "x-goog-api-key": apiKey,
             },
             body: geminiBody,
-            signal: AbortSignal.timeout(8000),
+            signal: AbortSignal.timeout(20000),
           },
         );
         if (!response.ok) {
