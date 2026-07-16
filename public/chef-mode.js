@@ -163,6 +163,39 @@ function displayNumber(value, suffix = "") {
   return number == null ? "—" : `${number}${suffix}`;
 }
 
+function appLocale() {
+  return window.I18n.code === "zh-TW" ? "zh-TW" : "en-US";
+}
+
+function displayDate(value) {
+  return new Date(value).toLocaleDateString(appLocale());
+}
+
+function displayShoppingUnit(value) {
+  const unit = String(value || "");
+  if (window.I18n.code !== "zh-TW") return unit;
+  return (
+    {
+      tsp: "茶匙",
+      tbsp: "湯匙",
+      cup: "杯",
+      cups: "杯",
+      piece: "個",
+      pieces: "個",
+      portion: "份",
+      portions: "份",
+      clove: "瓣",
+      cloves: "瓣",
+      slice: "片",
+      slices: "片",
+      can: "罐",
+      cans: "罐",
+      pack: "包",
+      packs: "包",
+    }[unit] || unit
+  );
+}
+
 function renderPlan(query) {
   const root = document.querySelector("#plan");
   if (!root) return;
@@ -353,7 +386,7 @@ async function renderSavedPlans() {
   if (error || !data?.length) return;
   const card = document.createElement("article");
   card.className = "card recent-plans";
-  card.innerHTML = `<div><p class="eyebrow">YOUR SAVED COOKING PLANS</p><h2>Pick up where you left off.</h2><p>Generated meals stay here after switching tabs or refreshing the page.</p></div><div class="recent-plan-list">${data.map((row, index) => `<article><div><b>${esc(row.title)}</b><small>${displayNumber(row.minutes, " min")} · ${displayNumber(row.servings, " servings")} · saved ${esc(new Date(row.created_at).toLocaleDateString())}</small></div><button class="dark" data-resume-plan="${index}">Open plan →</button></article>`).join("")}</div>`;
+  card.innerHTML = `<div><p class="eyebrow">YOUR SAVED COOKING PLANS</p><h2>Pick up where you left off.</h2><p>Generated meals stay here after switching tabs or refreshing the page.</p></div><div class="recent-plan-list">${data.map((row, index) => `<article><div><b>${esc(row.title)}</b><small>${window.I18n.code === "zh-TW" ? `${displayNumber(row.minutes)} 分鐘 · ${displayNumber(row.servings)} 人份 · 儲存於 ${esc(displayDate(row.created_at))}` : `${displayNumber(row.minutes, " min")} · ${displayNumber(row.servings, " servings")} · saved ${esc(displayDate(row.created_at))}`}</small></div><button class="dark" data-resume-plan="${index}">Open plan →</button></article>`).join("")}</div>`;
   root.append(card);
   card
     .querySelectorAll("[data-resume-plan]")
@@ -486,7 +519,7 @@ function renderShoppingChecklist(title, ingredients) {
       .insert({
         user_id: user.id,
         app_user_id: user.id,
-        title: `Shopping · ${title}`.slice(0, 120),
+        title: `${window.I18n.code === "zh-TW" ? "購物" : "Shopping"} · ${title}`.slice(0, 120),
         status: "active",
       })
       .select("id")
@@ -549,7 +582,7 @@ async function renderShoppingLists() {
   container.innerHTML = `<div class="saved-shopping-grid">${data
     .map((list) => {
       const items = list.shopping_list_items || [];
-      return `<article class="card saved-shopping-list" data-list-id="${esc(list.id)}"><div class="saved-shopping-head"><div><p class="eyebrow">${items.filter((item) => item.is_checked).length} OF ${items.length} PICKED</p><h2>${esc(list.title)}</h2><small>${esc(new Date(list.created_at).toLocaleDateString())}</small></div><button class="timer-remove" data-delete-list="${esc(list.id)}" aria-label="Delete list">×</button></div><div class="saved-shopping-items">${items.map((item) => `<label class="${item.is_checked ? "checked" : ""}"><input type="checkbox" data-list-item="${esc(item.id)}" ${item.is_checked ? "checked" : ""}><span class="shopping-box">✓</span><b>${esc(item.ingredient)}</b><small>${item.quantity == null ? "" : esc(item.quantity)} ${esc(item.unit || "")}</small></label>`).join("")}</div></article>`;
+      return `<article class="card saved-shopping-list" data-list-id="${esc(list.id)}"><div class="saved-shopping-head"><div><p class="eyebrow">${items.filter((item) => item.is_checked).length} OF ${items.length} PICKED</p><h2>${esc(window.I18n.translate(list.title))}</h2><small>${esc(displayDate(list.created_at))}</small></div><button class="timer-remove" data-delete-list="${esc(list.id)}" aria-label="Delete list">×</button></div><div class="saved-shopping-items">${items.map((item) => `<label class="${item.is_checked ? "checked" : ""}"><input type="checkbox" data-list-item="${esc(item.id)}" ${item.is_checked ? "checked" : ""}><span class="shopping-box">✓</span><b>${esc(item.ingredient)}</b><small>${item.quantity == null ? "" : esc(item.quantity)} ${esc(displayShoppingUnit(item.unit))}</small></label>`).join("")}</div></article>`;
     })
     .join("")}</div>`;
   container.querySelectorAll("[data-list-item]").forEach(
