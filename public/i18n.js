@@ -433,10 +433,13 @@
     "How did this meal taste?": "這道料理好吃嗎？",
     "One quick rating helps future recipes fit you better.":
       "簡單評分一次，之後的食譜會更貼近你的口味。",
+    "Servings you ate": "你實際吃了幾人份",
+    "Nutrition starts at one serving. Change this if you ate more.":
+      "營養預設記錄一人份；如果吃得更多，請在這裡調整。",
     "Meal rating": "料理評分",
     "Optional note": "選填筆記",
     "e.g. Less spicy next time": "例如：下次少辣一點",
-    Skip: "略過",
+    "Skip rating": "略過評分",
     "Save feedback →": "儲存評分 →",
     "Thanks — Jarvis will remember this for future meals ✓":
       "謝謝，Jarvis 會在未來的餐點中記住這次回饋 ✓",

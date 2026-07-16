@@ -1,0 +1,2 @@
+-- Historical migration marker. Current tables use explicit updated_at writes;
+-- the obsolete trigger function is intentionally not recreated.
