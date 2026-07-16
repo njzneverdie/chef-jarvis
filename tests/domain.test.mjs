@@ -13,6 +13,10 @@ const {
   applyIngredientSubstitution,
   ingredientPreparation,
   ingredientDetails,
+  convertQuantity,
+  mergeGroceryItems,
+  ingredientWeightInGrams,
+  calculateUsdaMealNutrition,
   safeExternalUrl,
 } = globalThis.ChefDomain;
 
@@ -247,4 +251,49 @@ test("recipe image URLs only allow HTTPS on approved hosts", () => {
     "",
   );
   assert.equal(safeExternalUrl("javascript:alert(1)", ["wikimedia.org"]), "");
+});
+
+test("compatible grocery units merge into stable base units", () => {
+  const merged = mergeGroceryItems([
+    { name: "Chicken breast", quantity: 1, unit: "kg" },
+    { name: "chicken breast", quantity: 250, unit: "g" },
+    { name: "Soy sauce", quantity: 1, unit: "tbsp" },
+    { name: "soy sauce", quantity: 5, unit: "ml" },
+  ]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged.find((item) => item.unit === "g").quantity, 1250);
+  assert.equal(merged.find((item) => item.unit === "ml").quantity, 20);
+  assert.equal(convertQuantity(1, "kg", "g"), 1000);
+  assert.equal(convertQuantity(2, "tbsp", "ml"), 30);
+  assert.equal(convertQuantity(1, "piece", "g"), null);
+});
+
+test("USDA meal totals use quantities and disclose match coverage", () => {
+  const ingredients = [
+    { name: "Chicken breast", quantity: 200, unit: "g" },
+    { name: "Olive oil", quantity: 1, unit: "tbsp", category: "oil" },
+    { name: "Mystery package", quantity: 1, unit: "pack" },
+  ];
+  const foods = [
+    {
+      ingredient: "Chicken breast",
+      found: true,
+      per100g: { kcal: 165, protein_g: 31, carbs_g: 0, fat_g: 3.6 },
+    },
+    {
+      ingredient: "Olive oil",
+      found: true,
+      per100g: { kcal: 884, protein_g: 0, carbs_g: 0, fat_g: 100 },
+    },
+  ];
+  const totals = calculateUsdaMealNutrition(ingredients, foods);
+  assert.equal(totals.coverage_percent, 67);
+  assert.equal(totals.matched_ingredients, 2);
+  assert.equal(totals.estimated_conversions, 1);
+  assert.equal(totals.protein_g, 62);
+  assert.ok(totals.kcal > 451 && totals.kcal < 453);
+  assert.deepEqual(ingredientWeightInGrams(ingredients[0]), {
+    grams: 200,
+    estimated: false,
+  });
 });

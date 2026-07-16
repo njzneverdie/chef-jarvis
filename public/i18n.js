@@ -45,6 +45,7 @@
     Plan: "食譜",
     Pantry: "庫存",
     Shopping: "購物清單",
+    Week: "一週餐期",
     Cook: "烹飪",
     Profile: "個人資料",
     "Sign out": "登出",
@@ -405,6 +406,48 @@
       "清單及所有勾選進度都會被刪除。",
     "Ingredient and grocery quantities are updated. Cooking steps may still describe the original ingredient, so review them before starting—especially for allergies.":
       "食材與購物份量已更新，但烹飪步驟仍可能描述原食材；開始前請再次確認，尤其是過敏需求。",
+    "Loading today’s intake…": "正在載入今日攝取…",
+    "USDA-backed meals appear here after cooking.":
+      "完成料理後，USDA 佐證的攝取會顯示在這裡。",
+    "Today’s intake is unavailable": "目前無法載入今日攝取",
+    "USDA FOODDATA CENTRAL · WHOLE MEAL": "USDA FOODDATA CENTRAL · 整餐結算",
+    "USDA-backed meal nutrition.": "USDA 佐證的整餐營養。",
+    "View USDA ingredient matches": "查看 USDA 食材對照",
+    "Add all purchased items to pantry →": "將已購品項全部加入庫存 →",
+    "Added to pantry ✓": "已加入庫存 ✓",
+    "Adding to pantry…": "正在加入庫存…",
+    "WEEKLY PLANNER": "一週餐期表",
+    "Shop once,": "一次採買，",
+    "cook all week.": "煮足一週。",
+    "Build weekly grocery list →": "建立本週合併購物清單 →",
+    "Loading your week…": "正在載入本週餐期…",
+    "Could not load this week.": "無法載入本週餐期。",
+    "Dinner is open.": "晚餐尚未安排。",
+    "Choose a saved recipe": "選擇已儲存的食譜",
+    Add: "加入",
+    Replace: "替換",
+    "Merging ingredients…": "正在合併食材…",
+    "SAVED FOR NEXT WEEK": "已留到下週",
+    "Ideas waiting in your folder.": "收藏中的待選靈感。",
+    "HELP JARVIS LEARN": "幫助 JARVIS 更懂你",
+    "How did this meal taste?": "這道料理好吃嗎？",
+    "One quick rating helps future recipes fit you better.":
+      "簡單評分一次，之後的食譜會更貼近你的口味。",
+    "Meal rating": "料理評分",
+    "Optional note": "選填筆記",
+    "e.g. Less spicy next time": "例如：下次少辣一點",
+    Skip: "略過",
+    "Save feedback →": "儲存評分 →",
+    "Thanks — Jarvis will remember this for future meals ✓":
+      "謝謝，Jarvis 會在未來的餐點中記住這次回饋 ✓",
+    "🎙 Hands-free": "🎙 免手操作",
+    "🎙 Listening…": "🎙 聆聽中…",
+    "Voice control is not supported in this browser.":
+      "這個瀏覽器不支援語音控制。",
+    "Microphone access is needed for hands-free cooking.":
+      "免手操作需要麥克風權限。",
+    "Say: next step, repeat, start timer, or pause timer.":
+      "你可以說：下一步、重複、開始計時或暫停計時。",
   };
 
   const regexTranslations = [
@@ -420,6 +463,7 @@
     [/^✦\s+Plan$/, "✦　食譜"],
     [/^▦\s+Pantry$/, "▦　庫存"],
     [/^☑\s+Shopping$/, "☑　購物清單"],
+    [/^▤\s+Week$/, "▤　一週餐期"],
     [/^◴\s+Cook$/, "◴　烹飪"],
     [/^◌\s+Profile$/, "◌　個人資料"],
     [/^(.+) kcal · (.+)g protein$/, "$1 大卡 · $2 克蛋白質"],

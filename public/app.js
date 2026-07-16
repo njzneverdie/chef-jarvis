@@ -28,6 +28,14 @@ const finiteNumber = (value, fallback = null) => {
 
 const calculateTarget = window.ChefDomain.calculateTarget;
 
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/sw.js")
+      .catch((error) => console.info("Offline support is unavailable", error));
+  });
+}
+
 function languageToggleMarkup() {
   return `<button class="language-toggle" id="language-toggle" type="button" aria-label="Switch language">文/A · ${window.I18n.toggleLabel()}</button>`;
 }
@@ -255,6 +263,7 @@ function shell() {
           <button data-view="plan">✦ &nbsp; Plan</button>
           <button data-view="pantry">▦ &nbsp; Pantry</button>
           <button data-view="shopping">☑ &nbsp; Shopping</button>
+          <button data-view="week">▤ &nbsp; Week</button>
           <button data-view="cook">◴ &nbsp; Cook</button>
           <button data-view="profile">◌ &nbsp; Profile</button>
         </nav>
@@ -269,6 +278,7 @@ function shell() {
         <section class="view" id="plan"></section>
         <section class="view" id="pantry"></section>
         <section class="view" id="shopping"></section>
+        <section class="view" id="week"></section>
         <section class="view" id="cook"></section>
         <section class="view" id="profile"></section>
       </main>
@@ -303,6 +313,7 @@ function shell() {
   renderPlan();
   renderPantry();
   renderShoppingLists();
+  renderWeeklyPlanner();
   restoreCookingState();
   renderCook();
   renderProfile();
@@ -318,8 +329,12 @@ function show(id) {
       button.classList.toggle("active", button.dataset.view === id),
     );
   if (id === "shopping") renderShoppingLists();
+  if (id === "week") renderWeeklyPlanner();
   if (id === "cook") requestWakeLock();
-  else releaseWakeLock();
+  else {
+    releaseWakeLock();
+    if (typeof stopVoiceControl === "function") stopVoiceControl();
+  }
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -336,11 +351,11 @@ function renderHome() {
       <article class="tonight"><div><small>YOUR DAILY TARGET</small><h2>${esc(nutrition())}</h2><p>${esc((profile?.body_composition_goal || "personalized").replace("_", " "))} plan · pantry and preferences applied</p><button class="cream" data-go="plan">Plan a meal →</button></div></article>
     </div>
     <div class="section-head"><div><p class="eyebrow">TODAY'S BALANCE</p><h2>Fuel your day well.</h2></div><button class="link" data-go="profile">Edit nutrition →</button></div>
-    <div class="metrics">
-      <article class="metric"><b>${finiteNumber(profile?.calorie_target, "—")}</b><span>kcal target</span><p>Built from your own profile</p></article>
-      <article class="metric"><b>${finiteNumber(profile?.protein_g, "—")}g</b><span>protein</span><p>Personal daily target</p></article>
-      <article class="metric"><b>${finiteNumber(profile?.carbs_g, "—")}g</b><span>carbs</span><p>${finiteNumber(profile?.fat_g, "—")}g fat target</p></article>
+    <div class="metrics daily-metrics" id="daily-metrics">
+      <article class="metric"><b>—</b><span>Loading today’s intake…</span><p>USDA-backed meals appear here after cooking.</p></article>
     </div>`;
+
+  renderDailyNutritionProgress();
 
   document
     .querySelectorAll("[data-go]")
@@ -373,6 +388,62 @@ function renderHome() {
       button.disabled = false;
     }
   };
+}
+
+function localDateKey(date = new Date()) {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
+
+async function renderDailyNutritionProgress() {
+  const root = document.querySelector("#daily-metrics");
+  if (!root || !user) return;
+  const { data, error } = await sb
+    .from("nutrition_logs")
+    .select("calories,protein_g,carbs_g,fat_g")
+    .eq("user_id", user.id)
+    .eq("eaten_on", localDateKey());
+  if (root !== document.querySelector("#daily-metrics")) return;
+  if (error) {
+    root.innerHTML = `<article class="metric"><b>—</b><span>Today’s intake is unavailable</span><p>${esc(error.message)}</p></article>`;
+    return;
+  }
+  const totals = (data || []).reduce(
+    (sum, row) => ({
+      kcal: sum.kcal + finiteNumber(row.calories, 0),
+      protein: sum.protein + finiteNumber(row.protein_g, 0),
+      carbs: sum.carbs + finiteNumber(row.carbs_g, 0),
+      fat: sum.fat + finiteNumber(row.fat_g, 0),
+    }),
+    { kcal: 0, protein: 0, carbs: 0, fat: 0 },
+  );
+  const cards = [
+    [
+      window.I18n.code === "zh-TW" ? "熱量" : "kcal",
+      totals.kcal,
+      finiteNumber(profile?.calorie_target, 0),
+      "kcal",
+    ],
+    [
+      window.I18n.code === "zh-TW" ? "蛋白質" : "protein",
+      totals.protein,
+      finiteNumber(profile?.protein_g, 0),
+      "g",
+    ],
+    [
+      window.I18n.code === "zh-TW" ? "碳水化合物" : "carbs",
+      totals.carbs,
+      finiteNumber(profile?.carbs_g, 0),
+      "g",
+    ],
+  ];
+  root.innerHTML = cards
+    .map(([label, consumed, target, unit], index) => {
+      const percent = target > 0 ? Math.round((consumed / target) * 100) : 0;
+      const clamped = Math.max(0, Math.min(percent, 100));
+      return `<article class="metric progress-metric"><div class="progress-ring" style="--progress:${clamped * 3.6}deg"><b>${Math.round(consumed)}<small>${unit}</small></b></div><span>${label} · ${percent}%</span><p>${Math.round(consumed)} / ${Math.round(target)} ${unit}${index === 2 ? ` · ${Math.round(totals.fat)} g ${window.I18n.code === "zh-TW" ? "脂肪" : "fat"}` : ""}</p></article>`;
+    })
+    .join("");
 }
 
 async function renderPantry() {
