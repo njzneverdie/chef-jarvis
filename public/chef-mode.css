@@ -99,6 +99,10 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 9px;
 }
+.chef-timer.timer-current-step {
+  border-color: color-mix(in srgb, var(--orange) 58%, #fff);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--orange) 12%, transparent);
+}
 .chef-timer > span {
   display: grid;
   grid-template-columns: 20px 1fr;
@@ -117,6 +121,41 @@
 }
 .chef-timer .timer-actions {
   grid-column: 1/-1;
+}
+.current-step-timer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 2px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: #fff8ed;
+  color: var(--orange);
+}
+.current-step-timer b,
+.current-step-timer span {
+  font-size: 12px;
+}
+.current-step-timer span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 800;
+}
+.timer-empty {
+  display: grid;
+  gap: 5px;
+  padding: 18px;
+  border: 1px dashed #d8cbbb;
+  border-radius: 14px;
+  color: var(--muted);
+}
+.timer-empty b {
+  color: var(--green);
+  font-size: 12px;
+}
+.timer-empty span {
+  font-size: 10px;
+  line-height: 1.5;
 }
 .timer-remove {
   background: transparent !important;

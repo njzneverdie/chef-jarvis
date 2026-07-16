@@ -6,6 +6,8 @@ await import("../public/domain.js");
 const {
   calculateTarget,
   tickTimers,
+  normalizeRecipeSteps,
+  buildRecipeTimers,
   normalizeIngredient,
   ingredientPreparation,
   ingredientDetails,
@@ -72,6 +74,72 @@ test("one tick updates countdowns and stopwatches by mode", () => {
   assert.equal(stopwatch.sec, 1);
   assert.equal(stopwatch.running, true);
   assert.deepEqual(result.completed, [countdown]);
+});
+
+test("recipe timers keep their own step and duration", () => {
+  const timers = buildRecipeTimers([
+    {
+      instruction: "Preheat the oven for 2 minutes.",
+      timer: {
+        label: "Preheat oven",
+        kind: "preheat",
+        duration_seconds: 120,
+      },
+    },
+    { instruction: "Season the chicken.", timer: null },
+    {
+      instruction: "Bake until cooked through, about 18 minutes.",
+      timer: { label: "Bake chicken", kind: "bake", duration_seconds: 1080 },
+    },
+  ]);
+
+  assert.deepEqual(
+    timers.map(({ name, duration, stepNumber }) => ({
+      name,
+      duration,
+      stepNumber,
+    })),
+    [
+      { name: "Preheat oven", duration: 120, stepNumber: 1 },
+      { name: "Bake chicken", duration: 1080, stepNumber: 3 },
+    ],
+  );
+});
+
+test("recipe steps never create timers for reading menus or untimed prep", () => {
+  const steps = normalizeRecipeSteps([
+    {
+      instruction: "Read the recipe before cooking.",
+      timer: {
+        label: "Read recipe",
+        kind: "cook",
+        duration_seconds: 300,
+      },
+    },
+    { instruction: "Dice the onion.", timer: null },
+    {
+      instruction: "Bake until browned for 12 minutes.",
+      timer: {
+        label: "Bake casserole",
+        kind: "bake",
+        duration_seconds: 300,
+      },
+    },
+    {
+      instruction: "Simmer the sauce for 8 minutes.",
+      timer: {
+        label: "Simmer sauce",
+        kind: "simmer",
+        duration_seconds: 480,
+      },
+    },
+  ]);
+
+  assert.equal(steps[0].timer, null);
+  assert.equal(steps[1].timer, null);
+  assert.equal(steps[2].timer, null);
+  assert.equal(buildRecipeTimers(steps).length, 1);
+  assert.equal(buildRecipeTimers(steps)[0].name, "Simmer sauce");
 });
 
 test("structured ingredients retain an exact quantity, unit, and preparation", () => {

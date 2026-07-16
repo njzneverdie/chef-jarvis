@@ -58,6 +58,26 @@ type EquipmentAdaptation = {
   why: string;
 };
 type ReuseIdea = { title: string; uses: string[]; why: string };
+const recipeTimerKinds = [
+  "preheat",
+  "cook",
+  "bake",
+  "simmer",
+  "boil",
+  "steam",
+  "rest",
+  "marinate",
+  "chill",
+  "proof",
+  "cool",
+] as const;
+type RecipeTimerKind = (typeof recipeTimerKinds)[number];
+type RecipeTimer = {
+  label: string;
+  kind: RecipeTimerKind;
+  duration_seconds: number;
+};
+type RecipeStep = { instruction: string; timer: RecipeTimer | null };
 type RecipeImage = {
   url: string;
   description_url: string;
@@ -76,7 +96,7 @@ type MealPlan = {
   carbs_g: number;
   fat_g: number;
   ingredients: Ingredient[];
-  steps: string[];
+  steps: RecipeStep[];
   substitutions: Substitution[];
   equipment_adaptations: EquipmentAdaptation[];
   reuse_ideas: ReuseIdea[];
@@ -222,10 +242,68 @@ function specificIngredientName(value: unknown, name: string) {
   return ingredient;
 }
 
+function instructionIncludesDuration(
+  instruction: string,
+  durationSeconds: number,
+) {
+  const matches = instruction.matchAll(
+    /(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|小時|分鐘|秒鐘?|秒)/gi,
+  );
+  for (const match of matches) {
+    const value = Number(match[1]);
+    const unit = match[2].toLowerCase();
+    const multiplier = /^(?:hours?|hrs?|小時)$/.test(unit)
+      ? 3600
+      : /^(?:minutes?|mins?|分鐘)$/.test(unit)
+        ? 60
+        : 1;
+    if (Math.round(value * multiplier) === durationSeconds) return true;
+  }
+  return false;
+}
+
+function recipeStep(value: unknown, index: number): RecipeStep {
+  const step = object(value, `steps[${index}]`);
+  const instruction = text(step.instruction, `steps[${index}].instruction`, 500);
+  if (step.timer === null) return { instruction, timer: null };
+  const timer = object(step.timer, `steps[${index}].timer`);
+  const label = text(timer.label, `steps[${index}].timer.label`, 100);
+  if (
+    /^(?:read|review|look at|check)\b|^(?:閱讀|朗讀|查看|看|檢查)(?:食譜|菜單|步驟)/i.test(
+      label,
+    )
+  )
+    throw new Error(`steps[${index}].timer is not a cooking timer`);
+  const durationSeconds = Math.round(
+    number(
+      timer.duration_seconds,
+      `steps[${index}].timer.duration_seconds`,
+      30,
+      14400,
+    ),
+  );
+  if (!instructionIncludesDuration(instruction, durationSeconds))
+    throw new Error(`steps[${index}].timer must match its instruction`);
+  return {
+    instruction,
+    timer: {
+      label,
+      kind: enumeration(
+        timer.kind,
+        `steps[${index}].timer.kind`,
+        recipeTimerKinds,
+      ),
+      duration_seconds: durationSeconds,
+    },
+  };
+}
+
 function validatePlan(value: unknown): MealPlan {
   const plan = object(value, "plan");
   if (!Array.isArray(plan.ingredients) || plan.ingredients.length < 2)
     throw new Error("ingredients must contain at least two exact items");
+  const steps = array(plan.steps, "steps", 8, recipeStep);
+  if (!steps.length) throw new Error("steps must contain cooking instructions");
   return {
     title: text(plan.title, "title", 120),
     image_query: text(plan.image_query, "image_query", 120),
@@ -266,9 +344,7 @@ function validatePlan(value: unknown): MealPlan {
         ),
       };
     }),
-    steps: array(plan.steps, "steps", 8, (item, index) =>
-      text(item, `steps[${index}]`, 500),
-    ),
+    steps,
     substitutions: array(
       plan.substitutions ?? [],
       "substitutions",
@@ -417,6 +493,19 @@ function fallbackPlan(
     preparation: localized(preparation),
     category,
   });
+  const untimedStep = (instruction: string): RecipeStep => ({
+    instruction,
+    timer: null,
+  });
+  const timedStep = (
+    instruction: string,
+    label: string,
+    kind: RecipeTimerKind,
+    durationSeconds: number,
+  ): RecipeStep => ({
+    instruction,
+    timer: { label, kind, duration_seconds: durationSeconds },
+  });
   let title = localized("Exact vegetable rice bowl");
   let imageQuery = "vegetable chickpea rice bowl";
   let ingredients: Ingredient[];
@@ -558,6 +647,59 @@ function fallbackPlan(
       exact("Ground black pepper", 0.5, "tsp", "no preparation", "seasoning"),
     ];
   }
+  const fallbackSteps: RecipeStep[] = /kung pao/i.test(imageQuery)
+    ? language === "zh-TW"
+      ? [
+          untimedStep("將醬油、米醋、砂糖、芝麻油、水與 1 湯匙玉米澱粉攪拌均勻。"),
+          untimedStep("將切好的主食材與剩餘 1 湯匙玉米澱粉拌勻，所有配料放在爐邊備用。"),
+          timedStep("中大火預熱炒鍋 2 分鐘，再加入 1 湯匙中性食用油。", "預熱炒鍋", "preheat", 120),
+          timedStep("將主食材鋪成單層，持續翻炒 5 分鐘；雞肉版本中心溫度須達 74°C。", "炒熟主食材", "cook", 300),
+          timedStep("盛出主食材，加入剩餘食用油、乾辣椒與花椒，爆香 45 秒。", "爆香辣椒與花椒", "cook", 45),
+          timedStep("加入甜椒、青蔥、蒜末與薑末，再倒回主食材及醬汁，翻炒收汁 2 分鐘。", "宮保醬汁收汁", "simmer", 120),
+        ]
+      : [
+          untimedStep("Whisk the soy sauce, rice vinegar, sugar, sesame oil, water, and 1 tbsp cornstarch until smooth."),
+          untimedStep("Coat the prepared main ingredient with the remaining 1 tbsp cornstarch and place every component beside the stove."),
+          timedStep("Preheat a wok over medium-high heat for 2 minutes, then add 1 tbsp neutral cooking oil.", "Preheat the wok", "preheat", 120),
+          timedStep("Spread the main ingredient in one layer and stir-fry for 5 minutes; for chicken, verify a 74°C center temperature.", "Cook the main ingredient", "cook", 300),
+          timedStep("Transfer it out, add the remaining oil, dried chilies, and Sichuan peppercorns, then cook for 45 seconds.", "Bloom chilies and peppercorns", "cook", 45),
+          timedStep("Add bell pepper, scallions, garlic, and ginger; return the main ingredient, add sauce, and stir until thickened for 2 minutes.", "Thicken the Kung Pao sauce", "simmer", 120),
+        ]
+    : /fried rice/i.test(imageQuery)
+      ? language === "zh-TW"
+        ? [
+            untimedStep("將冷藏米飯撥散；醬油、芝麻油與白胡椒先混合備用。"),
+            timedStep("中大火預熱炒鍋 2 分鐘，再加入一半中性食用油。", "預熱炒鍋", "preheat", 120),
+            timedStep("加入打散雞蛋或準備好的植物性蛋白質，快速翻炒 90 秒後盛出。", "炒熟蛋白質", "cook", 90),
+            timedStep("加入剩餘食用油、胡蘿蔔、青豆與蒜末，翻炒 3 分鐘。", "炒香蔬菜", "cook", 180),
+            timedStep("加入米飯與調味汁，以中大火持續翻炒 4 分鐘，再拌回蛋白質與青蔥。", "炒乾米飯", "cook", 240),
+            untimedStep("試味後以細鹽調整，立即盛盤。"),
+          ]
+        : [
+            untimedStep("Break apart the chilled rice and combine the soy sauce, sesame oil, and white pepper."),
+            timedStep("Preheat a wok over medium-high heat for 2 minutes, then add half of the neutral oil.", "Preheat the wok", "preheat", 120),
+            timedStep("Add the beaten eggs or prepared plant protein, stir quickly for 90 seconds, then transfer out.", "Cook the protein", "cook", 90),
+            timedStep("Add the remaining oil, carrot, peas, and garlic, then stir-fry for 3 minutes.", "Cook the vegetables", "cook", 180),
+            timedStep("Add rice and seasoning sauce, stir-fry over medium-high heat for 4 minutes, then fold in the protein and scallions.", "Fry the rice", "cook", 240),
+            untimedStep("Taste, adjust with the measured salt, and serve immediately."),
+          ]
+      : language === "zh-TW"
+        ? [
+            timedStep("將 180 克長粒白米與 360 毫升水煮滾，轉小火加蓋燜煮 15 分鐘。", "燜煮白飯", "simmer", 900),
+            untimedStep("白飯烹煮時，依食材表切好櫛瓜、甜椒、胡蘿蔔與蒜末。"),
+            timedStep("中火預熱平底鍋 2 分鐘，再加入 1 湯匙橄欖油。", "預熱平底鍋", "preheat", 120),
+            timedStep("加入櫛瓜、甜椒與胡蘿蔔，翻炒 8 分鐘至邊緣上色。", "炒熟蔬菜", "cook", 480),
+            timedStep("加入鷹嘴豆、蒜末、孜然、煙燻紅椒粉與剩餘橄欖油，翻炒 5 分鐘。", "加熱鷹嘴豆", "cook", 300),
+            untimedStep("以檸檬汁、鹽與黑胡椒調味，鋪在白飯上享用。"),
+          ]
+        : [
+            timedStep("Bring 180 g long-grain rice and 360 ml water to a boil, cover, reduce to low heat, and simmer for 15 minutes.", "Simmer the rice", "simmer", 900),
+            untimedStep("While the rice cooks, cut the zucchini, bell pepper, carrot, and garlic as listed."),
+            timedStep("Preheat a skillet over medium heat for 2 minutes, then add 1 tbsp olive oil.", "Preheat the skillet", "preheat", 120),
+            timedStep("Add zucchini, bell pepper, and carrot, then cook for 8 minutes until the edges color.", "Cook the vegetables", "cook", 480),
+            timedStep("Add chickpeas, garlic, cumin, smoked paprika, and the remaining oil, then cook for 5 minutes.", "Warm the chickpeas", "cook", 300),
+            untimedStep("Season with lemon juice, salt, and black pepper, then serve over the rice."),
+          ];
   return {
     title,
     image_query: imageQuery,
@@ -575,24 +717,7 @@ function fallbackPlan(
     carbs_g: Math.max(0, Math.round((profile.carbs_g || 180) / 3)),
     fat_g: Math.max(0, Math.round((profile.fat_g || 60) / 3)),
     ingredients,
-    steps:
-      language === "zh-TW"
-        ? [
-            "開火前先讀完整份食譜，並量好每一項食材。",
-            "依食材表的前處理說明，將蛋白質與蔬菜切成大小一致的形狀。",
-            "先開始最耗時的工作，例如煮飯或預熱設備。",
-            "將主要蛋白質加熱至安全熟度，必要時先盛出備用。",
-            "炒香辛香料與蔬菜，逐步加入醬汁，混合後試味道。",
-            "盛盤享用，剩餘料理請盡快冷藏。",
-          ]
-        : [
-            "Read the recipe and measure every ingredient before applying heat.",
-            "Cut protein and vegetables into even pieces.",
-            "Start the longest task first, such as rice or preheating.",
-            "Cook the protein until safely done and set it aside if needed.",
-            "Cook aromatics and vegetables, add sauce gradually, then combine and taste.",
-            "Plate the meal and refrigerate leftovers promptly.",
-          ],
+    steps: fallbackSteps,
     substitutions: [],
     equipment_adaptations: [],
     reuse_ideas: [],
@@ -848,13 +973,22 @@ Ingredient accuracy is mandatory:
 - category must be exactly one of: protein, produce, grain, dairy, seasoning, oil, other.
 - Quantities must match the stated servings, and every ingredient named in a cooking step must appear in the ingredient list.
 
-Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact finished dish name in English","summary":"string","minutes":number,"servings":number,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,"ingredients":[{"name":"string","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other"}],"steps":["string"],"substitutions":[{"from":"string","to":"string","reason":"string"}],"equipment_adaptations":[{"original":"string","alternative":"string","instructions":"string","why":"string"}],"reuse_ideas":[{"title":"string","uses":["string"],"why":"string"}]}. Limit to 24 ingredients, 8 steps, 4 substitutions and 4 reuse ideas. User request: ${meal}. Server-verified profile: ${JSON.stringify(profile)}. Server-verified pantry: ${JSON.stringify(pantry)}`;
+Cooking-step timer accuracy is mandatory:
+- Every steps item must contain one instruction and either one genuinely useful cooking timer or null.
+- Set timer to null for reading the recipe, gathering or measuring ingredients, chopping, plating, serving, tasting, cleaning, or any other task that does not require a clock.
+- Add a timer only when the cook must track a real heat or waiting interval: preheating, cooking, baking, simmering, boiling, steaming, resting, marinating, chilling, proofing, or cooling.
+- The instruction must state the same exact duration as timer.duration_seconds. Never invent a default duration and never add a timer merely so every step has one.
+- If a procedure needs two different clocks, split it into two separate steps so every timer has one unambiguous instruction.
+- timer.kind must be exactly one of: preheat, cook, bake, simmer, boil, steam, rest, marinate, chill, proof, cool.
+- timer.label must name the actual timed cooking action, never "read recipe", "review menu", or similar busywork.
+
+Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact finished dish name in English","summary":"string","minutes":number,"servings":number,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,"ingredients":[{"name":"string","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other"}],"steps":[{"instruction":"string","timer":null|{"label":"string","kind":"preheat|cook|bake|simmer|boil|steam|rest|marinate|chill|proof|cool","duration_seconds":number}}],"substitutions":[{"from":"string","to":"string","reason":"string"}],"equipment_adaptations":[{"original":"string","alternative":"string","instructions":"string","why":"string"}],"reuse_ideas":[{"title":"string","uses":["string"],"why":"string"}]}. Limit to 24 ingredients, 8 steps, 4 substitutions and 4 reuse ideas. User request: ${meal}. Server-verified profile: ${JSON.stringify(profile)}. Server-verified pantry: ${JSON.stringify(pantry)}`;
     const geminiBody = JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0.25,
         responseMimeType: "application/json",
-        maxOutputTokens: 2600,
+        maxOutputTokens: 3200,
       },
     });
 

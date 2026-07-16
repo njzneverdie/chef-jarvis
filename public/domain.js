@@ -71,6 +71,93 @@
     return { changed, completed };
   }
 
+  const recipeTimerKinds = new Set([
+    "preheat",
+    "cook",
+    "bake",
+    "simmer",
+    "boil",
+    "steam",
+    "rest",
+    "marinate",
+    "chill",
+    "proof",
+    "cool",
+  ]);
+
+  function instructionIncludesDuration(instruction, durationSeconds) {
+    const matches = instruction.matchAll(
+      /(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|小時|分鐘|秒鐘?|秒)/gi,
+    );
+    for (const match of matches) {
+      const value = Number(match[1]);
+      const unit = match[2].toLowerCase();
+      const multiplier = /^(?:hours?|hrs?|小時)$/.test(unit)
+        ? 3600
+        : /^(?:minutes?|mins?|分鐘)$/.test(unit)
+          ? 60
+          : 1;
+      if (Math.round(value * multiplier) === durationSeconds) return true;
+    }
+    return false;
+  }
+
+  function normalizeRecipeSteps(steps) {
+    if (!Array.isArray(steps)) return [];
+    return steps
+      .slice(0, 8)
+      .map((step) => {
+        if (typeof step === "string") {
+          const instruction = step.trim();
+          return instruction ? { instruction, timer: null } : null;
+        }
+        if (!step || typeof step !== "object") return null;
+        const instruction = String(step.instruction || "").trim();
+        if (!instruction) return null;
+        if (!step.timer || typeof step.timer !== "object") {
+          return { instruction, timer: null };
+        }
+        const label = String(step.timer.label || "").trim();
+        const kind = String(step.timer.kind || "").trim();
+        const duration = Math.round(Number(step.timer.duration_seconds));
+        const isFakeTask = /^(?:read|review|look at|check)\b|^(?:閱讀|朗讀|查看|看|檢查)(?:食譜|菜單|步驟)/i.test(
+          label,
+        );
+        const timer =
+          label &&
+          recipeTimerKinds.has(kind) &&
+          Number.isFinite(duration) &&
+          duration >= 30 &&
+          duration <= 14400 &&
+          instructionIncludesDuration(instruction, duration) &&
+          !isFakeTask
+            ? { label, kind, duration_seconds: duration }
+            : null;
+        return { instruction, timer };
+      })
+      .filter(Boolean);
+  }
+
+  function buildRecipeTimers(steps) {
+    return normalizeRecipeSteps(steps).flatMap((step, stepIndex) => {
+      if (!step.timer) return [];
+      return [
+        {
+          name: step.timer.label,
+          sec: step.timer.duration_seconds,
+          duration: step.timer.duration_seconds,
+          mode: "countdown",
+          running: false,
+          completed: false,
+          source: "recipe",
+          stepIndex,
+          stepNumber: stepIndex + 1,
+          timerKind: step.timer.kind,
+        },
+      ];
+    });
+  }
+
   function normalizeIngredient(item = {}) {
     const name = String(item.name || "Ingredient").trim() || "Ingredient";
     const rawQuantity = item.quantity;
@@ -141,6 +228,8 @@
   root.ChefDomain = Object.freeze({
     calculateTarget,
     tickTimers,
+    normalizeRecipeSteps,
+    buildRecipeTimers,
     normalizeIngredient,
     ingredientPreparation,
     ingredientDetails,

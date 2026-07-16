@@ -224,16 +224,26 @@
     "DO THIS NOW": "現在請做",
     "Keep the timers running while you work. Your progress survives a refresh.":
       "操作時可以讓計時器持續運作，重新整理後進度也會保留。",
+    "Only real cooking and waiting times become recipe countdowns. Your progress survives a refresh.":
+      "只有真正的烹煮與等待時間才會建立食譜倒數；重新整理後進度仍會保留。",
     "← Previous": "← 上一步",
     "↻ Repeat": "↻ 重複朗讀",
     "Complete step →": "完成這一步 →",
     "Finish dish ✓": "完成料理 ✓",
     "RECIPE QUEUE": "料理步驟",
     "PARALLEL TASKS": "同步工作",
+    "RECIPE TIMERS": "食譜計時器",
     "Kitchen clocks": "廚房計時器",
     "＋ Add clock": "＋ 新增計時器",
     "Countdowns alert you with sound, a notification, and a visual state. Stopwatches count up independently.":
       "倒數結束會以聲音、通知與畫面提示；碼表則獨立向上計時。",
+    "Jarvis adds countdowns only for real cooking or waiting intervals. You can add a separate clock when needed.":
+      "Jarvis 只會為真正的烹煮或等待時間加入倒數；需要時仍可自行新增計時器。",
+    "No recipe countdown is needed.": "這份食譜不需要自動倒數。",
+    "This recipe has no timed heat or waiting step. Add a clock only if you need one.":
+      "這份食譜沒有需要計時的加熱或等待步驟；只有需要時才自行新增計時器。",
+    Finished: "已完成",
+    "Recipe countdown": "食譜倒數",
     "ADD A KITCHEN CLOCK": "新增廚房計時器",
     "Track another task.": "追蹤另一項工作。",
     "Task name": "工作名稱",
@@ -304,6 +314,7 @@
     [/^(\d+) item selected$/, "已選擇 $1 項食材"],
     [/^(\d+) clear cooking steps$/, "$1 個清楚的料理步驟"],
     [/^STEP (\d+) \/ (\d+)$/, "步驟 $1 / $2"],
+    [/^Step (\d+) · Recipe countdown$/, "步驟 $1 · 食譜倒數"],
     [/^(\d+) min · (\d+) servings$/, "$1 分鐘 · $2 人份"],
     [/^◷ (.+) min · ◌ (.+) servings$/, "◷ $1 分鐘 · ◌ $2 人份"],
     [/^Whole recipe \((.+) servings\)\.$/, "整份食譜（$1 人份）。"],

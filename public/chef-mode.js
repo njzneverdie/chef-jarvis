@@ -8,6 +8,7 @@ let wakeLock = null;
 let lastTimerTick = Date.now();
 let titleFlashInterval = null;
 let alarmAudioContext = null;
+let recipeTimersInitialized = false;
 
 const fallbackCookingSteps = [
   "Prepare and measure every ingredient before turning on the heat.",
@@ -31,6 +32,7 @@ function persistCookingState() {
       activeRecipeId,
       cookingStepIndex,
       timers,
+      recipeTimersInitialized,
       savedAt: Date.now(),
     }),
   );
@@ -55,6 +57,14 @@ function restoreCookingState() {
           running: Boolean(timer.running),
         }))
       : [];
+    recipeTimersInitialized = Boolean(saved.recipeTimersInitialized);
+    if (!recipeTimersInitialized) {
+      timers = timers.filter(
+        (timer) => timer.source || !/^Step \d+:/i.test(timer.name || ""),
+      );
+      timers.push(...window.ChefDomain.buildRecipeTimers(activeRecipe.steps));
+      recipeTimersInitialized = true;
+    }
     const elapsed = Math.max(
       0,
       Math.floor((Date.now() - finiteNumber(saved.savedAt, Date.now())) / 1000),
@@ -83,6 +93,7 @@ function clearCookingState() {
   activeRecipeId = null;
   cookingStepIndex = 0;
   timers = [];
+  recipeTimersInitialized = false;
 }
 
 async function requestWakeLock() {
@@ -184,6 +195,10 @@ function renderPlan(query) {
         saved_recipe_id: query.saved_recipe_id || null,
       }
     : recipeFor(typeof query === "string" ? query : undefined);
+  recipe.steps = window.ChefDomain.normalizeRecipeSteps(recipe.steps);
+  if (!recipe.steps.length) {
+    recipe.steps = window.ChefDomain.normalizeRecipeSteps(fallbackCookingSteps);
+  }
   const ingredients = recipe.ingredients.length
     ? recipe.ingredients
     : [
@@ -227,7 +242,7 @@ function renderPlan(query) {
       })
       .join(
         "",
-      )}</article><article class="card step-guide"><p class="eyebrow">HOW JARVIS WILL GUIDE YOU</p><h2>${recipe.steps.length} clear cooking steps</h2><ol>${recipe.steps.map((step) => `<li>${esc(step)}</li>`).join("")}</ol></article></div>
+      )}</article><article class="card step-guide"><p class="eyebrow">HOW JARVIS WILL GUIDE YOU</p><h2>${recipe.steps.length} clear cooking steps</h2><ol>${recipe.steps.map((step) => `<li>${esc(step.instruction)}</li>`).join("")}</ol></article></div>
     <article class="reuse card"><p class="eyebrow">SHOP ONCE, COOK MORE</p><h2>Ideas using your remaining ingredients.</h2><div class="swipe-list">${reuse
       .slice(0, 3)
       .map(
@@ -240,7 +255,8 @@ function renderPlan(query) {
   document.querySelector("#start-guided-cook").onclick = () => {
     activeRecipe = { ...recipe, ingredients, saved_recipe_id: activeRecipeId };
     cookingStepIndex = 0;
-    timers = [];
+    timers = window.ChefDomain.buildRecipeTimers(recipe.steps);
+    recipeTimersInitialized = true;
     persistCookingState();
     renderCook();
     show("cook");
@@ -698,27 +714,18 @@ function renderCook() {
     steps: fallbackCookingSteps,
     equipment_adaptations: chefEquipmentAdaptations,
   };
-  const steps = recipe.steps?.length ? recipe.steps : fallbackCookingSteps;
+  const steps = window.ChefDomain.normalizeRecipeSteps(
+    recipe.steps?.length ? recipe.steps : fallbackCookingSteps,
+  );
   const adaptations = recipe.equipment_adaptations?.length
     ? recipe.equipment_adaptations
     : chefEquipmentAdaptations;
   cookingStepIndex = Math.max(0, Math.min(cookingStepIndex, steps.length - 1));
-  if (!timers.length)
-    timers = steps.slice(0, 3).map((step, index) => {
-      const duration = [300, 480, 300][index] || 300;
-      return {
-        name: `Step ${index + 1}: ${step.slice(0, 34)}${step.length > 34 ? "…" : ""}`,
-        sec: duration,
-        duration,
-        mode: "countdown",
-        running: false,
-        completed: false,
-      };
-    });
-  const current = steps[cookingStepIndex];
+  const currentStep = steps[cookingStepIndex];
+  const current = currentStep.instruction;
   document.querySelector("#cook").innerHTML = `
     <div class="chef-mode-heading"><div><p class="eyebrow">CHEF MODE · ${activeRecipe ? "ACTIVE RECIPE" : "READY"}</p><h1>${esc(recipe.title)}<br><em>cook with Jarvis.</em></h1></div><button class="cream" id="chef-read">🔊 Read current step</button></div>
-    <div class="chef-mode-grid"><section class="chef-guide"><div class="chef-step-counter"><span>STEP ${cookingStepIndex + 1} / ${steps.length}</span><div>${steps.map((_, index) => `<i class="${index < cookingStepIndex ? "done" : index === cookingStepIndex ? "now" : ""}"></i>`).join("")}</div></div><article class="current-step chef-current"><span>DO THIS NOW</span><h2>${esc(current)}</h2><p>Keep the timers running while you work. Your progress survives a refresh.</p></article><div class="guide-actions"><button class="cream" id="previous-step" ${cookingStepIndex === 0 ? "disabled" : ""}>← Previous</button><button class="cream" id="repeat-step">↻ Repeat</button><button class="dark" id="complete-step">${cookingStepIndex === steps.length - 1 ? "Finish dish ✓" : "Complete step →"}</button></div><div class="chef-queue"><p class="eyebrow">RECIPE QUEUE</p>${steps.map((step, index) => `<button class="${index === cookingStepIndex ? "current" : index < cookingStepIndex ? "done" : ""}" data-jump-step="${index}"><b>${index < cookingStepIndex ? "✓" : index + 1}</b><span>${esc(step)}</span></button>`).join("")}</div>${
+    <div class="chef-mode-grid"><section class="chef-guide"><div class="chef-step-counter"><span>STEP ${cookingStepIndex + 1} / ${steps.length}</span><div>${steps.map((_, index) => `<i class="${index < cookingStepIndex ? "done" : index === cookingStepIndex ? "now" : ""}"></i>`).join("")}</div></div><article class="current-step chef-current"><span>DO THIS NOW</span><h2>${esc(current)}</h2>${currentStep.timer ? `<div class="current-step-timer"><b>⏱ ${esc(currentStep.timer.label)}</b><span>${formatTime(currentStep.timer.duration_seconds)}</span></div>` : ""}<p>Only real cooking and waiting times become recipe countdowns. Your progress survives a refresh.</p></article><div class="guide-actions"><button class="cream" id="previous-step" ${cookingStepIndex === 0 ? "disabled" : ""}>← Previous</button><button class="cream" id="repeat-step">↻ Repeat</button><button class="dark" id="complete-step">${cookingStepIndex === steps.length - 1 ? "Finish dish ✓" : "Complete step →"}</button></div><div class="chef-queue"><p class="eyebrow">RECIPE QUEUE</p>${steps.map((step, index) => `<button class="${index === cookingStepIndex ? "current" : index < cookingStepIndex ? "done" : ""}" data-jump-step="${index}"><b>${index < cookingStepIndex ? "✓" : index + 1}</b><span>${esc(step.instruction)}</span></button>`).join("")}</div>${
       adaptations.length
         ? `<div class="chef-adaptation-inline"><p class="eyebrow">YOUR EQUIPMENT OPTION</p>${adaptations
             .slice(0, 2)
@@ -729,7 +736,7 @@ function renderCook() {
             .join("")}</div>`
         : ""
     }</section>
-      <aside class="timers chef-timers"><div class="timer-head"><div><p class="eyebrow">PARALLEL TASKS</p><h2>Kitchen clocks</h2></div><button class="dark" id="add-timer">＋ Add clock</button></div><p class="timer-note">Countdowns alert you with sound, a notification, and a visual state. Stopwatches count up independently.</p><div class="timer-list" id="timer-list"></div></aside></div>`;
+      <aside class="timers chef-timers"><div class="timer-head"><div><p class="eyebrow">RECIPE TIMERS</p><h2>Kitchen clocks</h2></div><button class="dark" id="add-timer">＋ Add clock</button></div><p class="timer-note">Jarvis adds countdowns only for real cooking or waiting intervals. You can add a separate clock when needed.</p><div class="timer-list" id="timer-list"></div></aside></div>`;
   document.querySelector("#chef-read").onclick = () => sayInstruction(current);
   document.querySelector("#previous-step").onclick = () => {
     cookingStepIndex--;
@@ -791,6 +798,7 @@ function openClockModal() {
       mode,
       running: false,
       completed: false,
+      source: "manual",
     });
     modal.remove();
     persistCookingState();
@@ -805,10 +813,14 @@ function formatTime(seconds) {
 function renderTimerList() {
   const list = document.querySelector("#timer-list");
   if (!list) return;
+  if (!timers.length) {
+    list.innerHTML = `<div class="timer-empty"><b>No recipe countdown is needed.</b><span>This recipe has no timed heat or waiting step. Add a clock only if you need one.</span></div>`;
+    return;
+  }
   list.innerHTML = timers
     .map(
       (timer, index) =>
-        `<article class="timer chef-timer ${timer.completed ? "timer-complete" : ""}"><span><i>${timer.completed ? "✓" : timer.mode === "stopwatch" ? "◷" : "◴"}</i>${esc(timer.name)}<small>${timer.completed ? "Finished" : timer.mode === "stopwatch" ? "Stopwatch" : "Countdown"}</small></span><b>${formatTime(timer.sec)}</b><div class="timer-actions"><button data-start="${index}">${timer.completed ? "Restart" : timer.running ? "Pause" : "Start"}</button><button data-reset="${index}">Reset</button><button class="timer-remove" data-remove="${index}" aria-label="Remove clock">×</button></div></article>`,
+        `<article class="timer chef-timer ${timer.completed ? "timer-complete" : ""} ${timer.stepIndex === cookingStepIndex ? "timer-current-step" : ""}"><span><i>${timer.completed ? "✓" : timer.mode === "stopwatch" ? "◷" : "◴"}</i>${esc(timer.name)}<small>${timer.completed ? "Finished" : timer.mode === "stopwatch" ? "Stopwatch" : timer.stepNumber ? `Step ${timer.stepNumber} · Recipe countdown` : "Countdown"}</small></span><b>${formatTime(timer.sec)}</b><div class="timer-actions"><button data-start="${index}">${timer.completed ? "Restart" : timer.running ? "Pause" : "Start"}</button><button data-reset="${index}">Reset</button><button class="timer-remove" data-remove="${index}" aria-label="Remove clock">×</button></div></article>`,
     )
     .join("");
   list.querySelectorAll("[data-start]").forEach(
