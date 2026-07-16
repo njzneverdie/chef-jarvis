@@ -14,6 +14,8 @@ let planRenderVersion = 0;
 let usdaRenderVersion = 0;
 let speechRecognition = null;
 let voiceListening = false;
+let voicePausedForSpeech = false;
+let speechSequence = 0;
 
 const fallbackCookingSteps = [
   "Prepare and measure every ingredient before turning on the heat.",
@@ -136,11 +138,33 @@ document.addEventListener("visibilitychange", () => {
 
 function sayInstruction(text) {
   if (!("speechSynthesis" in window)) return toast(text);
+  const sequence = ++speechSequence;
+  const shouldResumeVoice = voiceListening && Boolean(speechRecognition);
+  voicePausedForSpeech = shouldResumeVoice;
+  if (shouldResumeVoice) {
+    try {
+      speechRecognition.stop();
+    } catch {
+      // Recognition may already be between sessions.
+    }
+  }
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = /[\u3400-\u9fff]/.test(text)
     ? "zh-TW"
     : document.documentElement.lang || navigator.language || "en-US";
+  const resumeRecognition = () => {
+    if (sequence !== speechSequence) return;
+    voicePausedForSpeech = false;
+    if (!shouldResumeVoice || !voiceListening) return;
+    try {
+      speechRecognition.start();
+    } catch {
+      // Recognition may have resumed through the browser already.
+    }
+  };
+  utterance.onend = resumeRecognition;
+  utterance.onerror = resumeRecognition;
   window.speechSynthesis.speak(utterance);
 }
 
@@ -1098,16 +1122,20 @@ async function renderShoppingLists() {
       const items = list.shopping_list_items || [];
       const allChecked =
         items.length > 0 && items.every((item) => item.is_checked);
-      const displayItems = items.map((item) => ({
-        ...item,
-        grocery: window.ChefDomain.normalizeGroceryItem({
+      const displayItems = items.map((item) => {
+        const grocery = window.ChefDomain.normalizeGroceryItem({
           name: item.ingredient,
           quantity: item.quantity,
           unit: item.unit,
           category: item.category,
-        }),
-      }));
-      return `<article class="card saved-shopping-list" data-list-id="${esc(list.id)}" data-list-index="${listIndex}"><div class="saved-shopping-head"><div><p class="eyebrow">${items.filter((item) => item.is_checked).length} OF ${items.length} PICKED</p><h2>${esc(window.I18n.translate(list.title))}</h2><small>${esc(displayDate(list.created_at))}</small></div><button class="timer-remove" data-delete-list="${esc(list.id)}" aria-label="Delete list">×</button></div><div class="saved-shopping-items">${displayItems.map((item) => `<label class="${item.is_checked ? "checked" : ""}"><input type="checkbox" data-list-item="${esc(item.id)}" ${item.is_checked ? "checked" : ""}><span class="shopping-box">✓</span><b>${esc(item.grocery.name)}</b><small>${item.grocery.quantity == null ? window.I18n.translate("Quantity not specified") : `${esc(item.grocery.quantity)} ${esc(displayShoppingUnit(item.grocery.unit, item.grocery.quantity))}`}</small></label>`).join("")}</div><button class="dark stock-pantry" data-stock-list="${listIndex}" ${allChecked && list.status !== "completed" ? "" : "disabled"}>${list.status === "completed" ? "Added to pantry ✓" : "Add all purchased items to pantry →"}</button></article>`;
+        });
+        return {
+          ...item,
+          grocery,
+          measurement: window.ChefDomain.groceryDisplayMeasurement(grocery),
+        };
+      });
+      return `<article class="card saved-shopping-list" data-list-id="${esc(list.id)}" data-list-index="${listIndex}"><div class="saved-shopping-head"><div><p class="eyebrow">${items.filter((item) => item.is_checked).length} OF ${items.length} PICKED</p><h2>${esc(window.I18n.translate(list.title))}</h2><small>${esc(displayDate(list.created_at))}</small></div><button class="timer-remove" data-delete-list="${esc(list.id)}" aria-label="Delete list">×</button></div><div class="saved-shopping-items">${displayItems.map((item) => `<label class="${item.is_checked ? "checked" : ""}"><input type="checkbox" data-list-item="${esc(item.id)}" ${item.is_checked ? "checked" : ""}><span class="shopping-box">✓</span><b>${esc(item.grocery.name)}</b><small>${item.measurement.quantity == null ? window.I18n.translate("Quantity not specified") : `${esc(item.measurement.quantity)} ${esc(displayShoppingUnit(item.measurement.unit, item.measurement.quantity))}`}</small></label>`).join("")}</div><button class="dark stock-pantry" data-stock-list="${listIndex}" ${allChecked && list.status !== "completed" ? "" : "disabled"}>${list.status === "completed" ? "Added to pantry ✓" : "Add all purchased items to pantry →"}</button></article>`;
     })
     .join("")}</div>`;
   container.querySelectorAll("[data-list-item]").forEach(
@@ -1219,7 +1247,7 @@ async function renderUsdaReference(recipe) {
     .querySelector("#plan .shopping-checklist")
     .insertAdjacentElement("afterend", card);
   const lookupIngredients = ingredients
-    .map(window.ChefDomain.normalizeIngredient)
+    .map(window.ChefDomain.normalizeGroceryItem)
     .filter((item) => item.usda_query || !/[\u3400-\u9fff]/.test(item.name));
   if (!lookupIngredients.length) {
     card.innerHTML =
@@ -1384,18 +1412,35 @@ function recipeNutritionPerServing(recipe) {
   };
 }
 
-async function logCompletedMeal(recipe) {
-  const nutrition = recipeNutritionPerServing(recipe);
-  const { error } = await sb.from("nutrition_logs").insert({
-    user_id: user.id,
-    app_user_id: user.id,
-    recipe_id: recipe.saved_recipe_id || null,
-    recipe_title: String(recipe.title || "Completed meal").slice(0, 160),
-    servings_eaten: 1,
-    ...nutrition,
-  });
+function nutritionForServings(recipe, servingsEaten = 1) {
+  const servings = Math.max(0.25, finiteNumber(servingsEaten, 1));
+  const perServing = recipeNutritionPerServing(recipe);
+  return {
+    calories: perServing.calories * servings,
+    protein_g: perServing.protein_g * servings,
+    carbs_g: perServing.carbs_g * servings,
+    fat_g: perServing.fat_g * servings,
+    nutrition_source: perServing.nutrition_source,
+    usda_coverage: perServing.usda_coverage,
+    servings_eaten: servings,
+  };
+}
+
+async function logCompletedMeal(recipe, servingsEaten = 1) {
+  const { data, error } = await sb
+    .from("nutrition_logs")
+    .insert({
+      user_id: user.id,
+      app_user_id: user.id,
+      recipe_id: recipe.saved_recipe_id || null,
+      recipe_title: String(recipe.title || "Completed meal").slice(0, 160),
+      eaten_on: localDateKey(),
+      ...nutritionForServings(recipe, servingsEaten),
+    })
+    .select("id")
+    .single();
   if (error) console.warn("Could not log completed meal", error);
-  return !error;
+  return error ? null : data.id;
 }
 
 async function deductRecipeFromPantry(recipe) {
@@ -1440,16 +1485,43 @@ async function deductRecipeFromPantry(recipe) {
   return updated;
 }
 
-function openMealFeedback(recipe) {
+function openMealFeedback(recipe, nutritionLogPromise) {
   const modal = document.createElement("div");
   modal.className = "modal meal-feedback-modal";
-  modal.innerHTML = `<form class="modal-card feedback-card"><p class="eyebrow">HELP JARVIS LEARN</p><h2>How did this meal taste?</h2><p>One quick rating helps future recipes fit you better.</p><div class="rating-row" role="radiogroup" aria-label="Meal rating">${[1, 2, 3, 4, 5].map((rating) => `<label><input type="radio" name="rating" value="${rating}" required><span>${rating}★</span></label>`).join("")}</div><div class="field"><label>Optional note</label><input name="note" maxlength="300" placeholder="e.g. Less spicy next time"></div><div class="form-actions"><button type="button" class="cream" data-feedback-skip>Skip</button><button class="dark">Save feedback →</button></div></form>`;
+  const recipeServings = Math.max(1, finiteNumber(recipe.servings, 1));
+  modal.innerHTML = `<form class="modal-card feedback-card"><p class="eyebrow">HELP JARVIS LEARN</p><h2>How did this meal taste?</h2><p>One quick rating helps future recipes fit you better.</p><div class="field"><label>Servings you ate</label><input name="servings_eaten" type="number" min="0.25" max="${recipeServings}" step="0.25" value="1" required><small>Nutrition starts at one serving. Change this if you ate more.</small></div><div class="rating-row" role="radiogroup" aria-label="Meal rating">${[1, 2, 3, 4, 5].map((rating) => `<label><input type="radio" name="rating" value="${rating}" required><span>${rating}★</span></label>`).join("")}</div><div class="field"><label>Optional note</label><input name="note" maxlength="300" placeholder="e.g. Less spicy next time"></div><div class="form-actions"><button type="button" class="cream" data-feedback-skip>Skip rating</button><button type="submit" class="dark">Save feedback →</button></div></form>`;
   document.body.append(modal);
   const close = bindDismissibleModal(modal);
-  modal.querySelector("[data-feedback-skip]").onclick = close;
+  const form = modal.querySelector("form");
+  const updateLoggedServings = async (rawValue) => {
+    const servingsEaten = Math.max(
+      0.25,
+      Math.min(recipeServings, finiteNumber(rawValue, 1)),
+    );
+    const nutritionLogId = await nutritionLogPromise;
+    if (!nutritionLogId || servingsEaten === 1) return;
+    const { error } = await sb
+      .from("nutrition_logs")
+      .update(nutritionForServings(recipe, servingsEaten))
+      .eq("id", nutritionLogId)
+      .eq("user_id", user.id);
+    if (error) console.warn("Could not update meal servings", error);
+    else renderDailyNutritionProgress();
+  };
+  modal.querySelector("[data-feedback-skip]").onclick = () => {
+    const servingsEaten = new FormData(form).get("servings_eaten");
+    close();
+    updateLoggedServings(servingsEaten);
+  };
   modal.querySelector("form").onsubmit = async (event) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
+    const saveButton = event.currentTarget.querySelector(
+      'button[type="submit"]',
+    );
+    saveButton.disabled = true;
+    saveButton.textContent = "Saving…";
+    await updateLoggedServings(values.get("servings_eaten"));
     const { error } = await sb.from("recipe_feedback").insert({
       user_id: user.id,
       recipe_id: recipe.saved_recipe_id || null,
@@ -1460,7 +1532,11 @@ function openMealFeedback(recipe) {
           .trim()
           .slice(0, 300) || null,
     });
-    if (error) return toast(error.message);
+    if (error) {
+      saveButton.disabled = false;
+      saveButton.textContent = "Save feedback →";
+      return toast(error.message);
+    }
     close();
     toast("Thanks — Jarvis will remember this for future meals ✓");
   };
@@ -1471,16 +1547,17 @@ async function completeCooking(recipe) {
   clearCookingState();
   releaseWakeLock();
   renderCook();
-  const [logged, pantryCount] = await Promise.all([
-    logCompletedMeal(recipe),
-    deductRecipeFromPantry(recipe),
-  ]);
-  if (logged) renderDailyNutritionProgress();
-  if (pantryCount)
-    toast(
-      `${pantryCount} pantry item${pantryCount === 1 ? "" : "s"} updated ✓`,
-    );
-  openMealFeedback(recipe);
+  const nutritionLogPromise = logCompletedMeal(recipe);
+  openMealFeedback(recipe, nutritionLogPromise);
+  nutritionLogPromise.then((logId) => {
+    if (logId) renderDailyNutritionProgress();
+  });
+  deductRecipeFromPantry(recipe).then((pantryCount) => {
+    if (pantryCount)
+      toast(
+        `${pantryCount} pantry item${pantryCount === 1 ? "" : "s"} updated ✓`,
+      );
+  });
 }
 
 function updateVoiceButton() {
@@ -1518,8 +1595,6 @@ function handleVoiceCommand(transcript) {
     )
   ) {
     if (timer?.running) timerButton?.click();
-  } else {
-    toast(`Voice command not recognized: ${transcript}`);
   }
 }
 
@@ -1533,6 +1608,7 @@ function startVoiceControl() {
     speechRecognition.continuous = true;
     speechRecognition.interimResults = false;
     speechRecognition.onresult = (event) => {
+      if (voicePausedForSpeech) return;
       const result = event.results[event.results.length - 1];
       handleVoiceCommand(result?.[0]?.transcript || "");
     };
@@ -1544,7 +1620,7 @@ function startVoiceControl() {
       }
     };
     speechRecognition.onend = () => {
-      if (!voiceListening) return;
+      if (!voiceListening || voicePausedForSpeech) return;
       setTimeout(() => {
         try {
           speechRecognition.start();
@@ -1556,6 +1632,7 @@ function startVoiceControl() {
     };
   }
   speechRecognition.lang = window.I18n.code === "zh-TW" ? "zh-TW" : "en-US";
+  voicePausedForSpeech = false;
   voiceListening = true;
   try {
     speechRecognition.start();
@@ -1568,6 +1645,7 @@ function startVoiceControl() {
 
 function stopVoiceControl() {
   voiceListening = false;
+  voicePausedForSpeech = false;
   try {
     speechRecognition?.stop();
   } catch {

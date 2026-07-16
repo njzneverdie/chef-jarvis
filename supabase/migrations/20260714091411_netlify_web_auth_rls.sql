@@ -1,0 +1,2 @@
+-- Historical migration marker. Its final RLS policies are consolidated in
+-- 20260714072829_create_chef_jarvis_core.sql for reproducible rebuilds.

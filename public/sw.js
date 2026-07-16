@@ -1,4 +1,4 @@
-const CACHE = "chef-jarvis-product-loops-v3";
+const CACHE = "chef-jarvis-20260716-review4";
 const SUPABASE_CDN =
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.5/dist/umd/supabase.min.js";
 const SUPABASE_INTEGRITY =
@@ -6,19 +6,19 @@ const SUPABASE_INTEGRITY =
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=20260716-product-loops",
-  "/guided-cooking.css?v=20260716-product-loops",
-  "/chef-mode.css?v=20260716-product-loops",
-  "/shopping-list.css?v=20260716-product-loops",
-  "/usda-reference.css?v=20260716-product-loops",
-  "/personalized-swaps.css?v=20260716-product-loops",
-  "/plan-persistence.css?v=20260716-product-loops",
-  "/shopping-page.css?v=20260716-product-loops",
-  "/product-features.css?v=20260716-product-loops",
-  "/i18n.js?v=20260716-product-loops",
-  "/domain.js?v=20260716-product-loops",
-  "/app.js?v=20260716-product-loops",
-  "/chef-mode.js?v=20260716-product-loops",
+  "/styles.css?v=20260716-review4",
+  "/guided-cooking.css?v=20260716-review4",
+  "/chef-mode.css?v=20260716-review4",
+  "/shopping-list.css?v=20260716-review4",
+  "/usda-reference.css?v=20260716-review4",
+  "/personalized-swaps.css?v=20260716-review4",
+  "/plan-persistence.css?v=20260716-review4",
+  "/shopping-page.css?v=20260716-review4",
+  "/product-features.css?v=20260716-review4",
+  "/i18n.js?v=20260716-review4",
+  "/domain.js?v=20260716-review4",
+  "/app.js?v=20260716-review4",
+  "/chef-mode.js?v=20260716-review4",
   "/manifest.webmanifest",
   "/chef-jarvis-icon.svg",
 ];

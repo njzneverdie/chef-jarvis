@@ -1,0 +1,2 @@
+-- Historical migration marker. The consolidated baseline intentionally omits
+-- the removed financial-mode fields.

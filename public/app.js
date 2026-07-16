@@ -27,6 +27,7 @@ const finiteNumber = (value, fallback = null) => {
 };
 
 const calculateTarget = window.ChefDomain.calculateTarget;
+const localDateKey = window.ChefDomain.localDateKey;
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
@@ -388,11 +389,6 @@ function renderHome() {
       button.disabled = false;
     }
   };
-}
-
-function localDateKey(date = new Date()) {
-  const offset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
 }
 
 async function renderDailyNutritionProgress() {

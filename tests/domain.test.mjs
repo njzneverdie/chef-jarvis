@@ -15,8 +15,10 @@ const {
   ingredientDetails,
   convertQuantity,
   mergeGroceryItems,
+  groceryDisplayMeasurement,
   ingredientWeightInGrams,
   calculateUsdaMealNutrition,
+  localDateKey,
   safeExternalUrl,
 } = globalThis.ChefDomain;
 
@@ -266,6 +268,30 @@ test("compatible grocery units merge into stable base units", () => {
   assert.equal(convertQuantity(1, "kg", "g"), 1000);
   assert.equal(convertQuantity(2, "tbsp", "ml"), 30);
   assert.equal(convertQuantity(1, "piece", "g"), null);
+});
+
+test("small merged liquid quantities display as store-friendly spoons", () => {
+  assert.deepEqual(
+    groceryDisplayMeasurement({
+      name: "Soy sauce",
+      quantity: 22.5,
+      unit: "ml",
+    }),
+    { quantity: 1.5, unit: "tbsp" },
+  );
+  assert.deepEqual(
+    groceryDisplayMeasurement({ name: "Vinegar", quantity: 10, unit: "ml" }),
+    { quantity: 2, unit: "tsp" },
+  );
+  assert.deepEqual(
+    groceryDisplayMeasurement({ name: "Stock", quantity: 250, unit: "ml" }),
+    { quantity: 250, unit: "ml" },
+  );
+});
+
+test("nutrition log dates use the user's local calendar day", () => {
+  const localHalfPastMidnight = new Date(2026, 6, 16, 0, 30, 0);
+  assert.equal(localDateKey(localHalfPastMidnight), "2026-07-16");
 });
 
 test("USDA meal totals use quantities and disclose match coverage", () => {
