@@ -1,3 +1,24 @@
+@font-face {
+  font-family: "DM Serif Display";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/dm-serif-display-latin-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Serif Display";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/dm-serif-display-latin-400-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("/fonts/manrope-latin-400-800.woff2") format("woff2");
+}
 :root {
   --cream: #f8f2e8;
   --paper: #fffaf3;
@@ -393,6 +414,14 @@ h1 em {
 }
 .ask button.busy {
   animation: pulse 1s infinite;
+}
+.generation-status {
+  max-width: 580px;
+  margin: 9px 4px 0;
+  min-height: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 @keyframes pulse {
   50% {

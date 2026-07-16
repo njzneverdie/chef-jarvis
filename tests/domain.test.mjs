@@ -15,6 +15,7 @@ const {
   ingredientDetails,
   convertQuantity,
   mergeGroceryItems,
+  scaleIngredientsForServings,
   groceryDisplayMeasurement,
   ingredientWeightInGrams,
   calculateUsdaMealNutrition,
@@ -286,6 +287,24 @@ test("small merged liquid quantities display as store-friendly spoons", () => {
   assert.deepEqual(
     groceryDisplayMeasurement({ name: "Stock", quantity: 250, unit: "ml" }),
     { quantity: 250, unit: "ml" },
+  );
+});
+
+test("weekly ingredients scale to each scheduled serving count", () => {
+  const scaled = scaleIngredientsForServings(
+    [
+      { name: "Chicken breast", quantity: 300, unit: "g" },
+      { name: "Egg", quantity: 2, unit: "piece" },
+    ],
+    6,
+    3,
+  );
+  assert.deepEqual(
+    scaled.map(({ quantity, unit }) => ({ quantity, unit })),
+    [
+      { quantity: 600, unit: "g" },
+      { quantity: 4, unit: "piece" },
+    ],
   );
 });
 

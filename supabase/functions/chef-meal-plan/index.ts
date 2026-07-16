@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.110.5";
+import { recipeTimerRejectionReason } from "../_shared/recipe-timer.js";
 
 type Profile = {
   calorie_target?: number;
@@ -252,26 +253,6 @@ function specificIngredientName(value: unknown, name: string) {
   return ingredient;
 }
 
-function instructionIncludesDuration(
-  instruction: string,
-  durationSeconds: number,
-) {
-  const matches = instruction.matchAll(
-    /(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|小時|分鐘|秒鐘?|秒)/gi,
-  );
-  for (const match of matches) {
-    const value = Number(match[1]);
-    const unit = match[2].toLowerCase();
-    const multiplier = /^(?:hours?|hrs?|小時)$/.test(unit)
-      ? 3600
-      : /^(?:minutes?|mins?|分鐘)$/.test(unit)
-        ? 60
-        : 1;
-    if (Math.round(value * multiplier) === durationSeconds) return true;
-  }
-  return false;
-}
-
 function recipeStep(value: unknown, index: number): RecipeStep {
   const step = object(value, `steps[${index}]`);
   const instruction = text(
@@ -280,36 +261,42 @@ function recipeStep(value: unknown, index: number): RecipeStep {
     500,
   );
   if (step.timer === null) return { instruction, timer: null };
-  const timer = object(step.timer, `steps[${index}].timer`);
-  const label = text(timer.label, `steps[${index}].timer.label`, 100);
-  if (
-    /^(?:read|review|look at|check)\b|^(?:閱讀|朗讀|查看|看|檢查)(?:食譜|菜單|步驟)/i.test(
-      label,
-    )
-  )
-    throw new Error(`steps[${index}].timer is not a cooking timer`);
-  const durationSeconds = Math.round(
-    number(
-      timer.duration_seconds,
-      `steps[${index}].timer.duration_seconds`,
-      30,
-      14400,
-    ),
-  );
-  if (!instructionIncludesDuration(instruction, durationSeconds))
-    throw new Error(`steps[${index}].timer must match its instruction`);
-  return {
-    instruction,
-    timer: {
-      label,
-      kind: enumeration(
-        timer.kind,
-        `steps[${index}].timer.kind`,
-        recipeTimerKinds,
+  try {
+    const timer = object(step.timer, `steps[${index}].timer`);
+    const label = text(timer.label, `steps[${index}].timer.label`, 100);
+    const durationSeconds = Math.round(
+      number(
+        timer.duration_seconds,
+        `steps[${index}].timer.duration_seconds`,
+        30,
+        14400,
       ),
-      duration_seconds: durationSeconds,
-    },
-  };
+    );
+    const rejectionReason = recipeTimerRejectionReason({
+      instruction,
+      label,
+      durationSeconds,
+    });
+    if (rejectionReason) throw new Error(rejectionReason);
+    return {
+      instruction,
+      timer: {
+        label,
+        kind: enumeration(
+          timer.kind,
+          `steps[${index}].timer.kind`,
+          recipeTimerKinds,
+        ),
+        duration_seconds: durationSeconds,
+      },
+    };
+  } catch (error) {
+    console.warn("Dropping invalid recipe timer", {
+      step: index,
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+    return { instruction, timer: null };
+  }
 }
 
 function validatePlan(value: unknown): MealPlan {
@@ -1443,10 +1430,15 @@ async function findRecipeImage(query: string): Promise<RecipeImage | null> {
   }
 }
 
-async function addRecipeImage(plan: MealPlan): Promise<MealPlan> {
+async function addRecipeImage(
+  plan: MealPlan,
+  prefetchedImage?: Promise<RecipeImage | null>,
+): Promise<MealPlan> {
   return {
     ...plan,
-    image: await findRecipeImage(plan.image_query || plan.title),
+    image: prefetchedImage
+      ? await prefetchedImage
+      : await findRecipeImage(plan.image_query || plan.title),
   };
 }
 
@@ -1586,12 +1578,17 @@ Deno.serve(async (request) => {
         expires_on: item.expires_on ? String(item.expires_on) : null,
       }))
       .filter((item) => item.name) as PantryItem[];
+    // Wikimedia is best-effort metadata. Start it with the user's dish request
+    // while Gemini works so a successful model response is never held up by a
+    // separate image-search round trip.
+    const recipeImagePromise = findRecipeImage(meal);
 
     const apiKey = Deno.env.get("GEMINI_API_KEY");
     if (!apiKey)
       return respond(request, {
         plan: await addRecipeImage(
           fallbackPlan(meal, profile, pantry, language),
+          recipeImagePromise,
         ),
         fallback: true,
         notice: "Gemini is not configured yet.",
@@ -1680,7 +1677,12 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
       },
     });
 
-    for (const model of ["gemini-2.5-flash-lite", "gemini-2.5-flash"]) {
+    const modelAttempts = [
+      { name: "gemini-3.1-flash-lite", timeoutMs: 12000 },
+      { name: "gemini-3.5-flash", timeoutMs: 20000 },
+    ];
+    for (const { name: model, timeoutMs } of modelAttempts) {
+      const modelStartedAt = Date.now();
       try {
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -1691,24 +1693,31 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
               "x-goog-api-key": apiKey,
             },
             body: geminiBody,
-            signal: AbortSignal.timeout(20000),
+            signal: AbortSignal.timeout(timeoutMs),
           },
         );
         if (!response.ok) {
-          console.warn("Gemini request failed", model, response.status);
+          console.warn("Gemini request failed", {
+            model,
+            status: response.status,
+            elapsed_ms: Date.now() - modelStartedAt,
+          });
           continue;
         }
-        const plan = await addRecipeImage(
-          parsePlan(textFromGemini(await response.json())),
-        );
+        const validatedPlan = parsePlan(textFromGemini(await response.json()));
+        console.log("Gemini plan validated", {
+          model,
+          elapsed_ms: Date.now() - modelStartedAt,
+        });
+        const plan = await addRecipeImage(validatedPlan, recipeImagePromise);
         quotaRequestId = null;
         return respond(request, { plan, model });
       } catch (error) {
-        console.warn(
-          "Gemini attempt failed",
+        console.warn("Gemini attempt failed", {
           model,
-          error instanceof Error ? error.message : "unknown",
-        );
+          reason: error instanceof Error ? error.message : "unknown",
+          elapsed_ms: Date.now() - modelStartedAt,
+        });
       }
     }
     if (quotaRequestId && quotaUserId) {
@@ -1719,7 +1728,10 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
       quotaRequestId = null;
     }
     return respond(request, {
-      plan: await addRecipeImage(fallbackPlan(meal, profile, pantry, language)),
+      plan: await addRecipeImage(
+        fallbackPlan(meal, profile, pantry, language),
+        recipeImagePromise,
+      ),
       fallback: true,
     });
   } catch (error) {

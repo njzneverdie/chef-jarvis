@@ -7,6 +7,7 @@ let user = null;
 let profile = null;
 let timers = [];
 let authSignup = false;
+let renderedViews = new Set();
 
 const esc = (value) =>
   String(value ?? "").replace(
@@ -54,6 +55,32 @@ function bindLanguageToggle() {
     if (plan) renderPlan(plan);
     show(currentView);
   });
+}
+
+function markViewRendered(id) {
+  renderedViews.add(id);
+}
+
+async function ensureViewRendered(id) {
+  const alwaysRefresh = id === "shopping" || id === "week";
+  if (!alwaysRefresh && renderedViews.has(id)) return;
+  markViewRendered(id);
+  if (id === "home") return renderHome();
+  if (id === "pantry") return renderPantry();
+  if (id === "shopping") return renderShoppingLists();
+  if (id === "week") return renderWeeklyPlanner();
+  if (id === "cook") return renderCook();
+  if (id === "profile") return renderProfile();
+  if (id === "plan") {
+    const root = document.querySelector("#plan");
+    if (root)
+      root.innerHTML =
+        '<article class="card"><p>Loading your latest meal plans…</p></article>';
+    const restored =
+      typeof restoreRecentDraftPlan === "function" &&
+      (await restoreRecentDraftPlan());
+    if (!restored && !currentPlan) renderPlan();
+  }
 }
 
 function toast(text, options = {}) {
@@ -271,6 +298,7 @@ function showPasswordUpdate() {
 }
 
 function shell() {
+  renderedViews = new Set();
   app.innerHTML = `
     <div class="layout">
       <aside class="side">
@@ -332,14 +360,8 @@ function shell() {
     authScreen();
   };
 
-  renderHome();
-  renderPlan();
-  renderPantry();
-  renderShoppingLists();
-  renderWeeklyPlanner();
   restoreCookingState();
-  renderCook();
-  renderProfile();
+  renderHome();
 }
 
 function show(id) {
@@ -351,8 +373,7 @@ function show(id) {
     .forEach((button) =>
       button.classList.toggle("active", button.dataset.view === id),
     );
-  if (id === "shopping") renderShoppingLists();
-  if (id === "week") renderWeeklyPlanner();
+  void ensureViewRendered(id);
   if (id === "cook") requestWakeLock();
   else {
     releaseWakeLock();
@@ -362,6 +383,7 @@ function show(id) {
 }
 
 function renderHome() {
+  markViewRendered("home");
   document.querySelector("#home").innerHTML = `
     <div class="hero">
       <div class="hero-copy">
@@ -369,6 +391,7 @@ function renderHome() {
         <h1>Good cooking,<br><em>made personal.</em></h1>
         <p class="lede">Tell Jarvis what you want to make. It will keep your pantry, preferences, allergies, and nutrition target in view.</p>
         <form class="ask" id="meal-form"><span>✦</span><input id="meal-input" required maxlength="500" placeholder="Tell Jarvis what you want to cook…"><button aria-label="Generate">→</button></form>
+        <p class="generation-status" id="generation-status" role="status" aria-live="polite" hidden></p>
         <div class="chips"><button data-prompt-en="High-protein dinner for two" data-prompt-zh="兩人份高蛋白晚餐">High-protein dinner for 2</button><button data-prompt-en="Use my pantry ingredients first" data-prompt-zh="優先使用我的庫存食材">Use my pantry</button><button data-prompt-en="30-minute meal prep" data-prompt-zh="30 分鐘備餐">30-minute meal prep</button></div>
       </div>
       <article class="tonight"><div><small>YOUR DAILY TARGET</small><h2>${esc(nutrition())}</h2><p>${esc((profile?.body_composition_goal || "personalized").replace("_", " "))} plan · pantry and preferences applied</p><button class="cream" data-go="plan">Plan a meal →</button></div></article>
@@ -400,9 +423,30 @@ function renderHome() {
     event.preventDefault();
     const input = document.querySelector("#meal-input").value.trim();
     const button = event.currentTarget.querySelector("button");
+    const status = document.querySelector("#generation-status");
+    const zh = window.I18n.code === "zh-TW";
+    const statusTimers = [];
     button.textContent = "◌";
     button.classList.add("busy");
     button.disabled = true;
+    status.hidden = false;
+    status.textContent = zh
+      ? "Jarvis 正在規劃精確食材、份量與料理步驟…"
+      : "Jarvis is planning exact ingredients, quantities, and cooking steps…";
+    statusTimers.push(
+      setTimeout(() => {
+        status.textContent = zh
+          ? "正在核對每個步驟與倒數計時，詳細食譜可能需要約 30 秒…"
+          : "Checking every step and timer; a detailed recipe can take about 30 seconds…";
+      }, 8000),
+    );
+    statusTimers.push(
+      setTimeout(() => {
+        status.textContent = zh
+          ? "仍在完成食譜，請保持此頁開啟…"
+          : "Still finishing your recipe; please keep this page open…";
+      }, 22000),
+    );
     try {
       const plan = await generatePlan(input);
       renderPlan(plan);
@@ -410,6 +454,8 @@ function renderHome() {
     } catch (error) {
       toast(error.message || "Jarvis could not create a plan right now.");
     } finally {
+      statusTimers.forEach(clearTimeout);
+      status.hidden = true;
       button.textContent = "→";
       button.classList.remove("busy");
       button.disabled = false;
@@ -469,6 +515,7 @@ async function renderDailyNutritionProgress() {
 }
 
 async function renderPantry() {
+  markViewRendered("pantry");
   const panel = document.querySelector("#pantry");
   panel.innerHTML = `
     <div class="title"><div><p class="eyebrow">KITCHEN INVENTORY</p><h1>What’s in your<br><em>kitchen?</em></h1></div></div>
@@ -493,8 +540,9 @@ async function renderPantry() {
 
   document.querySelector("#pantry-form").onsubmit = async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
     const name = String(
-      new FormData(event.currentTarget).get("item") || "",
+      new FormData(form).get("item") || "",
     ).trim();
     if (!name) return;
     const { error: insertError } = await sb.from("pantry_items").insert({
@@ -506,7 +554,7 @@ async function renderPantry() {
     });
     if (insertError) toast(insertError.message);
     else {
-      event.currentTarget.reset();
+      form.reset();
       toast("Added to your pantry ✓");
       renderPantry();
     }
@@ -514,15 +562,21 @@ async function renderPantry() {
 }
 
 function renderProfile() {
+  markViewRendered("profile");
   const dietary = profile?.dietary_preferences || [];
   const allergies = profile?.allergies || [];
   const selectedEquipment = profile?.equipment || [];
+  const allergyLabels = allergies.map((value) =>
+    window.I18n.code === "zh-TW"
+      ? `不含${window.I18n.translate(value).replace(/過敏$/, "")}（過敏）`
+      : `No ${value}`,
+  );
   document.querySelector("#profile").innerHTML = `
     <div class="profile">
       <article class="profile-card">
         <p class="eyebrow">YOUR FOOD PROFILE</p><h1>Cooking that learns<br><em>you.</em></h1>
         <p>Jarvis uses your nutrition targets, health goal, allergies, pantry and food preferences before suggesting a meal or swap.</p>
-        <div class="tags"><span>${esc(profile?.body_composition_goal || "Personal goal")}</span><span>${esc(nutrition())}</span>${dietary.map((value) => `<span>${esc(value)}</span>`).join("")}${allergies.map((value) => `<span>No ${esc(value)}</span>`).join("")}</div>
+        <div class="tags"><span>${esc(profile?.body_composition_goal || "Personal goal")}</span><span>${esc(nutrition())}</span>${dietary.map((value) => `<span>${esc(value)}</span>`).join("")}${allergyLabels.map((value) => `<span>${esc(value)}</span>`).join("")}</div>
         <div class="profile-actions"><button class="dark" id="edit-profile">Edit my profile</button><button class="cream" id="saved-meals">Saved meal ideas</button></div>
       </article>
       <article class="card equipment-card">
@@ -710,10 +764,6 @@ async function boot() {
     .maybeSingle();
   profile = result.data || null;
   shell();
-  const restoredDraft =
-    typeof restoreRecentDraftPlan === "function" &&
-    (await restoreRecentDraftPlan());
-  if (restoredDraft) show("plan");
   if (!profile?.onboarding_completed) onboarding();
 }
 

@@ -588,7 +588,6 @@
       /^You are still cooking “(.+)”\. Starting another recipe will reset its step and timers\.$/,
       "你仍在烹煮「$1」。開始另一份食譜會重置目前的步驟與計時器。",
     ],
-    [/^No (.+)$/, "不含 $1"],
   ];
 
   let language = localStorage.getItem(storageKey) === "zh-TW" ? "zh-TW" : "en";

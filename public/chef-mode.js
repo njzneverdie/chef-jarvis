@@ -16,6 +16,8 @@ let speechRecognition = null;
 let voiceListening = false;
 let voicePausedForSpeech = false;
 let speechSequence = 0;
+let timerTickInterval = null;
+let lastTimerPersistAt = 0;
 
 const fallbackCookingSteps = [
   "Prepare and measure every ingredient before turning on the heat.",
@@ -51,6 +53,7 @@ function persistCookingState() {
       savedAt: Date.now(),
     }),
   );
+  lastTimerPersistAt = Date.now();
 }
 
 function restoreCookingState() {
@@ -95,6 +98,8 @@ function restoreCookingState() {
         }
       }
     });
+    lastTimerTick = Date.now();
+    syncTimerTicker();
   } catch (error) {
     console.warn("Could not restore cooking progress", error);
     localStorage.removeItem(key);
@@ -109,6 +114,7 @@ function clearCookingState() {
   cookingStepIndex = 0;
   timers = [];
   recipeTimersInitialized = false;
+  stopTimerTicker();
 }
 
 async function requestWakeLock() {
@@ -274,6 +280,7 @@ async function beginGuidedCooking(recipe, ingredients, recipeId) {
   cookingStepIndex = 0;
   timers = window.ChefDomain.buildRecipeTimers(recipe.steps);
   recipeTimersInitialized = true;
+  syncTimerTicker();
   persistCookingState();
   renderCook();
   show("cook");
@@ -281,6 +288,7 @@ async function beginGuidedCooking(recipe, ingredients, recipeId) {
 }
 
 function renderPlan(query) {
+  markViewRendered("plan");
   const root = document.querySelector("#plan");
   if (!root) return;
   const renderVersion = ++planRenderVersion;
@@ -518,6 +526,7 @@ function planFromSavedRow(row) {
 
 async function restoreRecentDraftPlan() {
   if (!user) return false;
+  const expectedRenderVersion = planRenderVersion;
   const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
   const { data, error } = await sb
     .from("recipes")
@@ -532,6 +541,7 @@ async function restoreRecentDraftPlan() {
     console.warn("Could not restore the recent meal-plan draft", error);
     return false;
   }
+  if (expectedRenderVersion !== planRenderVersion) return true;
   if (!data) return false;
   renderPlan(planFromSavedRow(data));
   return true;
@@ -554,8 +564,8 @@ async function renderSavedPlans(expectedRenderVersion = planRenderVersion) {
     return;
   const cacheKey = savedPlansCacheKey();
   let data = remoteData;
-  if (!error && data?.length && cacheKey) {
-    localStorage.setItem(cacheKey, JSON.stringify(data));
+  if (!error && cacheKey) {
+    localStorage.setItem(cacheKey, JSON.stringify(data || []));
   } else if (error && cacheKey) {
     try {
       data = JSON.parse(localStorage.getItem(cacheKey) || "[]");
@@ -595,6 +605,12 @@ async function renderSavedPlans(expectedRenderVersion = planRenderVersion) {
         if (deleteError) return toast(deleteError.message);
         button.closest("[data-saved-plan]")?.remove();
         if (!card.querySelector("[data-saved-plan]")) card.remove();
+        if (cacheKey) {
+          localStorage.setItem(
+            cacheKey,
+            JSON.stringify(data.filter((candidate) => candidate.id !== row.id)),
+          );
+        }
         toast("Saved recipe deleted");
       }),
   );
@@ -660,6 +676,7 @@ async function saveMergedShoppingList(title, ingredients) {
 }
 
 async function renderWeeklyPlanner() {
+  markViewRendered("week");
   const root = document.querySelector("#week");
   if (!root || !user) return;
   const weekStart = currentWeekStart();
@@ -736,15 +753,21 @@ async function renderWeeklyPlanner() {
   const listButton = root.querySelector("#build-week-list");
   listButton.disabled = !schedule.length;
   listButton.onclick = async () => {
-    const scheduledRecipes = schedule
-      .map((item) => recipeMap.get(item.recipe_id)?.recipe)
-      .filter(Boolean);
+    const scheduledIngredients = schedule.flatMap((item) => {
+      const recipeRow = recipeMap.get(item.recipe_id);
+      if (!recipeRow?.recipe) return [];
+      return window.ChefDomain.scaleIngredientsForServings(
+        recipeRow.recipe.ingredients || [],
+        item.servings,
+        recipeRow.servings ?? recipeRow.recipe.servings,
+      );
+    });
     listButton.disabled = true;
     listButton.textContent = "Merging ingredients…";
     try {
       const count = await saveMergedShoppingList(
         `${window.I18n.code === "zh-TW" ? "本週購物" : "Weekly groceries"} · ${weekStartKey}`,
-        scheduledRecipes.flatMap((recipe) => recipe.ingredients || []),
+        scheduledIngredients,
       );
       shoppingSavedNotice = true;
       toast(`${count} merged grocery items saved ✓`);
@@ -1042,14 +1065,49 @@ async function addShoppingListToPantry(list) {
     .select("id,name,quantity,unit")
     .eq("user_id", user.id);
   if (error) throw error;
-  let stocked = 0;
-  for (const item of checkedItems) {
+  const stockedItems = checkedItems.map((item) => {
     const grocery = window.ChefDomain.normalizeGroceryItem({
       name: item.ingredient,
       quantity: item.quantity,
       unit: item.unit,
       category: item.category,
     });
+    return { item, grocery };
+  });
+  const pantryUnits = new Map(
+    (pantryRows || [])
+      .filter((row) => row.unit)
+      .map((row) => [
+        String(row.name).trim().toLocaleLowerCase(),
+        row.unit,
+      ]),
+  );
+  const unitConflict = stockedItems.find(({ grocery }) => {
+    const key = grocery.name.trim().toLocaleLowerCase();
+    const pantryUnit = pantryUnits.get(key);
+    if (!pantryUnit) {
+      if (grocery.unit) pantryUnits.set(key, grocery.unit);
+      return false;
+    }
+    return (
+      grocery.unit &&
+      window.ChefDomain.convertQuantity(1, grocery.unit, pantryUnit) == null
+    );
+  });
+  if (unitConflict) {
+    const { grocery } = unitConflict;
+    const pantryUnit = pantryUnits.get(
+      grocery.name.trim().toLocaleLowerCase(),
+    );
+    throw new Error(
+      window.I18n.code === "zh-TW"
+        ? `無法將「${grocery.name}」加入庫存：現有單位是 ${pantryUnit}，購物清單單位是 ${grocery.unit}。請先統一單位。`
+        : `Cannot stock “${grocery.name}”: the pantry uses ${pantryUnit}, but this list uses ${grocery.unit}. Make the units match first.`,
+    );
+  }
+  let stocked = 0;
+  for (const stockedItem of stockedItems) {
+    const { item, grocery } = stockedItem;
     const existing = (pantryRows || []).find(
       (row) =>
         String(row.name).trim().toLocaleLowerCase() ===
@@ -1063,18 +1121,18 @@ async function addShoppingListToPantry(list) {
         existing.unit,
       );
       if (addition != null) {
+        const nextQuantity =
+          Math.round((Number(existing.quantity) + addition) * 100) / 100;
         const { error: updateError } = await sb
           .from("pantry_items")
           .update({
-            quantity:
-              Math.round((Number(existing.quantity) + addition) * 100) / 100,
+            quantity: nextQuantity,
             source: "shopping_list",
           })
           .eq("id", existing.id)
           .eq("user_id", user.id);
-        if (updateError) continue;
-      } else {
-        pantryId = null;
+        if (updateError) throw updateError;
+        existing.quantity = nextQuantity;
       }
     } else if (existing) {
       const { error: updateError } = await sb
@@ -1086,7 +1144,9 @@ async function addShoppingListToPantry(list) {
         })
         .eq("id", existing.id)
         .eq("user_id", user.id);
-      if (updateError) pantryId = null;
+      if (updateError) throw updateError;
+      existing.quantity = grocery.quantity;
+      existing.unit = grocery.unit || null;
     }
     if (!pantryId) {
       const { data: inserted, error: insertError } = await sb
@@ -1106,13 +1166,20 @@ async function addShoppingListToPantry(list) {
         })
         .select("id")
         .single();
-      if (insertError) continue;
+      if (insertError) throw insertError;
       pantryId = inserted.id;
+      pantryRows.push({
+        id: pantryId,
+        name: grocery.name,
+        quantity: grocery.quantity,
+        unit: grocery.unit || null,
+      });
     }
-    await sb
+    const { error: linkError } = await sb
       .from("shopping_list_items")
       .update({ pantry_item_id: pantryId })
       .eq("id", item.id);
+    if (linkError) throw linkError;
     stocked += 1;
   }
   if (stocked) {
@@ -1126,6 +1193,7 @@ async function addShoppingListToPantry(list) {
 }
 
 async function renderShoppingLists() {
+  markViewRendered("shopping");
   const root = document.querySelector("#shopping");
   if (!root || !user) return;
   const showSavedNotice = shoppingSavedNotice;
@@ -1173,23 +1241,20 @@ async function renderShoppingLists() {
   container.querySelectorAll("[data-list-item]").forEach(
     (input) =>
       (input.onchange = async (event) => {
-        const checked = event.currentTarget.checked;
-        event.currentTarget
-          .closest("label")
-          .classList.toggle("checked", checked);
+        const checkbox = event.currentTarget;
+        const checked = checkbox.checked;
+        checkbox.closest("label").classList.toggle("checked", checked);
         const { error: updateError } = await sb
           .from("shopping_list_items")
           .update({ is_checked: checked })
-          .eq("id", event.currentTarget.dataset.listItem);
+          .eq("id", checkbox.dataset.listItem);
         if (updateError) {
-          event.currentTarget.checked = !checked;
-          event.currentTarget
-            .closest("label")
-            .classList.toggle("checked", !checked);
+          checkbox.checked = !checked;
+          checkbox.closest("label").classList.toggle("checked", !checked);
           toast(updateError.message);
           return;
         }
-        const listCard = event.currentTarget.closest("[data-list-id]");
+        const listCard = checkbox.closest("[data-list-id]");
         const inputs = [...listCard.querySelectorAll("[data-list-item]")];
         const picked = inputs.filter((item) => item.checked).length;
         listCard.querySelector(".eyebrow").textContent =
@@ -1201,20 +1266,20 @@ async function renderShoppingLists() {
             list.status === "completed" || picked !== inputs.length;
         }
         const changedItem = list.shopping_list_items.find(
-          (item) => item.id === event.currentTarget.dataset.listItem,
+          (item) => item.id === checkbox.dataset.listItem,
         );
         if (changedItem) changedItem.is_checked = checked;
       }),
   );
   container.querySelectorAll("[data-stock-list]").forEach(
     (button) =>
-      (button.onclick = async (event) => {
-        const list = data[Number(event.currentTarget.dataset.stockList)];
-        event.currentTarget.disabled = true;
-        event.currentTarget.textContent = "Adding to pantry…";
+      (button.onclick = async () => {
+        const list = data[Number(button.dataset.stockList)];
+        button.disabled = true;
+        button.textContent = "Adding to pantry…";
         try {
           const count = await addShoppingListToPantry(list);
-          event.currentTarget.textContent = "Added to pantry ✓";
+          button.textContent = "Added to pantry ✓";
           toast(
             `${count} purchased item${count === 1 ? "" : "s"} added to your pantry ✓`,
             {
@@ -1227,16 +1292,15 @@ async function renderShoppingLists() {
           );
           renderPantry();
         } catch (error) {
-          event.currentTarget.disabled = false;
-          event.currentTarget.textContent =
-            "Add all purchased items to pantry →";
+          button.disabled = false;
+          button.textContent = "Add all purchased items to pantry →";
           toast(error.message || "Could not update your pantry.");
         }
       }),
   );
   container.querySelectorAll("[data-delete-list]").forEach(
     (button) =>
-      (button.onclick = async (event) => {
+      (button.onclick = async () => {
         const confirmed = await confirmAction({
           title: "Delete this shopping list?",
           message:
@@ -1244,7 +1308,7 @@ async function renderShoppingLists() {
           confirmLabel: "Delete list",
         });
         if (!confirmed) return;
-        const listCard = event.currentTarget.closest("[data-list-id]");
+        const listCard = button.closest("[data-list-id]");
         const itemIds = [...listCard.querySelectorAll("[data-list-item]")].map(
           (input) => input.dataset.listItem,
         );
@@ -1261,7 +1325,7 @@ async function renderShoppingLists() {
         const { error: deleteError } = await sb
           .from("shopping_lists")
           .delete()
-          .eq("id", event.currentTarget.dataset.deleteList)
+          .eq("id", button.dataset.deleteList)
           .eq("user_id", user.id);
         if (deleteError) toast(deleteError.message);
         else {
@@ -1393,15 +1457,32 @@ async function generatePlan(request) {
     data: { session },
   } = await sb.auth.getSession();
   if (!session) throw new Error("Please sign in again.");
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/chef-meal-plan`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify({ request, language: window.I18n.code }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 50000);
+  let response;
+  try {
+    response = await fetch(`${SUPABASE_URL}/functions/v1/chef-meal-plan`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ request, language: window.I18n.code }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(
+        window.I18n.code === "zh-TW"
+          ? "食譜產生時間過久，請再試一次。"
+          : "Recipe generation took too long. Please try again.",
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   const data = await response.json().catch(() => ({}));
   if (!response.ok)
     throw new Error(data.error || "Jarvis could not create a plan.");
@@ -1693,8 +1774,8 @@ async function undoPantryDeduction(changes) {
 function openMealFeedback(recipe, nutritionLogPromise) {
   const modal = document.createElement("div");
   modal.className = "modal meal-feedback-modal";
-  const recipeServings = Math.max(1, finiteNumber(recipe.servings, 1));
-  modal.innerHTML = `<form class="modal-card feedback-card"><p class="eyebrow">HELP JARVIS LEARN</p><h2>How did this meal taste?</h2><p>One quick rating helps future recipes fit you better.</p><div class="automation-summary"><p class="eyebrow">AUTOMATICALLY COMPLETED</p><div data-auto-nutrition>◌ Recording 1 serving of nutrition…</div><div data-auto-pantry>◌ Checking recipe amounts against your pantry…</div></div><div class="field"><label>Servings you ate</label><input name="servings_eaten" type="number" min="0.25" max="${recipeServings}" step="0.25" value="1" required><small>Nutrition starts at one serving. Change this if you ate more.</small></div><div class="rating-row" role="radiogroup" aria-label="Meal rating">${[1, 2, 3, 4, 5].map((rating) => `<label><input type="radio" name="rating" value="${rating}" required><span>${rating}★</span></label>`).join("")}</div><div class="field"><label>Optional note</label><input name="note" maxlength="300" placeholder="e.g. Less spicy next time"></div><div class="form-actions"><button type="button" class="cream" data-feedback-skip>Skip rating</button><button type="submit" class="dark">Save feedback →</button></div></form>`;
+  const servingsLimit = 12;
+  modal.innerHTML = `<form class="modal-card feedback-card"><p class="eyebrow">HELP JARVIS LEARN</p><h2>How did this meal taste?</h2><p>One quick rating helps future recipes fit you better.</p><div class="automation-summary"><p class="eyebrow">AUTOMATICALLY COMPLETED</p><div data-auto-nutrition>◌ Recording 1 serving of nutrition…</div><div data-auto-pantry>◌ Checking recipe amounts against your pantry…</div></div><div class="field"><label>Servings you ate</label><input name="servings_eaten" type="number" min="0.25" max="${servingsLimit}" step="0.25" value="1" required><small>Nutrition starts at one serving. Change this if you ate more.</small></div><div class="rating-row" role="radiogroup" aria-label="Meal rating">${[1, 2, 3, 4, 5].map((rating) => `<label><input type="radio" name="rating" value="${rating}" required><span>${rating}★</span></label>`).join("")}</div><div class="field"><label>Optional note</label><input name="note" maxlength="300" placeholder="e.g. Less spicy next time"></div><div class="form-actions"><button type="button" class="cream" data-feedback-skip>Skip rating</button><button type="submit" class="dark">Save feedback →</button></div></form>`;
   document.body.append(modal);
   const close = bindDismissibleModal(modal);
   const form = modal.querySelector("form");
@@ -1709,7 +1790,7 @@ function openMealFeedback(recipe, nutritionLogPromise) {
   const updateLoggedServings = async (rawValue) => {
     const servingsEaten = Math.max(
       0.25,
-      Math.min(recipeServings, finiteNumber(rawValue, 1)),
+      Math.min(servingsLimit, finiteNumber(rawValue, 1)),
     );
     const nutritionLogId = await nutritionLogPromise;
     if (!nutritionLogId || servingsEaten === 1) return;
@@ -1911,6 +1992,7 @@ function toggleVoiceControl() {
 }
 
 function renderCook() {
+  markViewRendered("cook");
   const root = document.querySelector("#cook");
   if (!root) return;
   if (!activeRecipe) {
@@ -1980,9 +2062,9 @@ function renderCook() {
         timer.stepNumber = cookingStepIndex + 1;
         timers.push(timer);
         timerIndex = timers.length - 1;
+        renderTimerList();
       }
       await toggleTimer(timerIndex);
-      renderCook();
     });
   root.querySelector("#complete-step").onclick = async (event) => {
     if (cookingStepIndex < steps.length - 1) {
@@ -2047,6 +2129,7 @@ function openClockModal() {
     closeModal();
     persistCookingState();
     renderTimerList();
+    syncTimerTicker();
   };
 }
 
@@ -2063,6 +2146,9 @@ async function toggleTimer(index) {
   }
   timer.running = !timer.running;
   lastTimerTick = Date.now();
+  syncTimerTicker();
+  persistCookingState();
+  updateTimerDisplays();
   if (
     timer.running &&
     timer.mode === "countdown" &&
@@ -2071,9 +2157,7 @@ async function toggleTimer(index) {
   )
     Notification.requestPermission();
   prepareAlarmAudio();
-  await requestWakeLock();
-  persistCookingState();
-  renderTimerList();
+  if (timer.running) await requestWakeLock();
 }
 
 function renderCurrentStepTimer() {
@@ -2121,7 +2205,7 @@ function renderTimerList() {
   list.innerHTML = timers
     .map(
       (timer, index) =>
-        `<article class="timer chef-timer ${timer.completed ? "timer-complete" : ""} ${timer.stepIndex === cookingStepIndex ? "timer-current-step" : ""}"><span><i>${timer.completed ? "✓" : timer.mode === "stopwatch" ? "◷" : "◴"}</i>${esc(timer.name)}<small>${timer.completed ? "Finished" : timer.mode === "stopwatch" ? "Stopwatch" : timer.stepNumber ? `Step ${timer.stepNumber} · Recipe countdown` : "Countdown"}</small></span><b>${formatTime(timer.sec)}</b><div class="timer-actions"><button data-start="${index}">${timer.completed ? "Restart" : timer.running ? "Pause" : "Start"}</button><button data-reset="${index}">Reset</button><button class="timer-remove" data-remove="${index}" aria-label="Remove clock">×</button></div></article>`,
+        `<article class="timer chef-timer ${timer.completed ? "timer-complete" : ""} ${timer.stepIndex === cookingStepIndex ? "timer-current-step" : ""}" data-timer-row="${index}"><span><i data-timer-icon>${timer.completed ? "✓" : timer.mode === "stopwatch" ? "◷" : "◴"}</i>${esc(timer.name)}<small data-timer-status>${timer.completed ? "Finished" : timer.mode === "stopwatch" ? "Stopwatch" : timer.stepNumber ? `Step ${timer.stepNumber} · Recipe countdown` : "Countdown"}</small></span><b data-timer-time>${formatTime(timer.sec)}</b><div class="timer-actions"><button data-start="${index}">${timer.completed ? "Restart" : timer.running ? "Pause" : "Start"}</button><button data-reset="${index}">Reset</button><button class="timer-remove" data-remove="${index}" aria-label="Remove clock">×</button></div></article>`,
     )
     .join("");
   list
@@ -2138,7 +2222,8 @@ function renderTimerList() {
         timer.running = false;
         timer.completed = false;
         persistCookingState();
-        renderTimerList();
+        updateTimerDisplays();
+        syncTimerTicker();
       }),
   );
   list.querySelectorAll("[data-remove]").forEach(
@@ -2147,8 +2232,92 @@ function renderTimerList() {
         timers.splice(Number(button.dataset.remove), 1);
         persistCookingState();
         renderTimerList();
+        syncTimerTicker();
       }),
   );
+}
+
+function updateTimerDisplays() {
+  renderCurrentStepTimer();
+  const list = document.querySelector("#timer-list");
+  if (!list) return;
+  const rows = [...list.querySelectorAll("[data-timer-row]")];
+  if (rows.length !== timers.length) {
+    renderTimerList();
+    return;
+  }
+  rows.forEach((row, index) => {
+    const timer = timers[index];
+    if (!timer) return;
+    row.classList.toggle("timer-complete", timer.completed);
+    row.classList.toggle(
+      "timer-current-step",
+      timer.stepIndex === cookingStepIndex,
+    );
+    const icon = row.querySelector("[data-timer-icon]");
+    const status = row.querySelector("[data-timer-status]");
+    const time = row.querySelector("[data-timer-time]");
+    const start = row.querySelector("[data-start]");
+    if (icon)
+      icon.textContent = timer.completed
+        ? "✓"
+        : timer.mode === "stopwatch"
+          ? "◷"
+          : "◴";
+    if (status)
+      status.textContent = timer.completed
+        ? "Finished"
+        : timer.mode === "stopwatch"
+          ? "Stopwatch"
+          : timer.stepNumber
+            ? `Step ${timer.stepNumber} · Recipe countdown`
+            : "Countdown";
+    if (time) time.textContent = formatTime(timer.sec);
+    if (start)
+      start.textContent = timer.completed
+        ? "Restart"
+        : timer.running
+          ? "Pause"
+          : "Start";
+  });
+}
+
+function hasRunningTimer() {
+  return timers.some((timer) => timer.running);
+}
+
+function stopTimerTicker() {
+  if (!timerTickInterval) return;
+  clearInterval(timerTickInterval);
+  timerTickInterval = null;
+}
+
+function syncTimerTicker() {
+  if (!hasRunningTimer()) {
+    stopTimerTicker();
+    return;
+  }
+  if (timerTickInterval) return;
+  lastTimerTick = Date.now();
+  timerTickInterval = setInterval(tickRunningTimers, 250);
+}
+
+function tickRunningTimers() {
+  if (!hasRunningTimer()) {
+    stopTimerTicker();
+    return;
+  }
+  const now = Date.now();
+  const elapsed = Math.floor((now - lastTimerTick) / 1000);
+  if (elapsed < 1) return;
+  lastTimerTick += elapsed * 1000;
+  const { changed, completed } = window.ChefDomain.tickTimers(timers, elapsed);
+  if (!changed) return;
+  updateTimerDisplays();
+  if (completed.length || now - lastTimerPersistAt >= 5000)
+    persistCookingState();
+  completed.forEach(announceTimerComplete);
+  if (!hasRunningTimer()) stopTimerTicker();
 }
 
 function prepareAlarmAudio() {
@@ -2234,16 +2403,8 @@ function announceTimerComplete(timer) {
   }
 }
 
-setInterval(() => {
-  const now = Date.now();
-  const elapsed = Math.floor((now - lastTimerTick) / 1000);
-  if (elapsed < 1) return;
-  lastTimerTick += elapsed * 1000;
-  const { changed, completed } = window.ChefDomain.tickTimers(timers, elapsed);
-  if (!changed) return;
-  persistCookingState();
-  renderTimerList();
-  completed.forEach(announceTimerComplete);
-}, 250);
+window.addEventListener("pagehide", () => {
+  if (activeRecipe) persistCookingState();
+});
 
 startApp();

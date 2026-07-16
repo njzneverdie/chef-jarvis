@@ -388,6 +388,27 @@
     );
   }
 
+  function scaleIngredientsForServings(
+    ingredients,
+    plannedServings,
+    recipeServings,
+  ) {
+    const planned = Math.max(0.25, Number(plannedServings) || 1);
+    const original = Math.max(0.25, Number(recipeServings) || 1);
+    const multiplier = planned / original;
+    return (Array.isArray(ingredients) ? ingredients : []).map((rawItem) => {
+      const item = normalizeGroceryItem(rawItem);
+      return normalizeGroceryItem({
+        ...item,
+        quantity:
+          item.quantity == null
+            ? null
+            : Math.round(Number(item.quantity) * multiplier * 100) / 100,
+        amount: "",
+      });
+    });
+  }
+
   function groceryDisplayMeasurement(rawItem) {
     const item = normalizeGroceryItem(rawItem);
     if (item.quantity == null || item.unit !== "ml" || item.quantity >= 100)
@@ -512,6 +533,7 @@
     quantityInBaseUnit,
     convertQuantity,
     mergeGroceryItems,
+    scaleIngredientsForServings,
     groceryDisplayMeasurement,
     ingredientWeightInGrams,
     calculateUsdaMealNutrition,

@@ -26,8 +26,16 @@ const corsHeaders = (request: Request) => {
     Vary: "Origin",
   };
 };
-const respond = (request: Request, body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: corsHeaders(request) });
+const respond = (
+  request: Request,
+  body: unknown,
+  status = 200,
+  extraHeaders: Record<string, string> = {},
+) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders(request), ...extraHeaders },
+  });
 const value = (nutrients: any[], names: string[]) => {
   const item = nutrients.find((nutrient) =>
     names.includes(String(nutrient.nutrientName)),
@@ -100,6 +108,41 @@ Deno.serve(async (req) => {
         { error: "USDA nutrition is not configured yet." },
         503,
       );
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!serviceRoleKey)
+      return respond(
+        req,
+        { error: "USDA nutrition quota is not configured yet." },
+        503,
+      );
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL") || "",
+      serviceRoleKey,
+      { auth: { persistSession: false } },
+    );
+    const { data: quotaRows, error: quotaError } = await admin.rpc(
+      "consume_chef_usda_quota",
+      { p_user_id: user.id },
+    );
+    const quota = Array.isArray(quotaRows) ? quotaRows[0] : quotaRows;
+    if (quotaError || !quota)
+      return respond(
+        req,
+        { error: "USDA nutrition quota is temporarily unavailable." },
+        503,
+      );
+    if (!quota.allowed) {
+      const retryAfter = Math.max(
+        1,
+        Number(quota.retry_after_seconds) || 60,
+      );
+      return respond(
+        req,
+        { error: "Too many USDA lookups. Please try again later." },
+        429,
+        { "Retry-After": String(retryAfter) },
+      );
+    }
     const foods = await Promise.all(
       searches.map(async ({ ingredient, query }) => {
         try {
