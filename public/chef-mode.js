@@ -9,6 +9,7 @@ let lastTimerTick = Date.now();
 let titleFlashInterval = null;
 let alarmAudioContext = null;
 let recipeTimersInitialized = false;
+let shoppingSavedNotice = false;
 
 const fallbackCookingSteps = [
   "Prepare and measure every ingredient before turning on the heat.",
@@ -171,9 +172,22 @@ function displayDate(value) {
   return new Date(value).toLocaleDateString(appLocale());
 }
 
-function displayShoppingUnit(value) {
+function displayShoppingUnit(value, quantity) {
   const unit = String(value || "");
-  if (window.I18n.code !== "zh-TW") return unit;
+  if (window.I18n.code !== "zh-TW") {
+    if (Number(quantity) === 1) return unit;
+    return (
+      {
+        cup: "cups",
+        piece: "pieces",
+        clove: "cloves",
+        slice: "slices",
+        can: "cans",
+        pack: "packs",
+        portion: "portions",
+      }[unit] || unit
+    );
+  }
   return (
     {
       tsp: "茶匙",
@@ -269,9 +283,9 @@ function renderPlan(query) {
       <article class="recipe card">${recipeVisual}<div class="recipe-body"><p class="eyebrow">CHEF JARVIS PLAN</p><h2>${esc(recipe.title)}</h2><p class="meta">◷ ${displayNumber(recipe.minutes)} min · ◌ ${displayNumber(recipe.servings)} servings</p><div class="macros"><div><b>${displayNumber(recipe.kcal)}</b><small>est. kcal · whole meal</small></div><div><b>${displayNumber(recipe.protein_g, "g")}</b><small>est. protein · whole meal</small></div><div><b>${displayNumber(recipe.carbs_g, "g")}</b><small>est. carbs · whole meal</small></div><div><b>${displayNumber(recipe.fat_g, "g")}</b><small>est. fat · whole meal</small></div></div><p class="meal-estimate-note"><b>Meal estimate</b> · Whole recipe (${displayNumber(recipe.servings)} servings). Adjust it after changing quantities or swaps.</p><button class="dark full" id="start-guided-cook" ${isAi ? "" : "disabled"}>Start guided cooking →</button></div></article>
     </div>
     <div class="guided-preview"><article class="card ingredient-guide"><p class="eyebrow">WHAT TO PREPARE</p><h2>Ingredients for this meal</h2>${ingredients
-      .map((item) => {
+      .map((item, index) => {
         const preparation = window.ChefDomain.ingredientPreparation(item);
-        return `<div><b>${esc(item.name)}</b><span>${esc(item.amount || "")}</span>${preparation ? `<small>${esc(preparation)}</small>` : ""}</div>`;
+        return `<div data-ingredient-index="${index}"><b>${esc(item.name)}</b><span>${esc(item.amount || "")}</span>${preparation ? `<small>${esc(preparation)}</small>` : ""}</div>`;
       })
       .join(
         "",
@@ -314,8 +328,43 @@ function renderPlan(query) {
   }
   renderPlanPersistenceControls(recipe);
   if (recipe.ingredients.length) {
-    renderShoppingChecklist(recipe.title, recipe.ingredients);
-    renderPersonalizedSwaps(recipe, recipe.ingredients);
+    let shoppingChecklist;
+    renderPersonalizedSwaps(recipe, async (ingredientIndex, swap) => {
+      const replacement = window.ChefDomain.applyIngredientSubstitution(
+        recipe.ingredients[ingredientIndex],
+        swap,
+      );
+      recipe.ingredients[ingredientIndex] = replacement;
+      ingredients[ingredientIndex] = replacement;
+      if (currentPlan) currentPlan.ingredients = recipe.ingredients;
+
+      const row = root.querySelector(
+        `[data-ingredient-index="${ingredientIndex}"]`,
+      );
+      if (row) {
+        const preparation =
+          window.ChefDomain.ingredientPreparation(replacement);
+        row.innerHTML = `<b>${esc(replacement.name)}</b><span>${esc(replacement.amount)}</span>${preparation ? `<small>${esc(preparation)}</small>` : ""}`;
+      }
+      shoppingChecklist?.updateIngredient(ingredientIndex, replacement);
+
+      if (activeRecipeId) {
+        const { error } = await sb
+          .from("recipes")
+          .update({ recipe: currentPlan || recipe })
+          .eq("id", activeRecipeId)
+          .eq("user_id", user.id);
+        if (error) {
+          toast("The swap is applied here, but could not be saved yet.");
+          return;
+        }
+      }
+      toast(`${replacement.name} is now in your ingredient list ✓`);
+    });
+    shoppingChecklist = renderShoppingChecklist(
+      recipe.title,
+      recipe.ingredients,
+    );
     renderUsdaReference(recipe.ingredients);
   }
   if (query.fallback) {
@@ -413,7 +462,7 @@ async function saveCard(title, uses, why, sourceRecipeTitle) {
   else toast("Saved to next week’s meal folder ✓");
 }
 
-function renderPersonalizedSwaps(recipe) {
+function renderPersonalizedSwaps(recipe, onApply) {
   const dietary = profile?.dietary_preferences || [];
   const allergies = profile?.allergies || [];
   const dislikes = profile?.dislikes || [];
@@ -422,79 +471,137 @@ function renderPersonalizedSwaps(recipe) {
     [...dietary, ...allergies, ...dislikes].some((item) =>
       String(item).toLowerCase().includes(value),
     );
-  const aiSwaps = recipe.substitutions.filter((item) => item?.from && item?.to);
+  const normalizedIngredients = recipe.ingredients.map(
+    window.ChefDomain.normalizeGroceryItem,
+  );
+  const ingredientIndexFor = (name) => {
+    const wanted = String(name || "").trim().toLowerCase();
+    if (!wanted) return -1;
+    const exact = normalizedIngredients.findIndex(
+      (item) => item.name.toLowerCase() === wanted,
+    );
+    if (exact >= 0) return exact;
+    return normalizedIngredients.findIndex((item) => {
+      const ingredientName = item.name.toLowerCase();
+      return ingredientName.includes(wanted) || wanted.includes(ingredientName);
+    });
+  };
+  const aiSwaps = recipe.substitutions
+    .filter((item) => item?.from && item?.to)
+    .map((item) => ({ ...item, ingredientIndex: ingredientIndexFor(item.from) }))
+    .filter((item) => item.ingredientIndex >= 0);
   const defaults = [];
-  if (has("lactose"))
+  const addDefault = (pattern, replacement) => {
+    const ingredientIndex = normalizedIngredients.findIndex((item) =>
+      pattern.test(item.name),
+    );
+    if (ingredientIndex < 0) return;
     defaults.push({
-      from: "Milk, cream, or regular yogurt",
-      to: "Lactose-free Greek yogurt or unsweetened soy yogurt",
-      reason: "Keeps the sauce creamy while respecting lactose intolerance.",
+      from: normalizedIngredients[ingredientIndex].name,
+      ingredientIndex,
+      ...replacement,
+    });
+  };
+  if (has("lactose"))
+    addDefault(/milk|cream|yogurt|牛奶|鮮奶油|优格|優格/i, {
+      to: "Unsweetened soy yogurt",
+      reason: "Keeps the dish creamy while respecting lactose intolerance.",
     });
   if (has("gluten"))
-    defaults.push({
-      from: "Regular soy sauce or wheat noodles",
-      to: "Gluten-free tamari or rice noodles",
+    addDefault(/soy sauce|醬油|酱油/i, {
+      to: "Gluten-free tamari",
       reason: "Maintains a similar savory profile without gluten.",
     });
   if (has("nut"))
-    defaults.push({
-      from: "Peanuts, cashews, or nut garnish",
-      to: "Roasted chickpeas or pumpkin seeds",
+    addDefault(/peanut|cashew|almond|花生|腰果|杏仁/i, {
+      to: "Roasted pumpkin seeds",
       reason: "Adds crunch without using nuts.",
     });
   if (has("shellfish"))
-    defaults.push({
-      from: "Shrimp or shellfish",
-      to: "Chicken breast, tofu, or extra vegetables",
+    addDefault(/shrimp|prawn|shellfish|蝦|虾|貝|贝/i, {
+      to:
+        has("vegan") || has("vegetarian")
+          ? has("soy") || has("大豆")
+            ? "Canned chickpeas"
+            : "Extra-firm tofu"
+          : "Boneless skinless chicken breast",
       reason: "Preserves the cooking method while avoiding shellfish.",
+      category: "protein",
     });
-  if ((goal === "fat_loss" || goal === "recomposition") && !has("vegan"))
+  const proteinIndex = normalizedIngredients.findIndex(
+    (item) =>
+      item.category === "protein" ||
+      /chicken|beef|pork|egg|tofu|protein|雞|鸡|牛|豬|猪|蛋|豆腐/i.test(
+        item.name,
+      ),
+  );
+  if (
+    proteinIndex >= 0 &&
+    (goal === "muscle_gain" || goal === "recomposition") &&
+    !aiSwaps.some((swap) => swap.ingredientIndex === proteinIndex)
+  ) {
+    const original = normalizedIngredients[proteinIndex];
+    const usePlantProtein = !/tofu|tempeh|chickpea|豆腐|鷹嘴豆|鹰嘴豆/i.test(
+      original.name,
+    );
+    const avoidsSoy = has("soy") || has("大豆");
     defaults.push({
-      from: "Fatty meat or heavy sauce",
-      to: "Lean protein and a lighter sauce",
-      reason: "Raises protein density and lowers calories.",
-    });
-  if (goal === "muscle_gain" || goal === "recomposition")
-    defaults.push({
-      from: "A small protein portion",
-      to: "An extra 100–150 g lean protein or plant-protein equivalent",
+      from: original.name,
+      ingredientIndex: proteinIndex,
+      to: usePlantProtein
+        ? avoidsSoy
+          ? "Canned chickpeas"
+          : "Extra-firm tofu"
+        : has("vegan") || has("vegetarian")
+          ? avoidsSoy
+            ? "Cooked green lentils"
+            : "Extra-firm tofu"
+          : "Boneless skinless chicken breast",
+      quantity:
+        original.unit === "piece" ? 200 : Math.max(original.quantity || 0, 200),
+      unit: "g",
+      preparation: usePlantProtein
+        ? "pressed and cut to match the recipe"
+        : "cut to match the recipe",
+      category: "protein",
       reason: "Helps the meal better support your protein target.",
     });
-  if (!defaults.length)
-    defaults.push({
-      from: "Extra cooking oil or butter",
-      to: "A non-stick pan or measured 1 tsp oil",
-      reason: "Keeps flavor while making calories easier to manage.",
-    });
+  }
   const swaps = [...aiSwaps, ...defaults]
     .filter(
       (swap, index, all) =>
-        all.findIndex((item) => item.from === swap.from) === index,
+        all.findIndex(
+          (item) =>
+            item.ingredientIndex === swap.ingredientIndex &&
+            item.to === swap.to,
+        ) === index,
     )
     .slice(0, 4);
+  if (!swaps.length) return null;
   const card = document.createElement("article");
   card.className = "card personalized-swaps";
-  card.innerHTML = `<div class="swaps-heading"><div><p class="eyebrow">PERSONALIZED HEALTHY SWAPS</p><h2>Make this meal work for <em>you.</em></h2><p>These swaps are matched to your saved health and food profile.</p></div><span class="swap-badge">Profile applied ✓</span></div><div class="swap-grid">${swaps.map((swap, index) => `<article><small>SWAP ${index + 1}</small><b>${esc(swap.from)}</b><i>→</i><strong>${esc(swap.to)}</strong><p>${esc(swap.reason || "A profile-safe alternative for this meal.")}</p><button class="cream" data-apply-swap="${index}">Use this swap</button></article>`).join("")}</div><p class="swap-note">Jarvis avoids your saved allergies and dietary restrictions. Check packaged ingredients when allergies are severe.</p>`;
-  const checklist = document.querySelector("#plan .shopping-checklist");
-  (
-    checklist || document.querySelector("#plan .guided-preview")
-  ).insertAdjacentElement(checklist ? "afterend" : "beforebegin", card);
+  card.innerHTML = `<div class="swaps-heading"><div><p class="eyebrow">PERSONALIZED HEALTHY SWAPS</p><h2>Make this meal work for <em>you.</em></h2><p>Choose any replacements now. Your ingredient list and grocery list will update immediately.</p></div><span class="swap-badge">Profile applied ✓</span></div><div class="swap-grid">${swaps.map((swap, index) => `<article><small>SWAP ${index + 1}</small><b>${esc(swap.from)}</b><i>→</i><strong>${esc(swap.to)}</strong><p>${esc(swap.reason || "A profile-safe alternative for this meal.")}</p><button class="cream" data-apply-swap="${index}">Use this swap</button></article>`).join("")}</div><p class="swap-note">Jarvis avoids your saved allergies and dietary restrictions. Check packaged ingredients when allergies are severe.</p>`;
+  document
+    .querySelector("#plan .guided-preview")
+    .insertAdjacentElement("beforebegin", card);
   card.querySelectorAll("[data-apply-swap]").forEach(
     (button) =>
-      (button.onclick = () => {
+      (button.onclick = async () => {
         const swap = swaps[Number(button.dataset.applySwap)];
-        button.textContent = "Swap selected ✓";
         button.disabled = true;
-        toast(`${swap.to} selected for this meal`);
+        button.textContent = "Applying swap…";
+        await onApply(swap.ingredientIndex, swap);
+        button.textContent = "Swap applied ✓";
       }),
   );
+  return card;
 }
 
 function renderShoppingChecklist(title, ingredients) {
-  ingredients = ingredients.map(window.ChefDomain.normalizeIngredient);
+  ingredients = ingredients.map(window.ChefDomain.normalizeGroceryItem);
   const card = document.createElement("article");
   card.className = "card shopping-checklist";
-  card.innerHTML = `<div class="shopping-head"><div><p class="eyebrow">SMART GROCERY LIST</p><h2>What do you need to buy?</h2><p>Select the ingredients you still need. Exact quantities stay visible while you shop.</p></div><button class="dark" id="save-shopping-list">Save selected items →</button></div><div class="shopping-items">${ingredients.map((item, index) => `<label><input type="checkbox" data-shopping-item="${index}" checked><span class="shopping-box">✓</span><b>${esc(item.name || "Ingredient")}</b><small>${esc(window.ChefDomain.ingredientDetails(item))}</small></label>`).join("")}</div><p class="shopping-status" id="shopping-status">${ingredients.length} items selected</p>`;
+  card.innerHTML = `<div class="shopping-head"><div><p class="eyebrow">SMART GROCERY LIST</p><h2>What do you need to buy?</h2><p>Select the ingredients you still need. Exact quantities stay visible while you shop.</p></div><button class="dark" id="save-shopping-list">Save to Grocery List →</button></div><div class="shopping-items">${ingredients.map((item, index) => `<label><input type="checkbox" data-shopping-item="${index}" checked><span class="shopping-box">✓</span><b>${esc(item.name || "Ingredient")}</b><small>${esc(window.ChefDomain.ingredientDetails(item))}</small></label>`).join("")}</div><p class="shopping-status" id="shopping-status" role="status">${ingredients.length} items selected</p>`;
   const preview = document.querySelector("#plan .guided-preview");
   preview.insertAdjacentElement("beforebegin", card);
   const updateStatus = () => {
@@ -509,11 +616,17 @@ function renderShoppingChecklist(title, ingredients) {
     const selected = [
       ...card.querySelectorAll("[data-shopping-item]:checked"),
     ].map((input) => ingredients[Number(input.dataset.shoppingItem)]);
-    if (!selected.length)
+    const status = card.querySelector("#shopping-status");
+    if (!selected.length) {
+      status.textContent = "Select at least one grocery item first.";
+      status.classList.add("shopping-status-error");
       return toast("Select at least one grocery item first.");
+    }
     const button = event.currentTarget;
     button.disabled = true;
     button.textContent = "Saving…";
+    status.textContent = "Saving selected ingredients…";
+    status.classList.remove("shopping-status-error");
     const { data: list, error: listError } = await sb
       .from("shopping_lists")
       .insert({
@@ -526,20 +639,19 @@ function renderShoppingChecklist(title, ingredients) {
       .single();
     if (listError) {
       button.disabled = false;
-      button.textContent = "Save selected items →";
+      button.textContent = "Save to Grocery List →";
+      status.textContent = listError.message;
+      status.classList.add("shopping-status-error");
       return toast(listError.message);
     }
-    const rows = selected.map((item) => {
-      const match = String(item.amount || "").match(/^([0-9.]+)\s*(.*)$/);
-      return {
-        shopping_list_id: list.id,
-        ingredient: String(item.name || "Ingredient").slice(0, 160),
-        quantity: item.quantity ?? (match ? Number(match[1]) : null),
-        unit: item.unit || match?.[2]?.slice(0, 60) || null,
-        category: item.category || "grocery",
-        is_checked: false,
-      };
-    });
+    const rows = selected.map((item) => ({
+      shopping_list_id: list.id,
+      ingredient: String(item.name || "Ingredient").slice(0, 160),
+      quantity: item.quantity,
+      unit: item.unit || null,
+      category: item.category || "grocery",
+      is_checked: false,
+    }));
     const { error } = await sb.from("shopping_list_items").insert(rows);
     if (error) {
       await sb
@@ -548,19 +660,37 @@ function renderShoppingChecklist(title, ingredients) {
         .eq("id", list.id)
         .eq("user_id", user.id);
       button.disabled = false;
-      button.textContent = "Save selected items →";
+      button.textContent = "Save to Grocery List →";
+      status.textContent = error.message;
+      status.classList.add("shopping-status-error");
       return toast(error.message);
     }
-    button.textContent = "Saved to Shopping ✓";
+    button.textContent = "Saved to Grocery List ✓";
+    shoppingSavedNotice = true;
     toast("Your grocery checklist is saved ✓");
+    show("shopping");
+  };
+  return {
+    updateIngredient(index, item) {
+      const normalized = window.ChefDomain.normalizeGroceryItem(item);
+      ingredients[index] = normalized;
+      const input = card.querySelector(`[data-shopping-item="${index}"]`);
+      const label = input?.closest("label");
+      if (!label) return;
+      label.querySelector("b").textContent = normalized.name;
+      label.querySelector("small").textContent =
+        window.ChefDomain.ingredientDetails(normalized);
+    },
   };
 }
 
 async function renderShoppingLists() {
   const root = document.querySelector("#shopping");
   if (!root || !user) return;
+  const showSavedNotice = shoppingSavedNotice;
+  shoppingSavedNotice = false;
   root.innerHTML =
-    '<div class="title"><div><p class="eyebrow">AT THE STORE</p><h1>Your shopping<br><em>lists.</em></h1></div></div><div id="saved-shopping-lists"><p>Loading your lists…</p></div>';
+    `<div class="title"><div><p class="eyebrow">AT THE STORE</p><h1>Your shopping<br><em>lists.</em></h1></div></div>${showSavedNotice ? '<div class="shopping-save-notice" role="status"><b>Saved to your grocery list ✓</b><span>The checked ingredients, quantities, and units are ready below.</span></div>' : ""}<div id="saved-shopping-lists"><p>Loading your lists…</p></div>`;
   const { data, error } = await sb
     .from("shopping_lists")
     .select(
@@ -582,7 +712,15 @@ async function renderShoppingLists() {
   container.innerHTML = `<div class="saved-shopping-grid">${data
     .map((list) => {
       const items = list.shopping_list_items || [];
-      return `<article class="card saved-shopping-list" data-list-id="${esc(list.id)}"><div class="saved-shopping-head"><div><p class="eyebrow">${items.filter((item) => item.is_checked).length} OF ${items.length} PICKED</p><h2>${esc(window.I18n.translate(list.title))}</h2><small>${esc(displayDate(list.created_at))}</small></div><button class="timer-remove" data-delete-list="${esc(list.id)}" aria-label="Delete list">×</button></div><div class="saved-shopping-items">${items.map((item) => `<label class="${item.is_checked ? "checked" : ""}"><input type="checkbox" data-list-item="${esc(item.id)}" ${item.is_checked ? "checked" : ""}><span class="shopping-box">✓</span><b>${esc(item.ingredient)}</b><small>${item.quantity == null ? "" : esc(item.quantity)} ${esc(displayShoppingUnit(item.unit))}</small></label>`).join("")}</div></article>`;
+      const displayItems = items.map((item) => ({
+        ...item,
+        grocery: window.ChefDomain.normalizeGroceryItem({
+          name: item.ingredient,
+          quantity: item.quantity,
+          unit: item.unit,
+        }),
+      }));
+      return `<article class="card saved-shopping-list" data-list-id="${esc(list.id)}"><div class="saved-shopping-head"><div><p class="eyebrow">${items.filter((item) => item.is_checked).length} OF ${items.length} PICKED</p><h2>${esc(window.I18n.translate(list.title))}</h2><small>${esc(displayDate(list.created_at))}</small></div><button class="timer-remove" data-delete-list="${esc(list.id)}" aria-label="Delete list">×</button></div><div class="saved-shopping-items">${displayItems.map((item) => `<label class="${item.is_checked ? "checked" : ""}"><input type="checkbox" data-list-item="${esc(item.id)}" ${item.is_checked ? "checked" : ""}><span class="shopping-box">✓</span><b>${esc(item.grocery.name)}</b><small>${item.grocery.quantity == null ? window.I18n.translate("Quantity not specified") : `${esc(item.grocery.quantity)} ${esc(displayShoppingUnit(item.grocery.unit, item.grocery.quantity))}`}</small></label>`).join("")}</div></article>`;
     })
     .join("")}</div>`;
   container.querySelectorAll("[data-list-item]").forEach(

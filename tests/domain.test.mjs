@@ -9,6 +9,8 @@ const {
   normalizeRecipeSteps,
   buildRecipeTimers,
   normalizeIngredient,
+  normalizeGroceryItem,
+  applyIngredientSubstitution,
   ingredientPreparation,
   ingredientDetails,
   safeExternalUrl,
@@ -164,6 +166,39 @@ test("legacy saved ingredients remain readable", () => {
   assert.equal(ingredient.amount, "1 tbsp");
   assert.equal(ingredient.quantity, null);
   assert.equal(ingredientDetails(ingredient), "1 tbsp");
+});
+
+test("grocery items recover legacy quantities and always include a unit", () => {
+  const counted = normalizeGroceryItem({ name: "Eggs", amount: "3" });
+  assert.equal(counted.name, "Eggs");
+  assert.equal(counted.quantity, 3);
+  assert.equal(counted.unit, "piece");
+  assert.equal(counted.amount, "3 pieces");
+
+  const embedded = normalizeGroceryItem({
+    name: "500g Chicken breast, diced",
+  });
+  assert.equal(embedded.name, "Chicken breast, diced");
+  assert.equal(embedded.quantity, 500);
+  assert.equal(embedded.unit, "g");
+});
+
+test("ingredient substitutions update the final grocery quantity and unit", () => {
+  const replacement = applyIngredientSubstitution(
+    { name: "Large eggs", quantity: 3, unit: "piece", category: "protein" },
+    {
+      to: "Extra-firm tofu",
+      quantity: 200,
+      unit: "g",
+      preparation: "pressed and crumbled",
+      category: "protein",
+    },
+  );
+  assert.equal(replacement.name, "Extra-firm tofu");
+  assert.equal(replacement.quantity, 200);
+  assert.equal(replacement.unit, "g");
+  assert.equal(replacement.amount, "200 g");
+  assert.equal(replacement.preparation, "pressed and crumbled");
 });
 
 test("Chinese ingredients use readable units and hide no-op preparation text", () => {

@@ -203,8 +203,15 @@
     "Select the ingredients you still need. Exact quantities stay visible while you shop.":
       "勾選仍需購買的食材，採買時會持續顯示精確份量。",
     "Save selected items →": "儲存已選食材 →",
+    "Save to Grocery List →": "儲存到購物清單 →",
     "Saving…": "儲存中…",
+    "Saving selected ingredients…": "正在儲存已選食材…",
     "Saved to Shopping ✓": "已儲存到購物清單 ✓",
+    "Saved to Grocery List ✓": "已儲存到購物清單 ✓",
+    "Saved to your grocery list ✓": "已儲存到購物清單 ✓",
+    "The checked ingredients, quantities, and units are ready below.":
+      "已勾選的食材、份量與單位都整理在下方。",
+    "Quantity not specified": "未標示份量",
     "Your grocery checklist is saved ✓": "購物清單已儲存 ✓",
     "Select at least one grocery item first.": "請至少選擇一項購物食材。",
     "Shopping list deleted": "購物清單已刪除",
@@ -215,8 +222,14 @@
     "you.": "你。",
     "These swaps are matched to your saved health and food profile.":
       "這些替換選項會依照你的健康與飲食資料調整。",
+    "Choose any replacements now. Your ingredient list and grocery list will update immediately.":
+      "請先決定是否替換；食材明細與購物清單會立即同步更新。",
     "Profile applied ✓": "已套用個人資料 ✓",
     "Use this swap": "使用這個替換",
+    "Applying swap…": "正在套用替換…",
+    "Swap applied ✓": "已套用替換 ✓",
+    "The swap is applied here, but could not be saved yet.":
+      "替換已套用，但目前無法儲存。",
     "Jarvis avoids your saved allergies and dietary restrictions. Check packaged ingredients when allergies are severe.":
       "Jarvis 會避開已記錄的過敏原與飲食限制；若有嚴重過敏，仍請檢查包裝成分。",
     "AT THE STORE": "採買模式",
@@ -313,6 +326,13 @@
     Eggs: "雞蛋",
     "Cooked protein": "已煮熟的蛋白質食材",
     Scallions: "青蔥",
+    "Extra-firm tofu": "板豆腐",
+    "Boneless skinless chicken breast": "去骨去皮雞胸肉",
+    "Canned chickpeas": "罐裝鷹嘴豆",
+    "Cooked green lentils": "煮熟綠扁豆",
+    "Unsweetened soy yogurt": "無糖豆乳優格",
+    "Gluten-free tamari": "無麩質日式醬油",
+    "Roasted pumpkin seeds": "烘烤南瓜子",
     "Main protein for your requested dish": "這道料理的主要蛋白質食材",
     "Fresh vegetables and aromatics": "新鮮蔬菜與辛香料",
     "Carbohydrate base, if needed": "需要時使用的主食",

@@ -141,6 +141,9 @@
   color: var(--muted) !important;
   margin: 13px 0 0 !important;
 }
+.shopping-status-error {
+  color: #a33d2d !important;
+}
 @media (max-width: 850px) {
   .shopping-head {
     display: grid;
