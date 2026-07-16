@@ -10,6 +10,7 @@ let titleFlashInterval = null;
 let alarmAudioContext = null;
 let recipeTimersInitialized = false;
 let shoppingSavedNotice = false;
+let planRenderVersion = 0;
 
 const fallbackCookingSteps = [
   "Prepare and measure every ingredient before turning on the heat.",
@@ -213,6 +214,7 @@ function displayShoppingUnit(value, quantity) {
 function renderPlan(query) {
   const root = document.querySelector("#plan");
   if (!root) return;
+  const renderVersion = ++planRenderVersion;
   const isAi = query && typeof query === "object";
   const recipe = isAi
     ? {
@@ -324,7 +326,7 @@ function renderPlan(query) {
   );
 
   if (!isAi) {
-    renderSavedPlans();
+    renderSavedPlans(renderVersion);
     return;
   }
   renderPlanPersistenceControls(recipe);
@@ -407,7 +409,7 @@ function renderPlanPersistenceControls(recipe) {
   controls.className = "plan-persistence-controls";
   controls.innerHTML = recipe.is_saved
     ? "<span>Saved to your recipes ✓</span>"
-    : '<span>Not saved yet</span><button class="cream" id="cook-later">Cook later</button>';
+    : '<span><b>Not saved yet</b><small>This draft can be restored for 30 minutes after a refresh.</small></span><button class="cream" id="cook-later">Cook later</button>';
   title.append(controls);
   const button = controls.querySelector("#cook-later");
   if (!button) return;
@@ -449,7 +451,28 @@ function planFromSavedRow(row) {
   };
 }
 
-async function renderSavedPlans() {
+async function restoreRecentDraftPlan() {
+  if (!user) return false;
+  const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const { data, error } = await sb
+    .from("recipes")
+    .select("id,title,servings,minutes,recipe,nutrition,created_at,is_saved")
+    .eq("user_id", user.id)
+    .eq("is_saved", false)
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn("Could not restore the recent meal-plan draft", error);
+    return false;
+  }
+  if (!data) return false;
+  renderPlan(planFromSavedRow(data));
+  return true;
+}
+
+async function renderSavedPlans(expectedRenderVersion = planRenderVersion) {
   const root = document.querySelector("#plan");
   if (!root || !user) return;
   const { data, error } = await sb
@@ -459,6 +482,11 @@ async function renderSavedPlans() {
     .eq("is_saved", true)
     .order("updated_at", { ascending: false })
     .limit(20);
+  if (
+    expectedRenderVersion !== planRenderVersion ||
+    root !== document.querySelector("#plan")
+  )
+    return;
   if (error || !data?.length) return;
   const card = document.createElement("article");
   card.className = "card recent-plans";
@@ -980,7 +1008,7 @@ function renderCook() {
   );
   const currentTimer = timers[currentTimerIndex];
   const currentTimerMarkup = currentStep.timer
-    ? `<button type="button" class="current-step-timer" id="start-current-step-timer" data-timer-index="${currentTimerIndex}" aria-label="${esc(currentTimer?.running ? "Pause this timer" : "Start this timer")}"><b>⏱ ${esc(currentStep.timer.label)}<small>${currentTimer?.running ? "Pause timer" : currentTimer?.completed ? "Restart timer" : "Start timer"}</small></b><span>${formatTime(currentTimer?.sec ?? currentStep.timer.duration_seconds)}</span></button>`
+    ? `<button type="button" class="current-step-timer" id="start-current-step-timer" data-timer-index="${currentTimerIndex}" aria-label="${esc(currentTimer?.running ? "Pause this timer" : currentTimer?.completed ? "Restart this timer" : "Start this timer")}"><b>⏱ ${esc(currentStep.timer.label)}<small>${currentTimer?.running ? "Pause timer" : currentTimer?.completed ? "Restart timer" : "Start timer"}</small></b><span>${formatTime(currentTimer?.sec ?? currentStep.timer.duration_seconds)}</span></button>`
     : "";
   root.innerHTML = `
     <div class="chef-mode-heading"><div><p class="eyebrow">CHEF MODE · ${activeRecipe ? "ACTIVE RECIPE" : "READY"}</p><h1>${esc(recipe.title)}<br><em>cook with Jarvis.</em></h1></div><button class="cream" id="chef-read">🔊 Read current step</button></div>
@@ -1107,7 +1135,42 @@ async function toggleTimer(index) {
   renderTimerList();
 }
 
+function renderCurrentStepTimer() {
+  const button = document.querySelector("#start-current-step-timer");
+  if (!button || !activeRecipe) return;
+  let timerIndex = Number(button.dataset.timerIndex);
+  let timer = Number.isInteger(timerIndex) ? timers[timerIndex] : null;
+  if (
+    !timer ||
+    timer.source !== "recipe" ||
+    timer.stepIndex !== cookingStepIndex
+  ) {
+    timerIndex = timers.findIndex(
+      (item) => item.source === "recipe" && item.stepIndex === cookingStepIndex,
+    );
+    timer = timers[timerIndex];
+  }
+  button.dataset.timerIndex = String(timerIndex);
+  const currentStep = window.ChefDomain.normalizeRecipeSteps(
+    activeRecipe.steps,
+  )[cookingStepIndex];
+  const status = timer?.running
+    ? "Pause"
+    : timer?.completed
+      ? "Restart"
+      : "Start";
+  button.setAttribute("aria-label", `${status} this timer`);
+  const statusText = button.querySelector("small");
+  const timeText = button.querySelector("span");
+  if (statusText) statusText.textContent = `${status} timer`;
+  if (timeText)
+    timeText.textContent = formatTime(
+      timer?.sec ?? currentStep?.timer?.duration_seconds ?? 0,
+    );
+}
+
 function renderTimerList() {
+  renderCurrentStepTimer();
   const list = document.querySelector("#timer-list");
   if (!list) return;
   if (!timers.length) {

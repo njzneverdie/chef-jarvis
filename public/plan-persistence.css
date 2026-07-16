@@ -4,9 +4,16 @@
   gap: 9px;
 }
 .plan-persistence-controls span {
+  display: grid;
+  gap: 2px;
   font-size: 10px;
   font-weight: 800;
   color: #57715e;
+}
+.plan-persistence-controls span small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
 }
 .plan-persistence-controls button {
   font-size: 10px;

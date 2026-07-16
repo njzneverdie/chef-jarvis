@@ -330,16 +330,21 @@ function validatePlan(value: unknown): MealPlan {
     60,
     (item, index) => {
       const ingredient = object(item, `ingredients[${index}]`);
+      const name = specificIngredientName(
+        ingredient.name,
+        `ingredients[${index}].name`,
+      );
+      const suppliedUsdaQuery =
+        typeof ingredient.usda_query === "string"
+          ? ingredient.usda_query.trim()
+          : "";
       return {
-        name: specificIngredientName(
-          ingredient.name,
-          `ingredients[${index}].name`,
-        ),
-        usda_query: text(
-          ingredient.usda_query,
-          `ingredients[${index}].usda_query`,
-          140,
-        ),
+        name,
+        usda_query: suppliedUsdaQuery
+          ? text(suppliedUsdaQuery, `ingredients[${index}].usda_query`, 140)
+          : /^[\x00-\x7f]+$/.test(name)
+            ? name
+            : "",
         quantity: preciseNumber(
           ingredient.quantity,
           `ingredients[${index}].quantity`,
@@ -381,14 +386,17 @@ function validatePlan(value: unknown): MealPlan {
           `substitutions[${index}].from must exactly match an ingredient name`,
         );
       }
+      const to = specificIngredientName(swap.to, `substitutions[${index}].to`);
+      const suppliedUsdaQuery =
+        typeof swap.usda_query === "string" ? swap.usda_query.trim() : "";
       return {
         from,
-        to: specificIngredientName(swap.to, `substitutions[${index}].to`),
-        usda_query: text(
-          swap.usda_query,
-          `substitutions[${index}].usda_query`,
-          140,
-        ),
+        to,
+        usda_query: suppliedUsdaQuery
+          ? text(suppliedUsdaQuery, `substitutions[${index}].usda_query`, 140)
+          : /^[\x00-\x7f]+$/.test(to)
+            ? to
+            : "",
         quantity: preciseNumber(
           swap.quantity,
           `substitutions[${index}].quantity`,
@@ -1331,8 +1339,7 @@ function fallbackPlan(
 
 function textFromGemini(payload: Record<string, unknown>) {
   const candidates = payload?.candidates as
-    | Array<{ content?: { parts?: Array<{ text?: string }> } }>
-    | undefined;
+    Array<{ content?: { parts?: Array<{ text?: string }> } }> | undefined;
   return (
     candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") ||
     ""
@@ -1460,7 +1467,7 @@ Deno.serve(async (request) => {
   let quotaRequestId: string | null = null;
   let quotaUserId: string | null = null;
   try {
-    const body = (await request.json()) as {
+    const body = (await request.json().catch(() => ({}))) as {
       request?: unknown;
       language?: unknown;
     };
@@ -1525,7 +1532,14 @@ Deno.serve(async (request) => {
         400,
       );
 
-    const [{ data: profileRow }, { data: pantryRows }] = await Promise.all([
+    const draftCutoff = new Date(
+      Date.now() - 7 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const [
+      { data: profileRow },
+      { data: pantryRows },
+      { error: draftCleanupError },
+    ] = await Promise.all([
       admin
         .from("app_profiles")
         .select(
@@ -1539,7 +1553,15 @@ Deno.serve(async (request) => {
         .eq("user_id", user.id)
         .order("expires_on", { ascending: true, nullsFirst: false })
         .limit(40),
+      admin
+        .from("recipes")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("is_saved", false)
+        .lt("created_at", draftCutoff),
     ]);
+    if (draftCleanupError)
+      console.warn("draft cleanup failed", draftCleanupError.message);
     const profile = (profileRow || {}) as Profile;
     const pantry = (pantryRows || [])
       .map((item) => ({

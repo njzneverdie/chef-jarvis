@@ -544,11 +544,11 @@ function onboarding(edit = false) {
         )
         .join("")}</div>
       <p class="error hidden" id="profile-error"></p>
-      <div class="form-actions"><button type="button" class="cream" id="cancel-profile">Cancel</button><button class="dark">Save my cooking profile →</button></div>
+      <div class="form-actions">${edit ? '<button type="button" class="cream" id="cancel-profile">Cancel</button>' : ""}<button class="dark">Save my cooking profile →</button></div>
     </form>`;
   document.body.append(modal);
 
-  const closeModal = bindDismissibleModal(modal);
+  const closeModal = edit ? bindDismissibleModal(modal) : () => modal.remove();
 
   const form = modal.querySelector("#profile-form");
   const toggleCustom = () =>
@@ -557,7 +557,7 @@ function onboarding(edit = false) {
       .classList.toggle("hidden", form.mode.value !== "custom");
   form.mode.onchange = toggleCustom;
   toggleCustom();
-  modal.querySelector("#cancel-profile").onclick = closeModal;
+  modal.querySelector("#cancel-profile")?.addEventListener("click", closeModal);
   form.onsubmit = async (event) => {
     event.preventDefault();
     const formData = new FormData(form);
@@ -617,6 +617,10 @@ async function boot() {
     .maybeSingle();
   profile = result.data || null;
   shell();
+  const restoredDraft =
+    typeof restoreRecentDraftPlan === "function" &&
+    (await restoreRecentDraftPlan());
+  if (restoredDraft) show("plan");
   if (!profile?.onboarding_completed) onboarding();
 }
 
