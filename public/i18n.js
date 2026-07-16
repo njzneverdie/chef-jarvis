@@ -462,6 +462,7 @@
       "不必啟動主廚模式，也能直接記錄已存食譜；其他餐點則可輸入大約的營養值。",
     "FROM YOUR RECIPES": "從已存食譜",
     "Saved recipe": "已存食譜",
+    "Servings eaten": "實際食用份數",
     "Loading saved recipes…": "正在載入已存食譜…",
     "Loading your recipe folder.": "正在載入食譜收藏。",
     "No saved recipes yet": "還沒有已存食譜",
@@ -509,6 +510,8 @@
     "! Pantry could not be updated": "! 無法更新庫存",
     Undo: "復原",
     "Restoring…": "正在復原…",
+    "Replace the current cooking session?": "要取代目前的烹飪進度嗎？",
+    "Start new recipe": "開始新食譜",
   };
 
   const regexTranslations = [
@@ -581,6 +584,10 @@
     [/^✓ Recorded (.+) servings in today’s nutrition$/, "✓ 已記錄 $1 人份到今日營養"],
     [/^✓ Deducted (\d+) pantry items?$/, "✓ 已扣除 $1 項庫存"],
     [/^↶ Restored (\d+) pantry items?$/, "↶ 已復原 $1 項庫存"],
+    [
+      /^You are still cooking “(.+)”\. Starting another recipe will reset its step and timers\.$/,
+      "你仍在烹煮「$1」。開始另一份食譜會重置目前的步驟與計時器。",
+    ],
     [/^No (.+)$/, "不含 $1"],
   ];
 

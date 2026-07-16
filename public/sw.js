@@ -1,4 +1,4 @@
-const CACHE = "chef-jarvis-20260716-journey";
+const CACHE = "chef-jarvis-20260716-polish";
 const SUPABASE_CDN =
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.5/dist/umd/supabase.min.js";
 const SUPABASE_INTEGRITY =
@@ -6,21 +6,25 @@ const SUPABASE_INTEGRITY =
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=20260716-journey",
-  "/guided-cooking.css?v=20260716-journey",
-  "/chef-mode.css?v=20260716-journey",
-  "/shopping-list.css?v=20260716-journey",
-  "/usda-reference.css?v=20260716-journey",
-  "/personalized-swaps.css?v=20260716-journey",
-  "/plan-persistence.css?v=20260716-journey",
-  "/shopping-page.css?v=20260716-journey",
-  "/product-features.css?v=20260716-journey",
-  "/i18n.js?v=20260716-journey",
-  "/domain.js?v=20260716-journey",
-  "/app.js?v=20260716-journey",
-  "/chef-mode.js?v=20260716-journey",
+  "/styles.css?v=20260716-polish",
+  "/guided-cooking.css?v=20260716-polish",
+  "/chef-mode.css?v=20260716-polish",
+  "/shopping-list.css?v=20260716-polish",
+  "/usda-reference.css?v=20260716-polish",
+  "/personalized-swaps.css?v=20260716-polish",
+  "/plan-persistence.css?v=20260716-polish",
+  "/shopping-page.css?v=20260716-polish",
+  "/product-features.css?v=20260716-polish",
+  "/i18n.js?v=20260716-polish",
+  "/domain.js?v=20260716-polish",
+  "/app.js?v=20260716-polish",
+  "/chef-mode.js?v=20260716-polish",
   "/manifest.webmanifest",
   "/chef-jarvis-icon.svg",
+  "/chef-jarvis-icon-192.png",
+  "/chef-jarvis-icon-512.png",
+  "/chef-jarvis-maskable-512.png",
+  "/apple-touch-icon.png",
 ];
 self.addEventListener("install", (event) => {
   event.waitUntil(

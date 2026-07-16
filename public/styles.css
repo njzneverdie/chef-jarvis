@@ -166,6 +166,19 @@ h1 em {
   font-weight: 800;
   padding: 14px 17px;
 }
+.auth-submit:disabled,
+.dark:disabled {
+  cursor: not-allowed;
+  background: #9ba9a2;
+  color: #e9eeeb;
+  box-shadow: none;
+  opacity: 0.72;
+}
+.cream:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  box-shadow: none;
+}
 .auth-submit {
   width: 100%;
   margin-top: 8px;

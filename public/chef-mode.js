@@ -246,6 +246,40 @@ function displayShoppingUnit(value, quantity) {
   );
 }
 
+function hasCookingProgress() {
+  if (!activeRecipe) return false;
+  return (
+    cookingStepIndex > 0 ||
+    timers.some(
+      (timer) =>
+        timer.running ||
+        timer.completed ||
+        (timer.mode === "countdown" && timer.sec < timer.duration) ||
+        (timer.mode === "stopwatch" && timer.sec > 0),
+    )
+  );
+}
+
+async function beginGuidedCooking(recipe, ingredients, recipeId) {
+  if (
+    hasCookingProgress() &&
+    !(await confirmAction({
+      title: "Replace the current cooking session?",
+      message: `You are still cooking “${activeRecipe.title}”. Starting another recipe will reset its step and timers.`,
+      confirmLabel: "Start new recipe",
+    }))
+  )
+    return false;
+  activeRecipe = { ...recipe, ingredients, saved_recipe_id: recipeId };
+  cookingStepIndex = 0;
+  timers = window.ChefDomain.buildRecipeTimers(recipe.steps);
+  recipeTimersInitialized = true;
+  persistCookingState();
+  renderCook();
+  show("cook");
+  return true;
+}
+
 function renderPlan(query) {
   const root = document.querySelector("#plan");
   if (!root) return;
@@ -338,15 +372,8 @@ function renderPlan(query) {
       .join("")}</div></article>`;
 
   document.querySelector("#new-meal").onclick = () => show("home");
-  document.querySelector("#start-guided-cook").onclick = () => {
-    activeRecipe = { ...recipe, ingredients, saved_recipe_id: activeRecipeId };
-    cookingStepIndex = 0;
-    timers = window.ChefDomain.buildRecipeTimers(recipe.steps);
-    recipeTimersInitialized = true;
-    persistCookingState();
-    renderCook();
-    show("cook");
-  };
+  document.querySelector("#start-guided-cook").onclick = () =>
+    beginGuidedCooking(recipe, ingredients, activeRecipeId);
   document.querySelectorAll("[data-save]").forEach(
     (button) =>
       (button.onclick = async () => {
@@ -1480,28 +1507,6 @@ async function openQuickNutritionLog() {
   const savedForm = modal.querySelector("#quick-saved-form");
   const savedSelect = savedForm.elements.recipe;
   const savedButton = savedForm.querySelector('button[type="submit"]');
-  const { data: rows, error } = await sb
-    .from("recipes")
-    .select("id,title,servings,minutes,recipe,nutrition,created_at,is_saved")
-    .eq("user_id", user.id)
-    .eq("is_saved", true)
-    .order("updated_at", { ascending: false })
-    .limit(30);
-  if (!modal.isConnected) return;
-  if (error || !rows?.length) {
-    savedSelect.innerHTML = "<option>No saved recipes yet</option>";
-    modal.querySelector("[data-saved-help]").textContent = error
-      ? "Saved recipes could not be loaded. You can still add a manual estimate."
-      : "Save a recipe first, or use the manual estimate beside it.";
-  } else {
-    savedSelect.innerHTML = rows
-      .map((row) => `<option value="${esc(row.id)}">${esc(row.title)}</option>`)
-      .join("");
-    savedSelect.disabled = false;
-    savedButton.disabled = false;
-    modal.querySelector("[data-saved-help]").textContent =
-      "Nutrition scales with the servings you enter.";
-  }
   const finish = (message) => {
     close();
     show("home");
@@ -1512,30 +1517,6 @@ async function openQuickNutritionLog() {
           .querySelector("#daily-metrics")
           ?.scrollIntoView({ behavior: "smooth", block: "center" }),
     });
-  };
-  savedForm.onsubmit = async (event) => {
-    event.preventDefault();
-    const row = rows?.find((item) => item.id === savedSelect.value);
-    if (!row) return;
-    const recipe = planFromSavedRow(row);
-    const servings = Math.max(
-      0.25,
-      Math.min(12, finiteNumber(savedForm.elements.servings.value, 1)),
-    );
-    savedButton.disabled = true;
-    savedButton.textContent = "Logging…";
-    try {
-      await insertQuickNutritionLog({
-        recipe_id: row.id,
-        recipe_title: String(recipe.title).slice(0, 160),
-        ...nutritionForServings(recipe, servings),
-      });
-      finish("Saved recipe added to today’s intake ✓");
-    } catch (logError) {
-      savedButton.disabled = false;
-      savedButton.textContent = "Log saved recipe →";
-      toast(logError.message || "Could not log this meal.");
-    }
   };
   const manualForm = modal.querySelector("#quick-manual-form");
   manualForm.onsubmit = async (event) => {
@@ -1568,6 +1549,52 @@ async function openQuickNutritionLog() {
     } catch (logError) {
       button.disabled = false;
       button.textContent = "Add estimate →";
+      toast(logError.message || "Could not log this meal.");
+    }
+  };
+  const { data: rows, error } = await sb
+    .from("recipes")
+    .select("id,title,servings,minutes,recipe,nutrition,created_at,is_saved")
+    .eq("user_id", user.id)
+    .eq("is_saved", true)
+    .order("updated_at", { ascending: false })
+    .limit(30);
+  if (!modal.isConnected) return;
+  if (error || !rows?.length) {
+    savedSelect.innerHTML = "<option>No saved recipes yet</option>";
+    modal.querySelector("[data-saved-help]").textContent = error
+      ? "Saved recipes could not be loaded. You can still add a manual estimate."
+      : "Save a recipe first, or use the manual estimate beside it.";
+  } else {
+    savedSelect.innerHTML = rows
+      .map((row) => `<option value="${esc(row.id)}">${esc(row.title)}</option>`)
+      .join("");
+    savedSelect.disabled = false;
+    savedButton.disabled = false;
+    modal.querySelector("[data-saved-help]").textContent =
+      "Nutrition scales with the servings you enter.";
+  }
+  savedForm.onsubmit = async (event) => {
+    event.preventDefault();
+    const row = rows?.find((item) => item.id === savedSelect.value);
+    if (!row) return;
+    const recipe = planFromSavedRow(row);
+    const servings = Math.max(
+      0.25,
+      Math.min(12, finiteNumber(savedForm.elements.servings.value, 1)),
+    );
+    savedButton.disabled = true;
+    savedButton.textContent = "Logging…";
+    try {
+      await insertQuickNutritionLog({
+        recipe_id: row.id,
+        recipe_title: String(recipe.title).slice(0, 160),
+        ...nutritionForServings(recipe, servings),
+      });
+      finish("Saved recipe added to today’s intake ✓");
+    } catch (logError) {
+      savedButton.disabled = false;
+      savedButton.textContent = "Log saved recipe →";
       toast(logError.message || "Could not log this meal.");
     }
   };
