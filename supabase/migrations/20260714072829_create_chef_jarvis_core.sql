@@ -77,6 +77,7 @@ create table if not exists public.recipes (
 create table if not exists public.shopping_lists (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete cascade,
+  recipe_id uuid references public.recipes(id) on delete set null,
   title text not null,
   status text not null default 'active'
     check (status in ('active', 'completed', 'archived')),

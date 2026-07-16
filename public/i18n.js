@@ -451,6 +451,64 @@
       "免手操作需要麥克風權限。",
     "Say: next step, repeat, start timer, or pause timer.":
       "你可以說：下一步、重複、開始計時或暫停計時。",
+    PLAN: "規劃",
+    SHOP: "採買",
+    "COOK & REVIEW": "烹飪與回顧",
+    "Chef Jarvis journey": "Chef Jarvis 使用旅程",
+    "＋ Quick log": "＋ 快速記錄",
+    "QUICK LOG": "快速記錄",
+    "Add a meal to today.": "新增今天吃過的餐點。",
+    "Log a saved recipe without starting Chef Mode, or enter a simple estimate for anything else you ate.":
+      "不必啟動主廚模式，也能直接記錄已存食譜；其他餐點則可輸入大約的營養值。",
+    "FROM YOUR RECIPES": "從已存食譜",
+    "Saved recipe": "已存食譜",
+    "Loading saved recipes…": "正在載入已存食譜…",
+    "Loading your recipe folder.": "正在載入食譜收藏。",
+    "No saved recipes yet": "還沒有已存食譜",
+    "Saved recipes could not be loaded. You can still add a manual estimate.":
+      "無法載入已存食譜，你仍可手動輸入估算值。",
+    "Save a recipe first, or use the manual estimate beside it.":
+      "請先儲存食譜，或使用旁邊的手動估算。",
+    "Nutrition scales with the servings you enter.":
+      "營養數值會依你輸入的食用份數換算。",
+    "Log saved recipe →": "記錄已存食譜 →",
+    "MANUAL ESTIMATE": "手動估算",
+    "Meal name": "餐點名稱",
+    "e.g. Breakfast sandwich": "例如：早餐三明治",
+    "Add estimate →": "加入估算 →",
+    "Logging…": "正在記錄…",
+    "Enter an estimated calorie amount first.": "請先輸入估計熱量。",
+    "Saved recipe added to today’s intake ✓": "已將食譜加入今日攝取 ✓",
+    "Meal estimate added to today’s intake ✓": "已將餐點估算加入今日攝取 ✓",
+    "View today’s intake →": "查看今日攝取 →",
+    "Start cooking this dish →": "開始煮這道菜 →",
+    "Choose a recipe →": "選擇食譜 →",
+    "This recipe is no longer available.": "這份食譜已無法使用。",
+    "How weekly planning works": "一週餐期使用方式",
+    "① Save a recipe": "① 儲存喜歡的食譜",
+    "Choose “Cook later” on a recipe you like.":
+      "在喜歡的食譜按下「稍後再煮」。",
+    "② Pick a day": "② 排進想煮的日子",
+    "Add saved recipes to your week.": "把已存食譜加入一週餐期。",
+    "③ Shop once": "③ 一次完成採買",
+    "Merge the full week into one grocery list.":
+      "將整週食材合併成一份購物清單。",
+    "🎙 Cook hands-free": "🎙 免手操作料理",
+    "Say “next step”, “repeat”, or “start timer” while your hands are busy.":
+      "雙手忙碌時，可以說「下一步」、「重複」或「開始計時」。",
+    "Got it": "知道了",
+    "AUTOMATICALLY COMPLETED": "已自動完成",
+    "◌ Recording 1 serving of nutrition…": "◌ 正在記錄 1 人份營養…",
+    "◌ Checking recipe amounts against your pantry…":
+      "◌ 正在依食譜份量更新庫存…",
+    "✓ Recorded 1 serving in today’s nutrition":
+      "✓ 已記錄 1 人份到今日營養",
+    "! Nutrition could not be recorded": "! 無法記錄營養",
+    "✓ Pantry checked — no matching measured items to deduct":
+      "✓ 已檢查庫存，沒有可依份量扣除的相符食材",
+    "! Pantry could not be updated": "! 無法更新庫存",
+    Undo: "復原",
+    "Restoring…": "正在復原…",
   };
 
   const regexTranslations = [
@@ -516,6 +574,13 @@
     [/^(\d+) OF (\d+) PICKED$/, "已取得 $1 / $2 項"],
     [/^CHEF MODE · ACTIVE RECIPE$/, "主廚模式 · 進行中的食譜"],
     [/^CHEF MODE · READY$/, "主廚模式 · 準備完成"],
+    [
+      /^(\d+) purchased items? added to your pantry ✓$/,
+      "已將 $1 項購買品加入庫存 ✓",
+    ],
+    [/^✓ Recorded (.+) servings in today’s nutrition$/, "✓ 已記錄 $1 人份到今日營養"],
+    [/^✓ Deducted (\d+) pantry items?$/, "✓ 已扣除 $1 項庫存"],
+    [/^↶ Restored (\d+) pantry items?$/, "↶ 已復原 $1 項庫存"],
     [/^No (.+)$/, "不含 $1"],
   ];
 

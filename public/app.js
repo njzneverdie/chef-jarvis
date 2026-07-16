@@ -56,12 +56,28 @@ function bindLanguageToggle() {
   });
 }
 
-function toast(text) {
+function toast(text, options = {}) {
   const element = document.createElement("div");
   element.className = "toast";
-  element.textContent = text;
+  const message = document.createElement("span");
+  message.textContent = text;
+  element.append(message);
+  let timeout;
+  if (options.actionLabel && typeof options.onAction === "function") {
+    element.classList.add("has-action");
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "toast-action";
+    action.textContent = options.actionLabel;
+    action.onclick = () => {
+      clearTimeout(timeout);
+      element.remove();
+      options.onAction();
+    };
+    element.append(action);
+  }
   document.body.append(element);
-  setTimeout(() => element.remove(), 3200);
+  timeout = setTimeout(() => element.remove(), options.duration || 5200);
 }
 
 function bindDismissibleModal(modal, onClose = () => modal.remove()) {
@@ -259,14 +275,20 @@ function shell() {
     <div class="layout">
       <aside class="side">
         <div class="brand"><span>✦</span>Chef <em>Jarvis</em></div>
-        <nav class="nav">
-          <button data-view="home" class="active">⌂ &nbsp; Home</button>
-          <button data-view="plan">✦ &nbsp; Plan</button>
-          <button data-view="pantry">▦ &nbsp; Pantry</button>
-          <button data-view="shopping">☑ &nbsp; Shopping</button>
-          <button data-view="week">▤ &nbsp; Week</button>
-          <button data-view="cook">◴ &nbsp; Cook</button>
-          <button data-view="profile">◌ &nbsp; Profile</button>
+        <nav class="nav" aria-label="Chef Jarvis journey">
+          <div class="nav-group"><span class="nav-label">PLAN</span>
+            <button data-view="home" class="active">⌂ &nbsp; Home</button>
+            <button data-view="plan">✦ &nbsp; Plan</button>
+            <button data-view="week">▤ &nbsp; Week</button>
+          </div>
+          <div class="nav-group"><span class="nav-label">SHOP</span>
+            <button data-view="shopping">☑ &nbsp; Shopping</button>
+            <button data-view="pantry">▦ &nbsp; Pantry</button>
+          </div>
+          <div class="nav-group"><span class="nav-label">COOK & REVIEW</span>
+            <button data-view="cook">◴ &nbsp; Cook</button>
+            <button data-view="profile">◌ &nbsp; Profile</button>
+          </div>
         </nav>
         <div class="side-foot"><b>${esc(user.email)}</b><span>${esc(nutrition())}</span></div>
       </aside>
@@ -351,12 +373,16 @@ function renderHome() {
       </div>
       <article class="tonight"><div><small>YOUR DAILY TARGET</small><h2>${esc(nutrition())}</h2><p>${esc((profile?.body_composition_goal || "personalized").replace("_", " "))} plan · pantry and preferences applied</p><button class="cream" data-go="plan">Plan a meal →</button></div></article>
     </div>
-    <div class="section-head"><div><p class="eyebrow">TODAY'S BALANCE</p><h2>Fuel your day well.</h2></div><button class="link" data-go="profile">Edit nutrition →</button></div>
+    <div class="section-head"><div><p class="eyebrow">TODAY'S BALANCE</p><h2>Fuel your day well.</h2></div><div class="section-actions"><button class="cream compact" id="quick-log">＋ Quick log</button><button class="link" data-go="profile">Edit nutrition →</button></div></div>
     <div class="metrics daily-metrics" id="daily-metrics">
       <article class="metric"><b>—</b><span>Loading today’s intake…</span><p>USDA-backed meals appear here after cooking.</p></article>
     </div>`;
 
   renderDailyNutritionProgress();
+
+  document.querySelector("#quick-log").onclick = () => {
+    if (typeof openQuickNutritionLog === "function") openQuickNutritionLog();
+  };
 
   document
     .querySelectorAll("[data-go]")

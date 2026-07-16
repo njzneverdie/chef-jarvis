@@ -33,6 +33,10 @@ function savedPlansCacheKey() {
   return user ? `chef-jarvis:saved-plans:${user.id}` : null;
 }
 
+function voiceTipStorageKey() {
+  return user ? `chef-jarvis:voice-tip:${user.id}` : null;
+}
+
 function persistCookingState() {
   const key = cookingStorageKey();
   if (!key) return;
@@ -633,7 +637,7 @@ async function renderWeeklyPlanner() {
   if (!root || !user) return;
   const weekStart = currentWeekStart();
   const weekStartKey = dateKey(weekStart);
-  root.innerHTML = `<div class="title"><div><p class="eyebrow">WEEKLY PLANNER</p><h1>Shop once,<br><em>cook all week.</em></h1></div><button class="dark" id="build-week-list" disabled>Build weekly grocery list →</button></div><div class="weekly-grid"><article class="card weekly-loading"><p>Loading your week…</p></article></div>`;
+  root.innerHTML = `<div class="title"><div><p class="eyebrow">WEEKLY PLANNER</p><h1>Shop once,<br><em>cook all week.</em></h1></div><button class="dark" id="build-week-list" disabled>Build weekly grocery list →</button></div><div class="weekly-howto" aria-label="How weekly planning works"><span><b>① Save a recipe</b>Choose “Cook later” on a recipe you like.</span><span><b>② Pick a day</b>Add saved recipes to your week.</span><span><b>③ Shop once</b>Merge the full week into one grocery list.</span></div><div class="weekly-grid"><article class="card weekly-loading"><p>Loading your week…</p></article></div>`;
   let { data: plan, error: planError } = await sb
     .from("meal_plans")
     .select("id,week_start")
@@ -944,6 +948,7 @@ function renderShoppingChecklist(title, ingredients) {
       .insert({
         user_id: user.id,
         app_user_id: user.id,
+        recipe_id: activeRecipeId || null,
         title:
           `${window.I18n.code === "zh-TW" ? "購物" : "Shopping"} · ${title}`.slice(
             0,
@@ -1102,7 +1107,7 @@ async function renderShoppingLists() {
   const { data, error } = await sb
     .from("shopping_lists")
     .select(
-      "id,title,status,created_at,shopping_list_items(id,ingredient,quantity,unit,category,is_checked,pantry_item_id)",
+      "id,title,status,created_at,recipe_id,shopping_list_items(id,ingredient,quantity,unit,category,is_checked,pantry_item_id)",
     )
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
@@ -1185,6 +1190,13 @@ async function renderShoppingLists() {
           event.currentTarget.textContent = "Added to pantry ✓";
           toast(
             `${count} purchased item${count === 1 ? "" : "s"} added to your pantry ✓`,
+            {
+              actionLabel: list.recipe_id
+                ? "Start cooking this dish →"
+                : "Choose a recipe →",
+              onAction: () => startRecipeFromShoppingList(list),
+              duration: 8000,
+            },
           );
           renderPantry();
         } catch (error) {
@@ -1231,6 +1243,27 @@ async function renderShoppingLists() {
         }
       }),
   );
+}
+
+async function startRecipeFromShoppingList(list) {
+  if (!list?.recipe_id) {
+    show("plan");
+    return;
+  }
+  const { data, error } = await sb
+    .from("recipes")
+    .select("id,title,servings,minutes,recipe,nutrition,created_at,is_saved")
+    .eq("id", list.recipe_id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (error || !data) {
+    toast(error?.message || "This recipe is no longer available.");
+    show("plan");
+    return;
+  }
+  renderPlan(planFromSavedRow(data));
+  show("plan");
+  document.querySelector("#start-guided-cook")?.click();
 }
 
 async function renderUsdaReference(recipe) {
@@ -1426,6 +1459,120 @@ function nutritionForServings(recipe, servingsEaten = 1) {
   };
 }
 
+async function insertQuickNutritionLog(values) {
+  const { error } = await sb.from("nutrition_logs").insert({
+    user_id: user.id,
+    app_user_id: user.id,
+    eaten_on: localDateKey(),
+    ...values,
+  });
+  if (error) throw error;
+  renderDailyNutritionProgress();
+}
+
+async function openQuickNutritionLog() {
+  const modal = document.createElement("div");
+  modal.className = "modal quick-log-modal";
+  modal.innerHTML = `<div class="modal-card quick-log-card" role="dialog" aria-modal="true" aria-labelledby="quick-log-title"><p class="eyebrow">QUICK LOG</p><h2 id="quick-log-title">Add a meal to today.</h2><p>Log a saved recipe without starting Chef Mode, or enter a simple estimate for anything else you ate.</p><div class="quick-log-grid"><form class="quick-log-option" id="quick-saved-form"><p class="eyebrow">FROM YOUR RECIPES</p><div class="field"><label>Saved recipe</label><select name="recipe" disabled><option>Loading saved recipes…</option></select><small data-saved-help>Loading your recipe folder.</small></div><div class="field"><label>Servings eaten</label><input name="servings" type="number" min="0.25" max="12" step="0.25" value="1" required></div><button class="dark" type="submit" disabled>Log saved recipe →</button></form><form class="quick-log-option" id="quick-manual-form"><p class="eyebrow">MANUAL ESTIMATE</p><div class="field"><label>Meal name</label><input name="title" maxlength="160" placeholder="e.g. Breakfast sandwich"></div><div class="quick-macro-grid"><div class="field"><label>Calories</label><input name="calories" type="number" min="1" max="10000" step="1" required></div><div class="field"><label>Protein (g)</label><input name="protein" type="number" min="0" max="500" step="0.1" value="0" required></div><div class="field"><label>Carbs (g)</label><input name="carbs" type="number" min="0" max="1000" step="0.1" value="0"></div><div class="field"><label>Fat (g)</label><input name="fat" type="number" min="0" max="500" step="0.1" value="0"></div></div><button class="dark" type="submit">Add estimate →</button></form></div><div class="form-actions"><button type="button" class="cream" data-quick-close>Cancel</button></div></div>`;
+  document.body.append(modal);
+  const close = bindDismissibleModal(modal);
+  modal.querySelector("[data-quick-close]").onclick = close;
+  const savedForm = modal.querySelector("#quick-saved-form");
+  const savedSelect = savedForm.elements.recipe;
+  const savedButton = savedForm.querySelector('button[type="submit"]');
+  const { data: rows, error } = await sb
+    .from("recipes")
+    .select("id,title,servings,minutes,recipe,nutrition,created_at,is_saved")
+    .eq("user_id", user.id)
+    .eq("is_saved", true)
+    .order("updated_at", { ascending: false })
+    .limit(30);
+  if (!modal.isConnected) return;
+  if (error || !rows?.length) {
+    savedSelect.innerHTML = "<option>No saved recipes yet</option>";
+    modal.querySelector("[data-saved-help]").textContent = error
+      ? "Saved recipes could not be loaded. You can still add a manual estimate."
+      : "Save a recipe first, or use the manual estimate beside it.";
+  } else {
+    savedSelect.innerHTML = rows
+      .map((row) => `<option value="${esc(row.id)}">${esc(row.title)}</option>`)
+      .join("");
+    savedSelect.disabled = false;
+    savedButton.disabled = false;
+    modal.querySelector("[data-saved-help]").textContent =
+      "Nutrition scales with the servings you enter.";
+  }
+  const finish = (message) => {
+    close();
+    show("home");
+    toast(message, {
+      actionLabel: "View today’s intake →",
+      onAction: () =>
+        document
+          .querySelector("#daily-metrics")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+    });
+  };
+  savedForm.onsubmit = async (event) => {
+    event.preventDefault();
+    const row = rows?.find((item) => item.id === savedSelect.value);
+    if (!row) return;
+    const recipe = planFromSavedRow(row);
+    const servings = Math.max(
+      0.25,
+      Math.min(12, finiteNumber(savedForm.elements.servings.value, 1)),
+    );
+    savedButton.disabled = true;
+    savedButton.textContent = "Logging…";
+    try {
+      await insertQuickNutritionLog({
+        recipe_id: row.id,
+        recipe_title: String(recipe.title).slice(0, 160),
+        ...nutritionForServings(recipe, servings),
+      });
+      finish("Saved recipe added to today’s intake ✓");
+    } catch (logError) {
+      savedButton.disabled = false;
+      savedButton.textContent = "Log saved recipe →";
+      toast(logError.message || "Could not log this meal.");
+    }
+  };
+  const manualForm = modal.querySelector("#quick-manual-form");
+  manualForm.onsubmit = async (event) => {
+    event.preventDefault();
+    const button = manualForm.querySelector('button[type="submit"]');
+    const calories = finiteNumber(manualForm.elements.calories.value);
+    const protein = finiteNumber(manualForm.elements.protein.value, 0);
+    const carbs = finiteNumber(manualForm.elements.carbs.value, 0);
+    const fat = finiteNumber(manualForm.elements.fat.value, 0);
+    if (calories == null || calories <= 0)
+      return toast("Enter an estimated calorie amount first.");
+    button.disabled = true;
+    button.textContent = "Logging…";
+    try {
+      await insertQuickNutritionLog({
+        recipe_id: null,
+        recipe_title:
+          String(manualForm.elements.title.value || "Quick meal estimate")
+            .trim()
+            .slice(0, 160) || "Quick meal estimate",
+        calories,
+        protein_g: Math.max(0, protein),
+        carbs_g: Math.max(0, carbs),
+        fat_g: Math.max(0, fat),
+        servings_eaten: 1,
+        nutrition_source: "manual_estimate",
+        usda_coverage: null,
+      });
+      finish("Meal estimate added to today’s intake ✓");
+    } catch (logError) {
+      button.disabled = false;
+      button.textContent = "Add estimate →";
+      toast(logError.message || "Could not log this meal.");
+    }
+  };
+}
+
 async function logCompletedMeal(recipe, servingsEaten = 1) {
   const { data, error } = await sb
     .from("nutrition_logs")
@@ -1447,16 +1594,19 @@ async function deductRecipeFromPantry(recipe) {
   const recipeItems = window.ChefDomain.mergeGroceryItems(
     recipe.ingredients || [],
   );
-  if (!recipeItems.length) return 0;
+  if (!recipeItems.length) return { count: 0, changes: [] };
   const { data: pantryRows, error } = await sb
     .from("pantry_items")
-    .select("id,name,quantity,unit")
+    .select(
+      "id,user_id,app_user_id,name,quantity,unit,storage_zone,expires_on,source,image_url,created_at,updated_at",
+    )
     .eq("user_id", user.id);
   if (error) {
     console.warn("Could not load pantry for deduction", error);
-    return 0;
+    return { count: 0, changes: [] };
   }
   let updated = 0;
+  const changes = [];
   for (const ingredient of recipeItems) {
     const pantryItem = (pantryRows || []).find(
       (item) =>
@@ -1480,19 +1630,55 @@ async function deductRecipeFromPantry(recipe) {
             .update({ quantity: Math.round(remaining * 100) / 100 })
             .eq("id", pantryItem.id);
     const { error: updateError } = await query.eq("user_id", user.id);
-    if (!updateError) updated += 1;
+    if (!updateError) {
+      changes.push({
+        kind: remaining <= 0 ? "delete" : "update",
+        before: { ...pantryItem },
+      });
+      updated += 1;
+    }
   }
-  return updated;
+  return { count: updated, changes };
+}
+
+async function undoPantryDeduction(changes) {
+  let restored = 0;
+  for (const change of changes || []) {
+    const before = change?.before;
+    if (!before?.id) continue;
+    const result =
+      change.kind === "delete"
+        ? await sb.from("pantry_items").upsert(before, { onConflict: "id" })
+        : await sb
+            .from("pantry_items")
+            .update({
+              quantity: before.quantity,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", before.id)
+            .eq("user_id", user.id);
+    if (!result.error) restored += 1;
+  }
+  if (restored) renderPantry();
+  return restored;
 }
 
 function openMealFeedback(recipe, nutritionLogPromise) {
   const modal = document.createElement("div");
   modal.className = "modal meal-feedback-modal";
   const recipeServings = Math.max(1, finiteNumber(recipe.servings, 1));
-  modal.innerHTML = `<form class="modal-card feedback-card"><p class="eyebrow">HELP JARVIS LEARN</p><h2>How did this meal taste?</h2><p>One quick rating helps future recipes fit you better.</p><div class="field"><label>Servings you ate</label><input name="servings_eaten" type="number" min="0.25" max="${recipeServings}" step="0.25" value="1" required><small>Nutrition starts at one serving. Change this if you ate more.</small></div><div class="rating-row" role="radiogroup" aria-label="Meal rating">${[1, 2, 3, 4, 5].map((rating) => `<label><input type="radio" name="rating" value="${rating}" required><span>${rating}★</span></label>`).join("")}</div><div class="field"><label>Optional note</label><input name="note" maxlength="300" placeholder="e.g. Less spicy next time"></div><div class="form-actions"><button type="button" class="cream" data-feedback-skip>Skip rating</button><button type="submit" class="dark">Save feedback →</button></div></form>`;
+  modal.innerHTML = `<form class="modal-card feedback-card"><p class="eyebrow">HELP JARVIS LEARN</p><h2>How did this meal taste?</h2><p>One quick rating helps future recipes fit you better.</p><div class="automation-summary"><p class="eyebrow">AUTOMATICALLY COMPLETED</p><div data-auto-nutrition>◌ Recording 1 serving of nutrition…</div><div data-auto-pantry>◌ Checking recipe amounts against your pantry…</div></div><div class="field"><label>Servings you ate</label><input name="servings_eaten" type="number" min="0.25" max="${recipeServings}" step="0.25" value="1" required><small>Nutrition starts at one serving. Change this if you ate more.</small></div><div class="rating-row" role="radiogroup" aria-label="Meal rating">${[1, 2, 3, 4, 5].map((rating) => `<label><input type="radio" name="rating" value="${rating}" required><span>${rating}★</span></label>`).join("")}</div><div class="field"><label>Optional note</label><input name="note" maxlength="300" placeholder="e.g. Less spicy next time"></div><div class="form-actions"><button type="button" class="cream" data-feedback-skip>Skip rating</button><button type="submit" class="dark">Save feedback →</button></div></form>`;
   document.body.append(modal);
   const close = bindDismissibleModal(modal);
   const form = modal.querySelector("form");
+  const nutritionStatus = modal.querySelector("[data-auto-nutrition]");
+  const pantryStatus = modal.querySelector("[data-auto-pantry]");
+  nutritionLogPromise.then((nutritionLogId) => {
+    if (!modal.isConnected) return;
+    nutritionStatus.textContent = nutritionLogId
+      ? "✓ Recorded 1 serving in today’s nutrition"
+      : "! Nutrition could not be recorded";
+  });
   const updateLoggedServings = async (rawValue) => {
     const servingsEaten = Math.max(
       0.25,
@@ -1506,7 +1692,11 @@ function openMealFeedback(recipe, nutritionLogPromise) {
       .eq("id", nutritionLogId)
       .eq("user_id", user.id);
     if (error) console.warn("Could not update meal servings", error);
-    else renderDailyNutritionProgress();
+    else {
+      renderDailyNutritionProgress();
+      if (modal.isConnected)
+        nutritionStatus.textContent = `✓ Recorded ${displayNumber(servingsEaten)} servings in today’s nutrition`;
+    }
   };
   modal.querySelector("[data-feedback-skip]").onclick = () => {
     const servingsEaten = new FormData(form).get("servings_eaten");
@@ -1538,7 +1728,41 @@ function openMealFeedback(recipe, nutritionLogPromise) {
       return toast(error.message);
     }
     close();
-    toast("Thanks — Jarvis will remember this for future meals ✓");
+    toast("Thanks — Jarvis will remember this for future meals ✓", {
+      actionLabel: "View today’s intake →",
+      onAction: () => {
+        show("home");
+        document
+          .querySelector("#daily-metrics")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      },
+      duration: 8000,
+    });
+  };
+  return {
+    setPantry(result) {
+      if (!modal.isConnected) return;
+      const count = result?.count || 0;
+      pantryStatus.textContent = count
+        ? `✓ Deducted ${count} pantry item${count === 1 ? "" : "s"}`
+        : "✓ Pantry checked — no matching measured items to deduct";
+      if (!result?.changes?.length) return;
+      const undo = document.createElement("button");
+      undo.type = "button";
+      undo.className = "automation-undo";
+      undo.textContent = "Undo";
+      undo.onclick = async () => {
+        undo.disabled = true;
+        undo.textContent = "Restoring…";
+        const restored = await undoPantryDeduction(result.changes);
+        pantryStatus.textContent = `↶ Restored ${restored} pantry item${restored === 1 ? "" : "s"}`;
+      };
+      pantryStatus.append(" ", undo);
+    },
+    setPantryError() {
+      if (modal.isConnected)
+        pantryStatus.textContent = "! Pantry could not be updated";
+    },
   };
 }
 
@@ -1548,16 +1772,16 @@ async function completeCooking(recipe) {
   releaseWakeLock();
   renderCook();
   const nutritionLogPromise = logCompletedMeal(recipe);
-  openMealFeedback(recipe, nutritionLogPromise);
+  const feedback = openMealFeedback(recipe, nutritionLogPromise);
   nutritionLogPromise.then((logId) => {
     if (logId) renderDailyNutritionProgress();
   });
-  deductRecipeFromPantry(recipe).then((pantryCount) => {
-    if (pantryCount)
-      toast(
-        `${pantryCount} pantry item${pantryCount === 1 ? "" : "s"} updated ✓`,
-      );
-  });
+  deductRecipeFromPantry(recipe)
+    .then((result) => feedback.setPantry(result))
+    .catch((error) => {
+      console.warn("Could not update pantry after cooking", error);
+      feedback.setPantryError();
+    });
 }
 
 function updateVoiceButton() {
@@ -1688,8 +1912,11 @@ function renderCook() {
   const currentTimerMarkup = currentStep.timer
     ? `<button type="button" class="current-step-timer" id="start-current-step-timer" data-timer-index="${currentTimerIndex}" aria-label="${esc(currentTimer?.running ? "Pause this timer" : currentTimer?.completed ? "Restart this timer" : "Start this timer")}"><b>⏱ ${esc(currentStep.timer.label)}<small>${currentTimer?.running ? "Pause timer" : currentTimer?.completed ? "Restart timer" : "Start timer"}</small></b><span>${formatTime(currentTimer?.sec ?? currentStep.timer.duration_seconds)}</span></button>`
     : "";
+  const voiceTipKey = voiceTipStorageKey();
+  const showVoiceTip = voiceTipKey && !localStorage.getItem(voiceTipKey);
   root.innerHTML = `
     <div class="chef-mode-heading"><div><p class="eyebrow">CHEF MODE · ${activeRecipe ? "ACTIVE RECIPE" : "READY"}</p><h1>${esc(recipe.title)}<br><em>cook with Jarvis.</em></h1></div><div class="chef-voice-actions"><button class="cream" id="chef-voice">🎙 Hands-free</button><button class="cream" id="chef-read">🔊 Read current step</button></div></div>
+    ${showVoiceTip ? '<aside class="chef-voice-tip" role="status"><div><b>🎙 Cook hands-free</b><span>Say “next step”, “repeat”, or “start timer” while your hands are busy.</span></div><button type="button" class="cream" id="dismiss-voice-tip">Got it</button></aside>' : ""}
     <div class="chef-mode-grid"><section class="chef-guide"><div class="chef-step-counter"><span>STEP ${cookingStepIndex + 1} / ${steps.length}</span><div>${steps.map((_, index) => `<i class="${index < cookingStepIndex ? "done" : index === cookingStepIndex ? "now" : ""}"></i>`).join("")}</div></div><article class="current-step chef-current"><span>DO THIS NOW</span><h2>${esc(current)}</h2>${currentTimerMarkup}<p>Only real cooking and waiting times become recipe countdowns. Your progress survives a refresh.</p></article><div class="guide-actions"><button class="cream" id="previous-step" ${cookingStepIndex === 0 ? "disabled" : ""}>← Previous</button><button class="cream" id="repeat-step">↻ Repeat</button><button class="dark" id="complete-step">${cookingStepIndex === steps.length - 1 ? "Finish dish ✓" : "Complete step →"}</button></div><div class="chef-queue"><p class="eyebrow">RECIPE QUEUE</p>${steps.map((step, index) => `<button class="${index === cookingStepIndex ? "current" : index < cookingStepIndex ? "done" : ""}" data-jump-step="${index}"><b>${index < cookingStepIndex ? "✓" : index + 1}</b><span>${esc(step.instruction)}</span></button>`).join("")}</div>${
       adaptations.length
         ? `<div class="chef-adaptation-inline"><p class="eyebrow">YOUR EQUIPMENT OPTION</p>${adaptations
@@ -1702,6 +1929,10 @@ function renderCook() {
         : ""
     }</section>
       <aside class="timers chef-timers"><div class="timer-head"><div><p class="eyebrow">RECIPE TIMERS</p><h2>Kitchen clocks</h2></div><button class="dark" id="add-timer">＋ Add clock</button></div><p class="timer-note">Jarvis adds countdowns only for real cooking or waiting intervals. You can add a separate clock when needed.</p><div class="timer-list" id="timer-list"></div></aside></div>`;
+  root.querySelector("#dismiss-voice-tip")?.addEventListener("click", () => {
+    localStorage.setItem(voiceTipKey, "seen");
+    root.querySelector(".chef-voice-tip")?.remove();
+  });
   root.querySelector("#chef-read").onclick = () => sayInstruction(current);
   root.querySelector("#chef-voice").onclick = toggleVoiceControl;
   updateVoiceButton();
