@@ -1,4 +1,4 @@
-const CACHE = "chef-jarvis-20260717-performance";
+const CACHE = "chef-jarvis-20260717-upper-body-icon";
 const SUPABASE_CDN =
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.5/dist/umd/supabase.min.js";
 const SUPABASE_INTEGRITY =
@@ -6,20 +6,20 @@ const SUPABASE_INTEGRITY =
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=20260717-performance",
-  "/guided-cooking.css?v=20260717-performance",
-  "/chef-mode.css?v=20260717-performance",
-  "/shopping-list.css?v=20260717-performance",
-  "/usda-reference.css?v=20260717-performance",
-  "/personalized-swaps.css?v=20260717-performance",
-  "/plan-persistence.css?v=20260717-performance",
-  "/shopping-page.css?v=20260717-performance",
-  "/product-features.css?v=20260717-performance",
-  "/i18n.js?v=20260717-performance",
-  "/domain.js?v=20260717-performance",
-  "/app.js?v=20260717-performance",
-  "/chef-mode.js?v=20260717-performance",
-  "/manifest.webmanifest?v=20260717-performance",
+  "/styles.css?v=20260717-upper-body-icon",
+  "/guided-cooking.css?v=20260717-upper-body-icon",
+  "/chef-mode.css?v=20260717-upper-body-icon",
+  "/shopping-list.css?v=20260717-upper-body-icon",
+  "/usda-reference.css?v=20260717-upper-body-icon",
+  "/personalized-swaps.css?v=20260717-upper-body-icon",
+  "/plan-persistence.css?v=20260717-upper-body-icon",
+  "/shopping-page.css?v=20260717-upper-body-icon",
+  "/product-features.css?v=20260717-upper-body-icon",
+  "/i18n.js?v=20260717-upper-body-icon",
+  "/domain.js?v=20260717-upper-body-icon",
+  "/app.js?v=20260717-upper-body-icon",
+  "/chef-mode.js?v=20260717-upper-body-icon",
+  "/manifest.webmanifest?v=20260717-upper-body-icon",
   "/fonts/dm-serif-display-latin-400.woff2",
   "/fonts/dm-serif-display-latin-400-italic.woff2",
   "/fonts/manrope-latin-400-800.woff2",
