@@ -304,11 +304,72 @@
 
   function ingredientPreparation(item) {
     const preparation = normalizeIngredient(item).preparation;
-    return /^(?:no preparation|none|n\/a|無需處理|不需處理|无需处理)$/i.test(
+    return /^(?:no preparation|none|n\/a|無處理|无需处理|無需處理|不需處理)$/i.test(
       preparation,
     )
       ? ""
       : preparation;
+  }
+
+  function recipeTitleAfterSubstitution(title, from, to) {
+    const currentTitle = String(title || "").trim();
+    const originalName = String(from || "").trim();
+    const replacementName = String(to || "").trim();
+    if (!currentTitle || !originalName || !replacementName) return currentTitle;
+    if (
+      currentTitle
+        .toLocaleLowerCase()
+        .includes(replacementName.toLocaleLowerCase())
+    ) {
+      return currentTitle;
+    }
+
+    const lowerTitle = currentTitle.toLocaleLowerCase();
+    const lowerOriginal = originalName.toLocaleLowerCase();
+    let matched = "";
+    if (lowerTitle.includes(lowerOriginal)) {
+      matched = originalName;
+    } else if (/[^\x00-\x7f]/.test(originalName)) {
+      for (
+        let length = Math.min(originalName.length, currentTitle.length);
+        length >= 2 && !matched;
+        length -= 1
+      ) {
+        for (
+          let start = 0;
+          start + length <= originalName.length;
+          start += 1
+        ) {
+          const candidate = originalName.slice(start, start + length);
+          if (lowerTitle.includes(candidate.toLocaleLowerCase())) {
+            matched = candidate;
+            break;
+          }
+        }
+      }
+    } else {
+      const words = originalName.split(/\s+/).filter(Boolean);
+      for (let length = words.length; length >= 1 && !matched; length -= 1) {
+        for (let start = 0; start + length <= words.length; start += 1) {
+          const candidate = words.slice(start, start + length).join(" ");
+          if (
+            candidate.length >= 3 &&
+            lowerTitle.includes(candidate.toLocaleLowerCase())
+          ) {
+            matched = candidate;
+            break;
+          }
+        }
+      }
+    }
+
+    if (matched) {
+      const index = lowerTitle.indexOf(matched.toLocaleLowerCase());
+      return `${currentTitle.slice(0, index)}${replacementName}${currentTitle.slice(index + matched.length)}`;
+    }
+    return /[^\x00-\x7f]/.test(currentTitle)
+      ? `${currentTitle}（${replacementName}替換版）`
+      : `${currentTitle} (${replacementName} version)`;
   }
 
   function ingredientDetails(item) {
@@ -500,6 +561,36 @@
     };
   }
 
+  function compareNutritionEstimates(usda, estimate, foods = []) {
+    const differencePercent = (verified, expected) => {
+      const reference = Number(expected);
+      const measured = Number(verified);
+      if (!Number.isFinite(reference) || reference <= 0 || !Number.isFinite(measured))
+        return null;
+      return Math.round((Math.abs(measured - reference) / reference) * 100);
+    };
+    const kcalDifference = differencePercent(usda?.kcal, estimate?.kcal);
+    const proteinDifference = differencePercent(
+      usda?.protein_g,
+      estimate?.protein_g,
+    );
+    const lowConfidenceMatches = (Array.isArray(foods) ? foods : []).filter(
+      (food) =>
+        food?.found &&
+        Number.isFinite(Number(food.match_score)) &&
+        Number(food.match_score) < 70,
+    ).length;
+    return {
+      kcal_difference_percent: kcalDifference,
+      protein_difference_percent: proteinDifference,
+      low_confidence_matches: lowConfidenceMatches,
+      needs_review:
+        (kcalDifference != null && kcalDifference > 35) ||
+        (proteinDifference != null && proteinDifference > 40) ||
+        lowConfidenceMatches > 0,
+    };
+  }
+
   function localDateKey(date = new Date()) {
     const offset = date.getTimezoneOffset() * 60000;
     return new Date(date.getTime() - offset).toISOString().slice(0, 10);
@@ -529,6 +620,7 @@
     normalizeGroceryItem,
     applyIngredientSubstitution,
     ingredientPreparation,
+    recipeTitleAfterSubstitution,
     ingredientDetails,
     quantityInBaseUnit,
     convertQuantity,
@@ -537,6 +629,7 @@
     groceryDisplayMeasurement,
     ingredientWeightInGrams,
     calculateUsdaMealNutrition,
+    compareNutritionEstimates,
     localDateKey,
     safeExternalUrl,
   });

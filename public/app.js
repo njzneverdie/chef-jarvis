@@ -38,6 +38,33 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+let accessibleFieldId = 0;
+function associateFieldLabels(root = document) {
+  const fields = [
+    ...(root.matches?.(".field") ? [root] : []),
+    ...(root.querySelectorAll?.(".field") || []),
+  ];
+  fields.forEach((field) => {
+    const label = field.querySelector(":scope > label");
+    const control = field.querySelector(
+      ":scope > input, :scope > select, :scope > textarea",
+    );
+    if (!label || !control || label.contains(control)) return;
+    if (!control.id) control.id = `chef-field-${++accessibleFieldId}`;
+    label.htmlFor = control.id;
+  });
+}
+window.associateFieldLabels = associateFieldLabels;
+
+new MutationObserver((mutations) => {
+  mutations.forEach((mutation) =>
+    mutation.addedNodes.forEach((node) => {
+      if (node.nodeType === Node.ELEMENT_NODE) associateFieldLabels(node);
+    }),
+  );
+}).observe(document.body, { childList: true, subtree: true });
+queueMicrotask(() => associateFieldLabels(document));
+
 function languageToggleMarkup() {
   return `<button class="language-toggle" id="language-toggle" type="button" aria-label="Switch language">文/A · ${window.I18n.toggleLabel()}</button>`;
 }
@@ -64,7 +91,6 @@ function markViewRendered(id) {
 async function ensureViewRendered(id) {
   const alwaysRefresh = id === "shopping" || id === "week";
   if (!alwaysRefresh && renderedViews.has(id)) return;
-  markViewRendered(id);
   if (id === "home") return renderHome();
   if (id === "pantry") return renderPantry();
   if (id === "shopping") return renderShoppingLists();
@@ -180,6 +206,7 @@ function authScreen(signup = false) {
       </section>
     </main>`;
 
+  associateFieldLabels(app);
   bindLanguageToggle();
 
   document.querySelector("#auth-toggle").onclick = () => authScreen(!signup);
@@ -272,6 +299,7 @@ function showPasswordUpdate() {
       <div class="form-actions"><button type="button" class="cream" id="cancel-password-update">Cancel</button><button class="dark">Update password →</button></div>
     </form>`;
   document.body.append(modal);
+  associateFieldLabels(modal);
   const closeModal = bindDismissibleModal(modal);
   modal.querySelector("#cancel-password-update").onclick = closeModal;
   modal.querySelector("#password-update-form").onsubmit = async (event) => {
@@ -361,6 +389,7 @@ function shell() {
   };
 
   restoreCookingState();
+  void restoreCookingStateFromCloud();
   renderHome();
 }
 
@@ -373,7 +402,11 @@ function show(id) {
     .forEach((button) =>
       button.classList.toggle("active", button.dataset.view === id),
     );
-  void ensureViewRendered(id);
+  void ensureViewRendered(id).catch((error) => {
+    renderedViews.delete(id);
+    console.warn(`Could not render ${id}`, error);
+    toast("This page could not be loaded. Please try again.");
+  });
   if (id === "cook") requestWakeLock();
   else {
     releaseWakeLock();
@@ -515,8 +548,8 @@ async function renderDailyNutritionProgress() {
 }
 
 async function renderPantry() {
-  markViewRendered("pantry");
   const panel = document.querySelector("#pantry");
+  if (!panel) return;
   panel.innerHTML = `
     <div class="title"><div><p class="eyebrow">KITCHEN INVENTORY</p><h1>What’s in your<br><em>kitchen?</em></h1></div></div>
     <form class="add-row" id="pantry-form"><input name="item" required maxlength="120" placeholder="Add an ingredient, e.g. chicken breast"><button class="dark">Add ingredient</button></form>
@@ -525,8 +558,10 @@ async function renderPantry() {
     .from("pantry_items")
     .select("*")
     .eq("user_id", user.id)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(250);
   const list = document.querySelector("#pantry-list");
+  if (!list) return;
   list.innerHTML = error
     ? `<p>${esc(error.message)}</p>`
     : data.length
@@ -537,6 +572,11 @@ async function renderPantry() {
           )
           .join("")
       : '<article class="card pantry-item"><h3>Your pantry is empty.</h3><p>Add what you have. Jarvis reads this list before creating every meal.</p></article>';
+  if (error) {
+    renderedViews.delete("pantry");
+    return;
+  }
+  markViewRendered("pantry");
 
   document.querySelector("#pantry-form").onsubmit = async (event) => {
     event.preventDefault();
@@ -561,6 +601,73 @@ async function renderPantry() {
   };
 }
 
+async function exportMyData(button) {
+  button.disabled = true;
+  const originalLabel = button.textContent;
+  button.textContent = "Preparing export…";
+  const queries = {
+    profile: sb.from("app_profiles").select("*").eq("app_user_id", user.id),
+    pantry: sb.from("pantry_items").select("*").eq("user_id", user.id),
+    recipes: sb.from("recipes").select("*").eq("user_id", user.id),
+    shopping: sb
+      .from("shopping_lists")
+      .select("*,shopping_list_items(*)")
+      .eq("user_id", user.id),
+    meal_plans: sb
+      .from("meal_plans")
+      .select("*,meal_plan_items(*)")
+      .eq("user_id", user.id),
+    cooking_sessions: sb
+      .from("cooking_sessions")
+      .select("*")
+      .eq("user_id", user.id),
+    nutrition_logs: sb
+      .from("nutrition_logs")
+      .select("*")
+      .eq("user_id", user.id),
+    recipe_feedback: sb
+      .from("recipe_feedback")
+      .select("*")
+      .eq("user_id", user.id),
+    saved_meal_cards: sb
+      .from("saved_meal_cards")
+      .select("*")
+      .eq("app_user_id", user.id),
+  };
+  try {
+    const entries = await Promise.all(
+      Object.entries(queries).map(async ([name, query]) => {
+        const { data, error } = await query;
+        if (error) throw new Error(`${name}: ${error.message}`);
+        return [name, data || []];
+      }),
+    );
+    const payload = {
+      exported_at: new Date().toISOString(),
+      account_id: user.id,
+      ...Object.fromEntries(entries),
+    };
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(payload, null, 2)], {
+        type: "application/json;charset=utf-8",
+      }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `chef-jarvis-data-${localDateKey()}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast("Your Chef Jarvis data export is ready ✓");
+  } catch (error) {
+    toast(error.message || "Your data could not be exported right now.");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
+}
+
 function renderProfile() {
   markViewRendered("profile");
   const dietary = profile?.dietary_preferences || [];
@@ -577,7 +684,7 @@ function renderProfile() {
         <p class="eyebrow">YOUR FOOD PROFILE</p><h1>Cooking that learns<br><em>you.</em></h1>
         <p>Jarvis uses your nutrition targets, health goal, allergies, pantry and food preferences before suggesting a meal or swap.</p>
         <div class="tags"><span>${esc(profile?.body_composition_goal || "Personal goal")}</span><span>${esc(nutrition())}</span>${dietary.map((value) => `<span>${esc(value)}</span>`).join("")}${allergyLabels.map((value) => `<span>${esc(value)}</span>`).join("")}</div>
-        <div class="profile-actions"><button class="dark" id="edit-profile">Edit my profile</button><button class="cream" id="saved-meals">Saved meal ideas</button></div>
+        <div class="profile-actions"><button class="dark" id="edit-profile">Edit my profile</button><button class="cream" id="saved-meals">Saved meal ideas</button><button class="cream" id="export-my-data">Download my data</button></div>
       </article>
       <article class="card equipment-card">
         <p class="eyebrow">YOUR KITCHEN SETUP</p><h2>Devices Jarvis can use.</h2><p>Equipment selections control the alternatives Chef Mode may offer.</p>
@@ -591,6 +698,8 @@ function renderProfile() {
     </div>`;
   document.querySelector("#edit-profile").onclick = () => onboarding(true);
   document.querySelector("#saved-meals").onclick = showSaved;
+  document.querySelector("#export-my-data").onclick = (event) =>
+    exportMyData(event.currentTarget);
   document.querySelector("#equipment-form").onsubmit = async (event) => {
     event.preventDefault();
     const equipment = [
@@ -613,7 +722,8 @@ async function showSaved() {
     .from("saved_meal_cards")
     .select("*")
     .eq("app_user_id", user.id)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(100);
   const items = error
     ? `<p>${esc(error.message)}</p>`
     : data.length
@@ -694,6 +804,7 @@ function onboarding(edit = false) {
       <div class="form-actions">${edit ? '<button type="button" class="cream" id="cancel-profile">Cancel</button>' : ""}<button class="dark">Save my cooking profile →</button></div>
     </form>`;
   document.body.append(modal);
+  associateFieldLabels(modal);
 
   const closeModal = edit ? bindDismissibleModal(modal) : () => modal.remove();
 
@@ -762,9 +873,20 @@ async function boot() {
     .select("*")
     .eq("app_user_id", user.id)
     .maybeSingle();
+  if (result.error) {
+    profile = null;
+    shell();
+    toast("Your profile could not be loaded.", {
+      actionLabel: "Retry →",
+      onAction: () => boot(),
+      duration: 10000,
+    });
+    return false;
+  }
   profile = result.data || null;
   shell();
   if (!profile?.onboarding_completed) onboarding();
+  return true;
 }
 
 async function startApp() {

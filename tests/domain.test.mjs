@@ -12,6 +12,7 @@ const {
   normalizeGroceryItem,
   applyIngredientSubstitution,
   ingredientPreparation,
+  recipeTitleAfterSubstitution,
   ingredientDetails,
   convertQuantity,
   mergeGroceryItems,
@@ -19,6 +20,7 @@ const {
   groceryDisplayMeasurement,
   ingredientWeightInGrams,
   calculateUsdaMealNutrition,
+  compareNutritionEstimates,
   localDateKey,
   safeExternalUrl,
 } = globalThis.ChefDomain;
@@ -237,7 +239,27 @@ test("Chinese ingredients use readable units and hide no-op preparation text", (
   });
   assert.equal(ingredient.amount, "2 湯匙");
   assert.equal(ingredientPreparation(ingredient), "");
+  assert.equal(ingredientPreparation({ name: "鹽", preparation: "無處理" }), "");
   assert.equal(ingredientDetails(ingredient), "2 湯匙");
+});
+
+test("recipe titles stay consistent after ingredient substitution", () => {
+  assert.equal(
+    recipeTitleAfterSubstitution(
+      "高蛋白雞胸肉花椰菜炒飯",
+      "去皮去骨雞胸肉",
+      "板豆腐",
+    ),
+    "高蛋白板豆腐花椰菜炒飯",
+  );
+  assert.equal(
+    recipeTitleAfterSubstitution(
+      "High-protein chicken breast bowl",
+      "boneless skinless chicken breast",
+      "firm tofu",
+    ),
+    "High-protein firm tofu bowl",
+  );
 });
 
 test("recipe image URLs only allow HTTPS on approved hosts", () => {
@@ -341,4 +363,15 @@ test("USDA meal totals use quantities and disclose match coverage", () => {
     grams: 200,
     estimated: false,
   });
+});
+
+test("large USDA and recipe-estimate differences are flagged for review", () => {
+  const comparison = compareNutritionEstimates(
+    { kcal: 830, protein_g: 22 },
+    { kcal: 380, protein_g: 45 },
+    [{ found: true, match_score: 62 }],
+  );
+  assert.equal(comparison.needs_review, true);
+  assert.equal(comparison.low_confidence_matches, 1);
+  assert.equal(comparison.kcal_difference_percent, 118);
 });

@@ -18,6 +18,9 @@ let voicePausedForSpeech = false;
 let speechSequence = 0;
 let timerTickInterval = null;
 let lastTimerPersistAt = 0;
+let cookingSessionId = null;
+let lastCloudCookingSyncAt = 0;
+let cookingCloudSyncChain = Promise.resolve();
 
 const fallbackCookingSteps = [
   "Prepare and measure every ingredient before turning on the heat.",
@@ -39,21 +42,107 @@ function voiceTipStorageKey() {
   return user ? `chef-jarvis:voice-tip:${user.id}` : null;
 }
 
-function persistCookingState() {
+function cookingStateSnapshot() {
+  return {
+    activeRecipe,
+    activeRecipeId,
+    cookingStepIndex,
+    timers,
+    recipeTimersInitialized,
+    savedAt: Date.now(),
+  };
+}
+
+function queueCookingCloudSync(force = true) {
+  if (!user?.id || !activeRecipe) return;
+  const now = Date.now();
+  if (!force && now - lastCloudCookingSyncAt < 10000) return;
+  lastCloudCookingSyncAt = now;
+  const ownerId = user.id;
+  const snapshot = cookingStateSnapshot();
+  cookingCloudSyncChain = cookingCloudSyncChain
+    .catch(() => undefined)
+    .then(async () => {
+      if (!cookingSessionId) {
+        const { data, error } = await sb
+          .from("cooking_sessions")
+          .select("id")
+          .eq("user_id", ownerId)
+          .eq("status", "active")
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error) throw error;
+        cookingSessionId = data?.id || null;
+      }
+      const payload = {
+        user_id: ownerId,
+        app_user_id: ownerId,
+        recipe_id: snapshot.activeRecipeId || null,
+        status: "active",
+        current_step: snapshot.cookingStepIndex,
+        timers: snapshot.timers,
+        timeline: {
+          activeRecipe: snapshot.activeRecipe,
+          recipeTimersInitialized: snapshot.recipeTimersInitialized,
+          savedAt: snapshot.savedAt,
+        },
+        updated_at: new Date().toISOString(),
+      };
+      if (cookingSessionId) {
+        const { error } = await sb
+          .from("cooking_sessions")
+          .update(payload)
+          .eq("id", cookingSessionId)
+          .eq("user_id", ownerId);
+        if (error) throw error;
+        return;
+      }
+      const { data, error } = await sb
+        .from("cooking_sessions")
+        .insert({ ...payload, started_at: new Date().toISOString() })
+        .select("id")
+        .single();
+      if (error) throw error;
+      cookingSessionId = data.id;
+    })
+    .catch((error) => {
+      console.warn("Could not sync cooking progress", error);
+    });
+}
+
+function finishCloudCookingSession(status) {
+  if (!user?.id) return;
+  const ownerId = user.id;
+  const sessionId = cookingSessionId;
+  cookingSessionId = null;
+  cookingCloudSyncChain = cookingCloudSyncChain
+    .catch(() => undefined)
+    .then(async () => {
+      let query = sb
+        .from("cooking_sessions")
+        .update({
+          status,
+          completed_at: status === "completed" ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        });
+      query = sessionId
+        ? query.eq("id", sessionId).eq("user_id", ownerId)
+        : query.eq("user_id", ownerId).eq("status", "active");
+      const { error } = await query;
+      if (error) throw error;
+    })
+    .catch((error) => {
+      console.warn("Could not close cloud cooking progress", error);
+    });
+}
+
+function persistCookingState(forceCloud = true) {
   const key = cookingStorageKey();
   if (!key) return;
-  localStorage.setItem(
-    key,
-    JSON.stringify({
-      activeRecipe,
-      activeRecipeId,
-      cookingStepIndex,
-      timers,
-      recipeTimersInitialized,
-      savedAt: Date.now(),
-    }),
-  );
+  localStorage.setItem(key, JSON.stringify(cookingStateSnapshot()));
   lastTimerPersistAt = Date.now();
+  queueCookingCloudSync(forceCloud);
 }
 
 function restoreCookingState() {
@@ -106,7 +195,55 @@ function restoreCookingState() {
   }
 }
 
-function clearCookingState() {
+async function restoreCookingStateFromCloud() {
+  if (!user?.id) return;
+  const { data, error } = await sb
+    .from("cooking_sessions")
+    .select("id,recipe_id,current_step,timers,timeline,updated_at")
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn("Could not restore cloud cooking progress", error);
+    return;
+  }
+  if (!data) {
+    if (activeRecipe) queueCookingCloudSync(true);
+    return;
+  }
+  cookingSessionId = data.id;
+  const remote = data.timeline && !Array.isArray(data.timeline)
+    ? data.timeline
+    : {};
+  if (!remote.activeRecipe) return;
+  const key = cookingStorageKey();
+  let local = null;
+  try {
+    local = JSON.parse(localStorage.getItem(key) || "null");
+  } catch {
+    local = null;
+  }
+  if (finiteNumber(local?.savedAt, 0) >= finiteNumber(remote.savedAt, 0))
+    return;
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      activeRecipe: remote.activeRecipe,
+      activeRecipeId: data.recipe_id || remote.activeRecipe.saved_recipe_id || null,
+      cookingStepIndex: Math.max(0, Number(data.current_step) || 0),
+      timers: Array.isArray(data.timers) ? data.timers : [],
+      recipeTimersInitialized: Boolean(remote.recipeTimersInitialized),
+      savedAt: finiteNumber(remote.savedAt, Date.now()),
+    }),
+  );
+  restoreCookingState();
+  if (document.querySelector("#cook")?.classList.contains("active")) renderCook();
+}
+
+function clearCookingState(status = "abandoned") {
+  finishCloudCookingSession(status);
   const key = cookingStorageKey();
   if (key) localStorage.removeItem(key);
   activeRecipe = null;
@@ -385,12 +522,13 @@ function renderPlan(query) {
   document.querySelectorAll("[data-save]").forEach(
     (button) =>
       (button.onclick = async () => {
-        await saveCard(
+        const saved = await saveCard(
           button.dataset.save,
           button.dataset.uses.split("|").filter(Boolean),
           "Saved from your AI meal plan",
           recipe.title,
         );
+        if (!saved) return;
         button.textContent = "Saved ✓";
         button.classList.add("saved");
       }),
@@ -403,14 +541,63 @@ function renderPlan(query) {
   renderPlanPersistenceControls(recipe);
   if (recipe.ingredients.length) {
     let shoppingChecklist;
-    renderPersonalizedSwaps(recipe, async (ingredientIndex, swap) => {
+    const swapsCard = renderPersonalizedSwaps(
+      recipe,
+      async (ingredientIndex, swap) => {
+      const stepUpdates = Array.isArray(swap.step_updates)
+        ? swap.step_updates
+        : [];
+      const sourceName = String(swap.from || "").toLocaleLowerCase();
+      const affectedStepIndexes = recipe.steps
+        .map((step, stepIndex) =>
+          String(step.instruction || "")
+            .toLocaleLowerCase()
+            .includes(sourceName)
+            ? stepIndex
+            : -1,
+        )
+        .filter((stepIndex) => stepIndex >= 0);
+      const updatedStepIndexes = new Set(
+        stepUpdates.map((update) => Number(update.step_index)),
+      );
+      if (
+        !stepUpdates.length ||
+        affectedStepIndexes.some((stepIndex) => !updatedStepIndexes.has(stepIndex))
+      ) {
+        toast(
+          "This replacement does not include safe cooking-step updates. Generate a fresh plan before applying it.",
+        );
+        return false;
+      }
       const replacement = window.ChefDomain.applyIngredientSubstitution(
         recipe.ingredients[ingredientIndex],
         swap,
       );
+      const updatedTitle = window.ChefDomain.recipeTitleAfterSubstitution(
+        recipe.title,
+        swap.from,
+        replacement.name,
+      );
+      recipe.title = updatedTitle;
       recipe.ingredients[ingredientIndex] = replacement;
       ingredients[ingredientIndex] = replacement;
-      if (currentPlan) currentPlan.ingredients = recipe.ingredients;
+      if (currentPlan) {
+        currentPlan.title = updatedTitle;
+        currentPlan.ingredients = recipe.ingredients;
+      }
+      stepUpdates.forEach((update) => {
+        const stepIndex = Number(update.step_index);
+        const normalized = window.ChefDomain.normalizeRecipeSteps([update])[0];
+        if (
+          Number.isInteger(stepIndex) &&
+          stepIndex >= 0 &&
+          stepIndex < recipe.steps.length &&
+          normalized
+        ) {
+          recipe.steps[stepIndex] = normalized;
+        }
+      });
+      if (currentPlan) currentPlan.steps = recipe.steps;
 
       const row = root.querySelector(
         `[data-ingredient-index="${ingredientIndex}"]`,
@@ -421,13 +608,29 @@ function renderPlan(query) {
         row.innerHTML = `<b>${esc(replacement.name)}</b><span>${esc(replacement.amount)}</span>${preparation ? `<small>${esc(preparation)}</small>` : ""}`;
       }
       shoppingChecklist?.updateIngredient(ingredientIndex, replacement);
-      renderUsdaReference(recipe);
+      shoppingChecklist?.updateTitle(updatedTitle);
+      const recipeHeading = root.querySelector(".recipe-body h2");
+      if (recipeHeading) recipeHeading.textContent = updatedTitle;
+      const placeholderTitle = root.querySelector(".dish-visual b");
+      if (placeholderTitle) placeholderTitle.textContent = updatedTitle;
+      const recipeImage = root.querySelector(".recipe-image");
+      if (recipeImage) recipeImage.alt = updatedTitle;
+      renderUsdaReference(recipe, { force: true });
+
+      const stepGuide = root.querySelector(".step-guide");
+      if (stepGuide) {
+        stepGuide.querySelector("h2").textContent =
+          `${recipe.steps.length} clear cooking steps`;
+        stepGuide.querySelector("ol").innerHTML = recipe.steps
+          .map((step) => `<li>${esc(step.instruction)}</li>`)
+          .join("");
+      }
 
       const cookingWarning = root.querySelector(".swap-cooking-warning");
       if (cookingWarning) {
         cookingWarning.classList.remove("hidden");
         cookingWarning.textContent =
-          "Ingredient and grocery quantities are updated. Cooking steps may still describe the original ingredient, so review them before starting—especially for allergies.";
+          "Ingredient quantities, grocery items, cooking steps, and recipe timers were updated together ✓";
       }
 
       if (activeRecipeId) {
@@ -438,11 +641,21 @@ function renderPlan(query) {
           .eq("user_id", user.id);
         if (error) {
           toast("The swap is applied here, but could not be saved yet.");
-          return;
+          return true;
         }
       }
       toast(`${replacement.name} is now in your ingredient list ✓`);
-    });
+      return true;
+      },
+    );
+    if (!swapsCard && !query.fallback) {
+      const notice = document.createElement("article");
+      notice.className = "card swap-unavailable-note";
+      notice.innerHTML = `<p class="eyebrow">INGREDIENT SWAPS</p><h2>No fully verified swap is available for this plan.</h2><p>Jarvis removed an incomplete replacement instead of leaving the grocery list and cooking steps inconsistent. Generate another plan if you need a substitution.</p>`;
+      root
+        .querySelector(".guided-preview")
+        .insertAdjacentElement("beforebegin", notice);
+    }
     shoppingChecklist = renderShoppingChecklist(
       recipe.title,
       recipe.ingredients,
@@ -626,8 +839,12 @@ async function saveCard(title, uses, why, sourceRecipeTitle) {
     saved_for_week: true,
   };
   const { error } = await sb.from("saved_meal_cards").insert(payload);
-  if (error) toast(error.message);
-  else toast("Saved to next week’s meal folder ✓");
+  if (error) {
+    toast(error.message);
+    return false;
+  }
+  toast("Saved to next week’s meal folder ✓");
+  return true;
 }
 
 function dateKey(date) {
@@ -710,8 +927,7 @@ async function renderWeeklyPlanner() {
       `<article class="card weekly-loading"><h2>Could not load this week.</h2><p>${esc(planError?.message || "Try again shortly.")}</p></article>`;
     return;
   }
-  const [{ data: items }, { data: recipes }, { data: ideas }] =
-    await Promise.all([
+  const [itemsResult, recipesResult, ideasResult] = await Promise.all([
       sb
         .from("meal_plan_items")
         .select("id,recipe_id,scheduled_for,meal_type,servings,notes")
@@ -731,8 +947,20 @@ async function renderWeeklyPlanner() {
         .eq("saved_for_week", true)
         .order("created_at", { ascending: false })
         .limit(6),
-    ]);
+  ]);
   if (root !== document.querySelector("#week")) return;
+  const loadError =
+    itemsResult.error || recipesResult.error || ideasResult.error || null;
+  if (loadError) {
+    renderedViews.delete("week");
+    root.querySelector(".weekly-grid").innerHTML =
+      `<article class="card weekly-loading"><h2>Could not load your weekly plan.</h2><p>${esc(loadError.message)}</p><button class="cream" data-retry-week>Retry →</button></article>`;
+    root.querySelector("[data-retry-week]").onclick = renderWeeklyPlanner;
+    return;
+  }
+  const items = itemsResult.data;
+  const recipes = recipesResult.data;
+  const ideas = ideasResult.data;
   const recipeRows = recipes || [];
   const schedule = items || [];
   const recipeMap = new Map(recipeRows.map((recipe) => [recipe.id, recipe]));
@@ -824,14 +1052,6 @@ async function renderWeeklyPlanner() {
 }
 
 function renderPersonalizedSwaps(recipe, onApply) {
-  const dietary = profile?.dietary_preferences || [];
-  const allergies = profile?.allergies || [];
-  const dislikes = profile?.dislikes || [];
-  const goal = profile?.body_composition_goal || "maintain";
-  const has = (value) =>
-    [...dietary, ...allergies, ...dislikes].some((item) =>
-      String(item).toLowerCase().includes(value),
-    );
   const normalizedIngredients = recipe.ingredients.map(
     window.ChefDomain.normalizeGroceryItem,
   );
@@ -850,90 +1070,39 @@ function renderPersonalizedSwaps(recipe, onApply) {
     });
   };
   const aiSwaps = recipe.substitutions
-    .filter((item) => item?.from && item?.to)
+    .filter(
+      (item) => {
+        if (
+          !item?.from ||
+          !item?.to ||
+          !Array.isArray(item.step_updates) ||
+          !item.step_updates.length
+        )
+          return false;
+        const sourceName = String(item.from).toLocaleLowerCase();
+        const affectedStepIndexes = recipe.steps
+          .map((step, stepIndex) =>
+            String(step.instruction || "")
+              .toLocaleLowerCase()
+              .includes(sourceName)
+              ? stepIndex
+              : -1,
+          )
+          .filter((stepIndex) => stepIndex >= 0);
+        const updatedStepIndexes = new Set(
+          item.step_updates.map((update) => Number(update.step_index)),
+        );
+        return affectedStepIndexes.every((stepIndex) =>
+          updatedStepIndexes.has(stepIndex),
+        );
+      },
+    )
     .map((item) => ({
       ...item,
       ingredientIndex: ingredientIndexFor(item.from),
     }))
     .filter((item) => item.ingredientIndex >= 0);
-  const defaults = [];
-  const addDefault = (pattern, replacement) => {
-    const ingredientIndex = normalizedIngredients.findIndex((item) =>
-      pattern.test(item.name),
-    );
-    if (ingredientIndex < 0) return;
-    defaults.push({
-      from: normalizedIngredients[ingredientIndex].name,
-      ingredientIndex,
-      ...replacement,
-    });
-  };
-  if (has("lactose"))
-    addDefault(/milk|cream|yogurt|牛奶|鮮奶油|优格|優格/i, {
-      to: "Unsweetened soy yogurt",
-      reason: "Keeps the dish creamy while respecting lactose intolerance.",
-    });
-  if (has("gluten"))
-    addDefault(/soy sauce|醬油|酱油/i, {
-      to: "Gluten-free tamari",
-      reason: "Maintains a similar savory profile without gluten.",
-    });
-  if (has("nut"))
-    addDefault(/peanut|cashew|almond|花生|腰果|杏仁/i, {
-      to: "Roasted pumpkin seeds",
-      reason: "Adds crunch without using nuts.",
-    });
-  if (has("shellfish"))
-    addDefault(/shrimp|prawn|shellfish|蝦|虾|貝|贝/i, {
-      to:
-        has("vegan") || has("vegetarian")
-          ? has("soy") || has("大豆")
-            ? "Canned chickpeas"
-            : "Extra-firm tofu"
-          : "Boneless skinless chicken breast",
-      reason: "Preserves the cooking method while avoiding shellfish.",
-      category: "protein",
-    });
-  const proteinIndex = normalizedIngredients.findIndex(
-    (item) =>
-      item.category === "protein" ||
-      /chicken|beef|pork|egg|tofu|protein|雞|鸡|牛|豬|猪|蛋|豆腐/i.test(
-        item.name,
-      ),
-  );
-  if (
-    proteinIndex >= 0 &&
-    (goal === "muscle_gain" || goal === "recomposition") &&
-    !aiSwaps.some((swap) => swap.ingredientIndex === proteinIndex)
-  ) {
-    const original = normalizedIngredients[proteinIndex];
-    const usePlantProtein = !/tofu|tempeh|chickpea|豆腐|鷹嘴豆|鹰嘴豆/i.test(
-      original.name,
-    );
-    const avoidsSoy = has("soy") || has("大豆");
-    defaults.push({
-      from: original.name,
-      ingredientIndex: proteinIndex,
-      to: usePlantProtein
-        ? avoidsSoy
-          ? "Canned chickpeas"
-          : "Extra-firm tofu"
-        : has("vegan") || has("vegetarian")
-          ? avoidsSoy
-            ? "Cooked green lentils"
-            : "Extra-firm tofu"
-          : "Boneless skinless chicken breast",
-      quantity:
-        original.unit === "piece" ? 200 : Math.max(original.quantity || 0, 200),
-      unit: "g",
-      preparation: usePlantProtein
-        ? "pressed and cut to match the recipe"
-        : "cut to match the recipe",
-      category: "protein",
-      reason: "Helps the meal better support your protein target.",
-    });
-  }
-  const swaps = [...aiSwaps, ...defaults]
+  const swaps = aiSwaps
     .filter(
       (swap, index, all) =>
         all.findIndex(
@@ -956,14 +1125,26 @@ function renderPersonalizedSwaps(recipe, onApply) {
         const swap = swaps[Number(button.dataset.applySwap)];
         button.disabled = true;
         button.textContent = "Applying swap…";
-        await onApply(swap.ingredientIndex, swap);
-        button.textContent = "Swap applied ✓";
+        try {
+          const applied = await onApply(swap.ingredientIndex, swap);
+          if (!applied) {
+            button.disabled = false;
+            button.textContent = "Use this swap";
+            return;
+          }
+          button.textContent = "Swap applied ✓";
+        } catch (error) {
+          button.disabled = false;
+          button.textContent = "Use this swap";
+          toast(error.message || "This swap could not be applied.");
+        }
       }),
   );
   return card;
 }
 
 function renderShoppingChecklist(title, ingredients) {
+  let listTitle = title;
   ingredients = ingredients.map(window.ChefDomain.normalizeGroceryItem);
   const card = document.createElement("article");
   card.className = "card shopping-checklist";
@@ -1000,7 +1181,7 @@ function renderShoppingChecklist(title, ingredients) {
         app_user_id: user.id,
         recipe_id: activeRecipeId || null,
         title:
-          `${window.I18n.code === "zh-TW" ? "購物" : "Shopping"} · ${title}`.slice(
+          `${window.I18n.code === "zh-TW" ? "購物" : "Shopping"} · ${listTitle}`.slice(
             0,
             120,
           ),
@@ -1042,6 +1223,9 @@ function renderShoppingChecklist(title, ingredients) {
     show("shopping");
   };
   return {
+    updateTitle(nextTitle) {
+      listTitle = String(nextTitle || listTitle).trim() || listTitle;
+    },
     updateIngredient(index, item) {
       const normalized = window.ChefDomain.normalizeGroceryItem(item);
       ingredients[index] = normalized;
@@ -1205,7 +1389,8 @@ async function renderShoppingLists() {
       "id,title,status,created_at,recipe_id,shopping_list_items(id,ingredient,quantity,unit,category,is_checked,pantry_item_id)",
     )
     .eq("user_id", user.id)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(30);
   const container = root.querySelector("#saved-shopping-lists");
   if (error) {
     container.innerHTML = `<article class="card shopping-empty"><h2>We could not load your lists.</h2><p>${esc(error.message)}</p></article>`;
@@ -1357,7 +1542,32 @@ async function startRecipeFromShoppingList(list) {
   document.querySelector("#start-guided-cook")?.click();
 }
 
-async function renderUsdaReference(recipe) {
+function usdaNutritionMarkup(recipe, total, foods = []) {
+  const servings = Math.max(1, finiteNumber(recipe.servings, 1));
+  const proteinTarget = finiteNumber(profile?.protein_g, 0);
+  const proteinPercent = proteinTarget
+    ? Math.round((total.protein_g / servings / proteinTarget) * 100)
+    : 0;
+  const zh = window.I18n.code === "zh-TW";
+  const coverageText = zh
+    ? `已對照 ${total.coverage_percent}% 的食材${total.estimated_conversions ? ` · ${total.estimated_conversions} 項家用單位採用估算換算` : ""}。無可靠克重的包裝或個數單位不會被猜測計入。`
+    : `${total.coverage_percent}% ingredient coverage${total.estimated_conversions ? ` · ${total.estimated_conversions} household-unit conversions are estimated` : ""}. Unmatched package or piece units are excluded instead of guessed.`;
+  const matches = foods.length
+    ? `<details><summary>View USDA ingredient matches</summary><div class="usda-grid">${foods
+        .slice(0, 8)
+        .map(
+          (food) =>
+            `<div><b>${esc(food.ingredient)}</b><span>${displayNumber(food.per100g?.kcal)} kcal / 100 g</span><small>${esc(food.description || "USDA match")} · ${displayNumber(food.match_score, "%")} ${zh ? "名稱吻合度" : "name match"}</small><small>P ${displayNumber(food.per100g?.protein_g, "g")} · C ${displayNumber(food.per100g?.carbs_g, "g")} · F ${displayNumber(food.per100g?.fat_g, "g")}</small></div>`,
+        )
+        .join("")}</div></details>`
+    : "";
+  const qualityWarning = total.needs_review
+    ? `<div class="usda-quality-warning" role="alert"><b>${zh ? "這份營養數字需要人工確認" : "These nutrition figures need review"}</b><span>${zh ? `USDA 與 AI 估算差距較大${total.low_confidence_matches ? `，另有 ${total.low_confidence_matches} 項名稱配對信心較低` : ""}。請展開下方配對，確認 USDA 食品是否與實際食材相同。` : `USDA differs materially from the recipe estimate${total.low_confidence_matches ? ` and ${total.low_confidence_matches} name match${total.low_confidence_matches === 1 ? " is" : "es are"} lower confidence` : ""}. Open the matches below and confirm the reference foods.`}</span></div>`
+    : "";
+  return `<p class="eyebrow">USDA FOODDATA CENTRAL · WHOLE MEAL</p><h2>USDA-backed meal nutrition.</h2><p>${coverageText}</p>${qualityWarning}<div class="usda-total"><div><b>${displayNumber(total.kcal)}</b><span>${zh ? "大卡 · 整份食譜" : "kcal · whole recipe"}</span><small>${displayNumber(total.kcal / servings)} ${zh ? "每人份" : "per serving"}</small></div><div><b>${displayNumber(total.protein_g, "g")}</b><span>${zh ? "蛋白質 · 整份食譜" : "protein · whole recipe"}</span><small>${displayNumber(total.protein_g / servings, "g")} ${zh ? `每人份 · 每日目標的 ${proteinPercent}%` : `per serving · ${proteinPercent}% of daily target`}</small></div><div><b>${displayNumber(total.carbs_g, "g")}</b><span>${zh ? "碳水化合物" : "carbs"}</span><small>${displayNumber(total.carbs_g / servings, "g")} ${zh ? "每人份" : "per serving"}</small></div><div><b>${displayNumber(total.fat_g, "g")}</b><span>${zh ? "脂肪" : "fat"}</span><small>${displayNumber(total.fat_g / servings, "g")} ${zh ? "每人份" : "per serving"}</small></div></div>${matches}`;
+}
+
+async function renderUsdaReference(recipe, { force = false } = {}) {
   const renderVersion = ++usdaRenderVersion;
   const ingredients = Array.isArray(recipe?.ingredients)
     ? recipe.ingredients
@@ -1370,6 +1580,10 @@ async function renderUsdaReference(recipe) {
   document
     .querySelector("#plan .shopping-checklist")
     .insertAdjacentElement("afterend", card);
+  if (recipe.usda_nutrition && !force) {
+    card.innerHTML = usdaNutritionMarkup(recipe, recipe.usda_nutrition);
+    return;
+  }
   const lookupIngredients = ingredients
     .map(window.ChefDomain.normalizeGroceryItem)
     .filter((item) => item.usda_query || !/[\u3400-\u9fff]/.test(item.name));
@@ -1404,17 +1618,6 @@ async function renderUsdaReference(recipe) {
       ingredients,
       foods,
     );
-    const servings = Math.max(1, finiteNumber(recipe.servings, 1));
-    const proteinTarget = finiteNumber(profile?.protein_g, 0);
-    const proteinPercent = proteinTarget
-      ? Math.round((total.protein_g / servings / proteinTarget) * 100)
-      : 0;
-    const zh = window.I18n.code === "zh-TW";
-    const coverageText = zh
-      ? `已對照 ${total.coverage_percent}% 的食材${total.estimated_conversions ? ` · ${total.estimated_conversions} 項家用單位採用估算換算` : ""}。無可靠克重的包裝或個數單位不會被猜測計入。`
-      : `${total.coverage_percent}% ingredient coverage${total.estimated_conversions ? ` · ${total.estimated_conversions} household-unit conversions are estimated` : ""}. Unmatched package or piece units are excluded instead of guessed.`;
-    recipe.usda_nutrition = total;
-    if (currentPlan) currentPlan.usda_nutrition = total;
     const estimate = {
       kcal: finiteNumber(recipe.kcal),
       protein_g: finiteNumber(recipe.protein_g),
@@ -1422,6 +1625,12 @@ async function renderUsdaReference(recipe) {
       fat_g: finiteNumber(recipe.fat_g),
       basis: "AI recipe estimate for the whole recipe",
     };
+    Object.assign(
+      total,
+      window.ChefDomain.compareNutritionEstimates(total, estimate, foods),
+    );
+    recipe.usda_nutrition = total;
+    if (currentPlan) currentPlan.usda_nutrition = total;
     if (activeRecipeId) {
       const persistedRecipe = currentPlan || recipe;
       sb.from("recipes")
@@ -1436,13 +1645,7 @@ async function renderUsdaReference(recipe) {
           if (error) console.warn("Could not persist USDA totals", error);
         });
     }
-    card.innerHTML = `<p class="eyebrow">USDA FOODDATA CENTRAL · WHOLE MEAL</p><h2>USDA-backed meal nutrition.</h2><p>${coverageText}</p><div class="usda-total"><div><b>${displayNumber(total.kcal)}</b><span>${zh ? "大卡 · 整份食譜" : "kcal · whole recipe"}</span><small>${displayNumber(total.kcal / servings)} ${zh ? "每人份" : "per serving"}</small></div><div><b>${displayNumber(total.protein_g, "g")}</b><span>${zh ? "蛋白質 · 整份食譜" : "protein · whole recipe"}</span><small>${displayNumber(total.protein_g / servings, "g")} ${zh ? `每人份 · 每日目標的 ${proteinPercent}%` : `per serving · ${proteinPercent}% of daily target`}</small></div><div><b>${displayNumber(total.carbs_g, "g")}</b><span>${zh ? "碳水化合物" : "carbs"}</span><small>${displayNumber(total.carbs_g / servings, "g")} ${zh ? "每人份" : "per serving"}</small></div><div><b>${displayNumber(total.fat_g, "g")}</b><span>${zh ? "脂肪" : "fat"}</span><small>${displayNumber(total.fat_g / servings, "g")} ${zh ? "每人份" : "per serving"}</small></div></div><details><summary>View USDA ingredient matches</summary><div class="usda-grid">${foods
-      .slice(0, 8)
-      .map(
-        (food) =>
-          `<div><b>${esc(food.ingredient)}</b><span>${displayNumber(food.per100g?.kcal)} kcal / 100 g</span><small>P ${displayNumber(food.per100g?.protein_g, "g")} · C ${displayNumber(food.per100g?.carbs_g, "g")} · F ${displayNumber(food.per100g?.fat_g, "g")}</small></div>`,
-      )
-      .join("")}</div></details>`;
+    card.innerHTML = usdaNutritionMarkup(recipe, total, foods);
   } catch (error) {
     const noMatches =
       error instanceof Error && error.message === "No USDA matches found";
@@ -1583,6 +1786,7 @@ async function openQuickNutritionLog() {
   modal.className = "modal quick-log-modal";
   modal.innerHTML = `<div class="modal-card quick-log-card" role="dialog" aria-modal="true" aria-labelledby="quick-log-title"><p class="eyebrow">QUICK LOG</p><h2 id="quick-log-title">Add a meal to today.</h2><p>Log a saved recipe without starting Chef Mode, or enter a simple estimate for anything else you ate.</p><div class="quick-log-grid"><form class="quick-log-option" id="quick-saved-form"><p class="eyebrow">FROM YOUR RECIPES</p><div class="field"><label>Saved recipe</label><select name="recipe" disabled><option>Loading saved recipes…</option></select><small data-saved-help>Loading your recipe folder.</small></div><div class="field"><label>Servings eaten</label><input name="servings" type="number" min="0.25" max="12" step="0.25" value="1" required></div><button class="dark" type="submit" disabled>Log saved recipe →</button></form><form class="quick-log-option" id="quick-manual-form"><p class="eyebrow">MANUAL ESTIMATE</p><div class="field"><label>Meal name</label><input name="title" maxlength="160" placeholder="e.g. Breakfast sandwich"></div><div class="quick-macro-grid"><div class="field"><label>Calories</label><input name="calories" type="number" min="1" max="10000" step="1" required></div><div class="field"><label>Protein (g)</label><input name="protein" type="number" min="0" max="500" step="0.1" value="0" required></div><div class="field"><label>Carbs (g)</label><input name="carbs" type="number" min="0" max="1000" step="0.1" value="0"></div><div class="field"><label>Fat (g)</label><input name="fat" type="number" min="0" max="500" step="0.1" value="0"></div></div><button class="dark" type="submit">Add estimate →</button></form></div><div class="form-actions"><button type="button" class="cream" data-quick-close>Cancel</button></div></div>`;
   document.body.append(modal);
+  window.associateFieldLabels?.(modal);
   const close = bindDismissibleModal(modal);
   modal.querySelector("[data-quick-close]").onclick = close;
   const savedForm = modal.querySelector("#quick-saved-form");
@@ -1777,6 +1981,7 @@ function openMealFeedback(recipe, nutritionLogPromise) {
   const servingsLimit = 12;
   modal.innerHTML = `<form class="modal-card feedback-card"><p class="eyebrow">HELP JARVIS LEARN</p><h2>How did this meal taste?</h2><p>One quick rating helps future recipes fit you better.</p><div class="automation-summary"><p class="eyebrow">AUTOMATICALLY COMPLETED</p><div data-auto-nutrition>◌ Recording 1 serving of nutrition…</div><div data-auto-pantry>◌ Checking recipe amounts against your pantry…</div></div><div class="field"><label>Servings you ate</label><input name="servings_eaten" type="number" min="0.25" max="${servingsLimit}" step="0.25" value="1" required><small>Nutrition starts at one serving. Change this if you ate more.</small></div><div class="rating-row" role="radiogroup" aria-label="Meal rating">${[1, 2, 3, 4, 5].map((rating) => `<label><input type="radio" name="rating" value="${rating}" required><span>${rating}★</span></label>`).join("")}</div><div class="field"><label>Optional note</label><input name="note" maxlength="300" placeholder="e.g. Less spicy next time"></div><div class="form-actions"><button type="button" class="cream" data-feedback-skip>Skip rating</button><button type="submit" class="dark">Save feedback →</button></div></form>`;
   document.body.append(modal);
+  window.associateFieldLabels?.(modal);
   const close = bindDismissibleModal(modal);
   const form = modal.querySelector("form");
   const nutritionStatus = modal.querySelector("[data-auto-nutrition]");
@@ -1876,7 +2081,7 @@ function openMealFeedback(recipe, nutritionLogPromise) {
 
 async function completeCooking(recipe) {
   stopVoiceControl();
-  clearCookingState();
+  clearCookingState("completed");
   releaseWakeLock();
   renderCook();
   const nutritionLogPromise = logCompletedMeal(recipe);
@@ -2103,6 +2308,7 @@ function openClockModal() {
   modal.className = "modal";
   modal.innerHTML = `<form class="modal-card clock-modal" id="clock-form"><p class="eyebrow">ADD A KITCHEN CLOCK</p><h2>Track another task.</h2><div class="form-grid"><div class="field"><label>Task name</label><input name="name" required maxlength="70" placeholder="e.g. Rice resting"></div><div class="field"><label>Clock type</label><select name="mode"><option value="countdown">Countdown</option><option value="stopwatch">Stopwatch</option></select></div><div class="field" id="clock-minutes"><label>Minutes</label><input name="minutes" type="number" min="1" max="240" value="5"></div></div><div class="form-actions"><button type="button" class="cream" id="close-clock">Cancel</button><button class="dark">Add clock →</button></div></form>`;
   document.body.append(modal);
+  window.associateFieldLabels?.(modal);
   const closeModal = bindDismissibleModal(modal);
   const form = modal.querySelector("#clock-form");
   form.mode.onchange = () =>
@@ -2315,7 +2521,7 @@ function tickRunningTimers() {
   if (!changed) return;
   updateTimerDisplays();
   if (completed.length || now - lastTimerPersistAt >= 5000)
-    persistCookingState();
+    persistCookingState(false);
   completed.forEach(announceTimerComplete);
   if (!hasRunningTimer()) stopTimerTicker();
 }

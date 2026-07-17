@@ -11,6 +11,21 @@
   color: var(--muted);
   line-height: 1.55;
 }
+.usda-quality-warning {
+  display: grid;
+  gap: 4px;
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid #d99b4f;
+  border-radius: 11px;
+  background: #fff2dd;
+  color: #754313;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.usda-quality-warning b {
+  font-size: 12px;
+}
 .usda-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

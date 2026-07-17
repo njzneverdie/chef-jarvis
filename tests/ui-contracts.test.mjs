@@ -92,6 +92,8 @@ test("PWA install keeps large icons on demand and self-hosts compact fonts", asy
   assert.doesNotMatch(core, /chef-jarvis-icon-(?:512|1024)\.png/);
   assert.doesNotMatch(core, /chef-jarvis-maskable-512\.png/);
   assert.match(worker, /Promise\.allSettled/);
+  assert.match(worker, /if \(failed\.length\)[\s\S]*caches\.delete\(CACHE\)[\s\S]*throw new Error/);
+  assert.match(worker, /await self\.skipWaiting\(\)/);
   assert.ok(icon.size < 100 * 1024, `1024px icon is ${icon.size} bytes`);
   assert.doesNotMatch(index, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
   assert.match(styles, /fonts\/manrope-latin-400-800\.woff2/);
@@ -107,16 +109,118 @@ test("signed-in shell lazily renders views beyond the home dashboard", async () 
   assert.match(app, /if \(id === "shopping"\) return renderShoppingLists\(\)/);
 });
 
-test("meal images overlap model generation and primary failure fails over quickly", async () => {
+test("meal images use the validated exact dish query and primary failure fails over quickly", async () => {
   const edge = await readFile(
     new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url),
     "utf8",
   );
-  const imageStart = edge.indexOf("const recipeImagePromise = findRecipeImage(meal)");
-  const modelStart = edge.indexOf("const modelAttempts =");
-  assert.ok(imageStart >= 0 && imageStart < modelStart);
   assert.match(edge, /gemini-3\.1-flash-lite", timeoutMs: 12000/);
-  assert.match(edge, /addRecipeImage\(validatedPlan, recipeImagePromise\)/);
+  assert.match(edge, /const exactQuery = plan\.image_query \|\| plan\.title/);
+  assert.match(edge, /Promise\.all\(queries\.map\(findRecipeImage\)\)/);
+  assert.match(edge, /PROMPT_VERSION/);
+  assert.match(edge, /chef_meal_plan_completed/);
+  assert.match(edge, /addRecipeImage\(validatedPlan\)/);
+  assert.doesNotMatch(edge, /findRecipeImage\(meal\)/);
+});
+
+test("cooking progress syncs to the user's cloud session with a local fallback", async () => {
+  const [chefMode, app, migration] = await Promise.all([
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+    readFile(new URL("app.js", publicUrl), "utf8"),
+    readFile(
+      new URL(
+        "../supabase/migrations/20260717005304_optimize_active_cooking_sessions.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+  assert.match(chefMode, /function queueCookingCloudSync/);
+  assert.match(chefMode, /\.from\("cooking_sessions"\)/);
+  assert.match(chefMode, /async function restoreCookingStateFromCloud/);
+  assert.match(chefMode, /clearCookingState\("completed"\)/);
+  assert.match(app, /void restoreCookingStateFromCloud\(\)/);
+  assert.match(migration, /cooking_sessions_user_status_updated_idx/);
+});
+
+test("profile offers an authenticated JSON data export", async () => {
+  const app = await readFile(new URL("app.js", publicUrl), "utf8");
+  assert.match(app, /async function exportMyData/);
+  assert.match(app, /id="export-my-data"/);
+  assert.match(app, /chef-jarvis-data-\$\{localDateKey\(\)\}\.json/);
+  assert.match(app, /shopping_list_items\(\*\)/);
+  assert.match(app, /meal_plan_items\(\*\)/);
+});
+
+test("growing user collections have bounded initial queries", async () => {
+  const [app, chefMode] = await Promise.all([
+    readFile(new URL("app.js", publicUrl), "utf8"),
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+  ]);
+  assert.match(app, /\.from\("pantry_items"\)[\s\S]*?\.limit\(250\)/);
+  assert.match(
+    chefMode,
+    /async function renderShoppingLists\(\)[\s\S]*?\.limit\(30\)/,
+  );
+});
+
+test("profile load failures do not open onboarding or overwrite saved data", async () => {
+  const app = await readFile(new URL("app.js", publicUrl), "utf8");
+  const boot = app.slice(app.indexOf("async function boot()"), app.indexOf("async function startApp()"));
+  assert.match(boot, /if \(result\.error\)[\s\S]*return false/);
+  assert.match(boot, /if \(!profile\?\.onboarding_completed\) onboarding\(\)/);
+  assert.ok(boot.indexOf("return false") < boot.indexOf("onboarding()"));
+});
+
+test("dynamic form fields receive programmatic label associations", async () => {
+  const app = await readFile(new URL("app.js", publicUrl), "utf8");
+  assert.match(app, /function associateFieldLabels/);
+  assert.match(app, /label\.htmlFor = control\.id/);
+  assert.match(app, /MutationObserver/);
+});
+
+test("recipe swaps require and apply replacement-safe step updates", async () => {
+  const [chefMode, edge] = await Promise.all([
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+    readFile(new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(edge, /step_updates/);
+  assert.match(edge, /must include updated cooking instructions/);
+  assert.match(edge, /must update every step that names the original ingredient/);
+  assert.match(edge, /must not retain the original ingredient name/);
+  assert.match(edge, /Dropping unsafe ingredient substitution/);
+  assert.match(edge, /filter\(\(swap\): swap is Substitution/);
+  assert.match(chefMode, /affectedStepIndexes\.some/);
+  assert.match(chefMode, /currentPlan\.steps = recipe\.steps/);
+  assert.match(chefMode, /cooking steps, and recipe timers were updated together/);
+  assert.match(chefMode, /No fully verified swap is available for this plan/);
+});
+
+test("saved USDA totals are reused until ingredients change", async () => {
+  const chefMode = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
+  assert.match(chefMode, /if \(recipe\.usda_nutrition && !force\)/);
+  assert.match(chefMode, /renderUsdaReference\(recipe, \{ force: true \}\)/);
+});
+
+test("static hosting includes a restrictive security-header policy", async () => {
+  const [headers, index, boot, worker] = await Promise.all([
+    readFile(new URL("_headers", publicUrl), "utf8"),
+    readFile(new URL("index.html", publicUrl), "utf8"),
+    readFile(new URL("boot.js", publicUrl), "utf8"),
+    readFile(new URL("sw.js", publicUrl), "utf8"),
+  ]);
+  assert.match(headers, /Content-Security-Policy:/);
+  assert.match(headers, /frame-ancestors 'none'/);
+  assert.match(headers, /X-Frame-Options: DENY/);
+  assert.doesNotMatch(index, /supabase\.min\.js/);
+  assert.match(index, /boot\.js/);
+  assert.match(boot, /SUPABASE_BUNDLE/);
+  assert.match(boot, /vendor\/supabase-2\.110\.5\.min\.js/);
+  assert.doesNotMatch(boot, /cdn\.jsdelivr\.net|unpkg\.com/);
+  assert.match(boot, /if \(!window\.supabase\?\.createClient\)/);
+  assert.match(boot, /showStartupError/);
+  assert.doesNotMatch(worker, /SUPABASE_CDN/);
+  assert.match(worker, /vendor\/supabase-2\.110\.5\.min\.js/);
 });
 
 test("timer ticker sleeps when idle and updates existing nodes between structural renders", async () => {

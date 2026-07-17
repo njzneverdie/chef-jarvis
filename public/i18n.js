@@ -88,6 +88,17 @@
     "Personal goal": "個人目標",
     "Edit my profile": "編輯個人資料",
     "Saved meal ideas": "已儲存的餐點靈感",
+    "Download my data": "下載我的資料",
+    "Preparing export…": "正在準備資料匯出…",
+    "Your Chef Jarvis data export is ready ✓":
+      "Chef Jarvis 資料匯出已準備完成 ✓",
+    "Your data could not be exported right now.":
+      "目前無法匯出你的資料，請稍後再試。",
+    "INGREDIENT SWAPS": "食材替換",
+    "No fully verified swap is available for this plan.":
+      "這份食譜目前沒有通過完整驗證的替換方案。",
+    "Jarvis removed an incomplete replacement instead of leaving the grocery list and cooking steps inconsistent. Generate another plan if you need a substitution.":
+      "Jarvis 已移除不完整的替換方案，避免購物清單與料理步驟互相矛盾。若你需要替換食材，請重新產生食譜。",
     "YOUR KITCHEN SETUP": "你的廚房設備",
     "Devices Jarvis can use.": "Jarvis 可使用的設備。",
     "Equipment selections control the alternatives Chef Mode may offer.":
@@ -512,6 +523,16 @@
     "Restoring…": "正在復原…",
     "Replace the current cooking session?": "要取代目前的烹飪進度嗎？",
     "Start new recipe": "開始新食譜",
+    "This page could not be loaded. Please try again.":
+      "此頁目前無法載入，請再試一次。",
+    "Your profile could not be loaded.": "目前無法載入你的個人資料。",
+    "Retry →": "重試 →",
+    "Could not load your weekly plan.": "目前無法載入一週餐期。",
+    "This replacement does not include safe cooking-step updates. Generate a fresh plan before applying it.":
+      "這個替換沒有完整、安全的料理步驟更新，請先重新產生食譜再套用。",
+    "Ingredient quantities, grocery items, cooking steps, and recipe timers were updated together ✓":
+      "食材份量、購物清單、料理步驟與倒數計時已同步更新 ✓",
+    "This swap could not be applied.": "目前無法套用這個食材替換。",
   };
 
   const regexTranslations = [

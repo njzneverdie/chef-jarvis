@@ -1,30 +1,28 @@
-const CACHE = "chef-jarvis-20260717-upper-body-icon";
-const SUPABASE_CDN =
-  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.5/dist/umd/supabase.min.js";
-const SUPABASE_INTEGRITY =
-  "sha384-Fntl9b+IRzm2GKZK0c129fQFknWsn8pyxDejLO4wwds1LF9DSob2K2QXlfw8EIXn";
+const CACHE = "chef-jarvis-20260717-risk-hardening-3";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=20260717-upper-body-icon",
-  "/guided-cooking.css?v=20260717-upper-body-icon",
-  "/chef-mode.css?v=20260717-upper-body-icon",
-  "/shopping-list.css?v=20260717-upper-body-icon",
-  "/usda-reference.css?v=20260717-upper-body-icon",
-  "/personalized-swaps.css?v=20260717-upper-body-icon",
-  "/plan-persistence.css?v=20260717-upper-body-icon",
-  "/shopping-page.css?v=20260717-upper-body-icon",
-  "/product-features.css?v=20260717-upper-body-icon",
-  "/i18n.js?v=20260717-upper-body-icon",
-  "/domain.js?v=20260717-upper-body-icon",
-  "/app.js?v=20260717-upper-body-icon",
-  "/chef-mode.js?v=20260717-upper-body-icon",
-  "/manifest.webmanifest?v=20260717-upper-body-icon",
+  "/styles.css?v=20260717-risk-hardening-3",
+  "/guided-cooking.css?v=20260717-risk-hardening-3",
+  "/chef-mode.css?v=20260717-risk-hardening-3",
+  "/shopping-list.css?v=20260717-risk-hardening-3",
+  "/usda-reference.css?v=20260717-risk-hardening-3",
+  "/personalized-swaps.css?v=20260717-risk-hardening-3",
+  "/plan-persistence.css?v=20260717-risk-hardening-3",
+  "/shopping-page.css?v=20260717-risk-hardening-3",
+  "/product-features.css?v=20260717-risk-hardening-3",
+  "/i18n.js?v=20260717-risk-hardening-3",
+  "/domain.js?v=20260717-risk-hardening-3",
+  "/boot.js?v=20260717-risk-hardening-3",
+  "/vendor/supabase-2.110.5.min.js",
+  "/app.js?v=20260717-risk-hardening-3",
+  "/chef-mode.js?v=20260717-risk-hardening-3",
+  "/manifest.webmanifest?v=20260717-risk-hardening-3",
   "/fonts/dm-serif-display-latin-400.woff2",
   "/fonts/dm-serif-display-latin-400-italic.woff2",
   "/fonts/manrope-latin-400-800.woff2",
-  "/chef-jarvis-icon-192.png?v=20260717-upper-body-icon",
-  "/apple-touch-icon.png?v=20260717-upper-body-icon",
+  "/chef-jarvis-icon-192.png?v=20260717-risk-hardening-3",
+  "/apple-touch-icon.png?v=20260717-risk-hardening-3",
 ];
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -35,20 +33,15 @@ self.addEventListener("install", (event) => {
       const failed = results
         .map((result, index) => (result.status === "rejected" ? CORE[index] : null))
         .filter(Boolean);
-      if (failed.length)
-        console.warn("Some offline assets could not be cached", failed);
-      try {
-        const supabaseBundle = await fetch(SUPABASE_CDN, {
-          mode: "cors",
-          integrity: SUPABASE_INTEGRITY,
-        });
-        if (supabaseBundle.ok) await cache.put(SUPABASE_CDN, supabaseBundle);
-      } catch (error) {
-        console.warn("Supabase bundle could not be cached", error);
+      if (failed.length) {
+        await caches.delete(CACHE);
+        throw new Error(
+          `Offline update was not installed because required assets failed: ${failed.join(", ")}`,
+        );
       }
+      await self.skipWaiting();
     }),
   );
-  self.skipWaiting();
 });
 self.addEventListener("activate", (event) => {
   event.waitUntil(
@@ -65,7 +58,6 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
-  const isSupabaseBundle = request.url === SUPABASE_CDN;
   const isAppIcon =
     url.origin === self.location.origin &&
     /^\/(?:chef-jarvis-(?:icon-\d+|maskable-512)|apple-touch-icon)\.png$/.test(
@@ -73,7 +65,7 @@ self.addEventListener("fetch", (event) => {
     );
   if (
     request.method !== "GET" ||
-    (url.origin !== self.location.origin && !isSupabaseBundle)
+    url.origin !== self.location.origin
   )
     return;
   if (request.mode === "navigate") {
