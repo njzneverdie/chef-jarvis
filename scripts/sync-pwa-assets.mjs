@@ -2,8 +2,10 @@ import { readFile, writeFile } from "node:fs/promises";
 
 const indexPath = new URL("../public/index.html", import.meta.url);
 const workerPath = new URL("../public/sw.js", import.meta.url);
+const manifestPath = new URL("../public/manifest.webmanifest", import.meta.url);
 let index = await readFile(indexPath, "utf8");
 let worker = await readFile(workerPath, "utf8");
+let manifest = await readFile(manifestPath, "utf8");
 const currentVersion = index.match(/\?v=([^"']+)/)?.[1];
 const requestedVersion = process.argv[2];
 const version =
@@ -20,9 +22,11 @@ if (requestedVersion && requestedVersion !== "--check") {
       `const CACHE = "chef-jarvis-${version}";`,
     )
     .replace(/\?v=[^"']+/g, `?v=${version}`);
+  manifest = manifest.replace(/\?v=[^"']+/g, `?v=${version}`);
   await Promise.all([
     writeFile(indexPath, index),
     writeFile(workerPath, worker),
+    writeFile(manifestPath, manifest),
   ]);
 }
 
@@ -34,4 +38,11 @@ if (!worker.includes(`const CACHE = "chef-jarvis-${version}";`))
 const missing = assets.filter((asset) => !worker.includes(`"${asset}"`));
 if (missing.length)
   throw new Error(`Service worker CORE is missing: ${missing.join(", ")}`);
+const staleManifestIcons = [...manifest.matchAll(/"src":\s*"([^"]+\.png(?:\?v=([^"]+))?)"/g)]
+  .filter(([, , iconVersion]) => iconVersion !== version)
+  .map(([, source]) => source);
+if (staleManifestIcons.length)
+  throw new Error(
+    `Manifest icons are missing the current version: ${staleManifestIcons.join(", ")}`,
+  );
 console.log(`PWA assets synchronized at ${version} (${assets.length} files).`);

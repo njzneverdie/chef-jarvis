@@ -23,8 +23,8 @@ const CORE = [
   "/fonts/dm-serif-display-latin-400.woff2",
   "/fonts/dm-serif-display-latin-400-italic.woff2",
   "/fonts/manrope-latin-400-800.woff2",
-  "/chef-jarvis-icon-192.png",
-  "/apple-touch-icon.png",
+  "/chef-jarvis-icon-192.png?v=20260717-upper-body-icon",
+  "/apple-touch-icon.png?v=20260717-upper-body-icon",
 ];
 self.addEventListener("install", (event) => {
   event.waitUntil(
