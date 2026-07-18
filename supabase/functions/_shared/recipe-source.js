@@ -39,6 +39,23 @@ function sourceCompleteness(meal) {
     + Number(Boolean(String(meal?.strMealThumb || "").trim()));
 }
 
+function sourceCompletenessDescriptor({
+  sourceTitle,
+  ingredientLines,
+  instructionsText,
+  sourceUrl,
+  sourceImageUrl,
+}) {
+  const hasInstructions = Boolean(instructionsText);
+  return {
+    ingredient_count: ingredientLines.length,
+    has_instructions: hasInstructions,
+    has_image: Boolean(sourceImageUrl),
+    has_source_url: Boolean(sourceUrl),
+    is_complete: Boolean(sourceTitle) && ingredientLines.length >= 2 && hasInstructions,
+  };
+}
+
 export function scoreSourceCandidate(title, resolution) {
   const candidate = normalize(title);
   const canonicalName = normalize(resolution.canonicalName);
@@ -68,8 +85,17 @@ export function normalizeTheMealDbRecipe(meal, persistencePolicy) {
   const ingredientLines = ingredientLinesFor(meal);
   const sourceTitle = String(meal?.strMeal || "").trim();
   const instructionsText = String(meal?.strInstructions || "").trim();
+  const sourceUrl = String(meal?.strSource || "").trim();
+  const sourceImageUrl = String(meal?.strMealThumb || "").trim();
+  const completeness = sourceCompletenessDescriptor({
+    sourceTitle,
+    ingredientLines,
+    instructionsText,
+    sourceUrl,
+    sourceImageUrl,
+  });
 
-  if (!sourceTitle || ingredientLines.length < 2 || !instructionsText) {
+  if (!completeness.is_complete) {
     return null;
   }
 
@@ -77,8 +103,9 @@ export function normalizeTheMealDbRecipe(meal, persistencePolicy) {
     provider_id: String(meal.idMeal),
     source_provider: "themealdb",
     source_title: sourceTitle,
-    source_url: String(meal.strSource || ""),
-    source_image_url: String(meal.strMealThumb || ""),
+    source_url: sourceUrl,
+    source_image_url: sourceImageUrl,
+    source_completeness: completeness,
     source_persistence: persistencePolicy,
     ingredient_lines: ingredientLines,
     instructions_text: instructionsText,

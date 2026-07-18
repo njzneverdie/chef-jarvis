@@ -38,6 +38,24 @@ test("selects an exact external recipe and keeps provenance", () => {
   assert.equal(recipe.source_title, "Beef Bourguignon");
   assert.equal(recipe.source_persistence, "session_only");
   assert.deepEqual(recipe.ingredient_lines, ["1 kg Beef", "750 ml Red Wine"]);
+  assert.deepEqual(recipe.source_completeness, {
+    ingredient_count: 2,
+    has_instructions: true,
+    has_image: true,
+    has_source_url: true,
+    is_complete: true,
+  });
+});
+
+test("normalizes stable completeness details for an incomplete recipe", () => {
+  const recipe = normalizeTheMealDbRecipe({
+    idMeal: "incomplete-1",
+    strMeal: "Beef Bourguignon",
+    strInstructions: "",
+    strIngredient1: "Beef",
+  }, "session_only");
+
+  assert.equal(recipe, null);
 });
 
 test("rejects truncated titles and one-word aliases for a multi-word dish", () => {
