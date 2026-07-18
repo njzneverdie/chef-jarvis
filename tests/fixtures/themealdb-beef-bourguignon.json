@@ -1,0 +1,13 @@
+{
+  "meals": [{
+    "idMeal": "52904",
+    "strMeal": "Beef Bourguignon",
+    "strInstructions": "Brown the beef. Simmer until tender.",
+    "strIngredient1": "Beef",
+    "strMeasure1": "1 kg",
+    "strIngredient2": "Red Wine",
+    "strMeasure2": "750 ml",
+    "strSource": "https://example.test/beef-bourguignon",
+    "strMealThumb": "https://example.test/beef-bourguignon.jpg"
+  }]
+}
