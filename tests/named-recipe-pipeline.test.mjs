@@ -32,6 +32,18 @@ test("rejects a one-character generated title that only appears in a fuller dish
   assert.match(reason, /does not match/i);
 });
 
+test("uses canonical name only for legacy resolutions without trusted aliases", () => {
+  const reason = namedDishRejectionReason(
+    { title: "Classic French stew" },
+    {
+      requestType: "named_dish",
+      canonicalName: "肉燥飯",
+      aliases: ["French stew", "白飯"],
+    },
+  );
+  assert.match(reason, /does not match/i);
+});
+
 test("only structural timer and field failures are repairable", () => {
   assert.equal(
     recipeValidationDisposition(

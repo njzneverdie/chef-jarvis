@@ -11,7 +11,7 @@ export function namedDishRejectionReason(plan, resolution) {
   if (resolution?.requestType !== "named_dish") return "";
 
   const title = normalizeDishText(plan?.title);
-  const names = [resolution.canonicalName, ...(resolution.aliases || [])]
+  const names = [resolution.canonicalName, ...(resolution.identityAliases || [])]
     .map(normalizeDishText)
     .filter(Boolean);
   const matches = names.some((name) => title === name || title.includes(name));

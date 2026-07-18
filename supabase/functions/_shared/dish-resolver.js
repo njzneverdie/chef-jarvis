@@ -12,21 +12,11 @@ function clean(value) {
   return String(value || "").normalize("NFKC").replace(/\s+/g, " ").trim();
 }
 
-function hasHanCharacters(value) {
-  return /\p{Script=Han}/u.test(value);
-}
-
-function isSpecificModelAlias(alias, canonicalName) {
-  const cleanedAlias = clean(alias);
-  const hanCharacters = cleanedAlias.match(/\p{Script=Han}/gu) || [];
-  if (hanCharacters.length > 0) return hanCharacters.length > 1;
-
-  const aliasWords = cleanedAlias.match(/[\p{L}\p{N}]+/gu) || [];
-  if (aliasWords.length !== 1) return aliasWords.length > 1;
-
-  const cleanedCanonicalName = clean(canonicalName);
-  const canonicalWords = cleanedCanonicalName.match(/[\p{L}\p{N}]+/gu) || [];
-  return !hasHanCharacters(cleanedCanonicalName) && canonicalWords.length === 1;
+function curatedIdentityAliases(canonicalName) {
+  const group = aliasGroups.find((candidate) =>
+    clean(candidate.canonicalName) === clean(canonicalName)
+  );
+  return group ? [group.canonicalName, ...group.aliases] : [];
 }
 
 export function classifyMealRequest(request) {
@@ -42,6 +32,9 @@ export function baselineDishResolution(request) {
     displayName: originalRequest,
     canonicalName: group?.canonicalName || originalRequest,
     aliases: group?.aliases || [originalRequest],
+    identityAliases: group
+      ? [group.canonicalName, ...group.aliases]
+      : [originalRequest],
     confidence: group ? 1 : 0.8,
     needsClarification: false,
     clarificationCandidates: [],
@@ -60,10 +53,11 @@ export function normalizeDishResolution(originalRequest, candidate = {}) {
     ? baseline.canonicalName
     : canonicalName || baseline.canonicalName;
   const modelAliases = Array.isArray(candidate.aliases)
-    ? candidate.aliases.map(clean).filter((alias) =>
-      isSpecificModelAlias(alias, resolvedCanonicalName)
-    )
+    ? candidate.aliases.map(clean).filter(Boolean)
     : [];
+  const identityAliases = resolvedCanonicalName === baseline.canonicalName
+    ? baseline.identityAliases
+    : [resolvedCanonicalName, ...curatedIdentityAliases(resolvedCanonicalName)];
   const needsDescription = needsClarification && candidates.length === 0;
   return {
     ...baseline,
@@ -74,6 +68,9 @@ export function normalizeDishResolution(originalRequest, candidate = {}) {
         ...baseline.aliases,
       ].filter(Boolean)),
     ].slice(0, 8),
+    identityAliases: [
+      ...new Set(identityAliases.map(clean).filter(Boolean)),
+    ],
     confidence: Number.isFinite(confidence) ? confidence : baseline.confidence,
     needsClarification,
     needsDescription,

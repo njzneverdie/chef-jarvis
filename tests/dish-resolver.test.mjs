@@ -21,6 +21,8 @@ test("normalizes approved aliases while preserving the original request", () => 
   assert.equal(resolution.canonicalName, "肉燥飯");
   assert.ok(resolution.aliases.includes("lu rou fan"));
   assert.ok(resolution.aliases.includes("minced pork rice"));
+  assert.ok(resolution.identityAliases.includes("魯肉飯"));
+  assert.ok(resolution.identityAliases.includes("lu rou fan"));
 });
 
 test("accepts a high-confidence typo resolution from the model", () => {
@@ -35,29 +37,29 @@ test("accepts a high-confidence typo resolution from the model", () => {
   assert.equal(resolution.canonicalName, "肉燥飯");
 });
 
-test("does not let generic model aliases authenticate unrelated recipe titles", () => {
+test("keeps model aliases searchable without trusting them as dish identity", () => {
   const resolution = normalizeDishResolution("肉躁飯", {
     canonical_name: "肉燥飯",
-    aliases: ["飯", "rice", "pork", "lu rou fan"],
+    aliases: ["French stew", "白飯"],
     confidence: 0.98,
     candidates: [],
   });
 
   assert.equal(resolution.canonicalName, "肉燥飯");
-  assert.ok(!resolution.aliases.includes("飯"));
-  assert.ok(!resolution.aliases.includes("rice"));
-  assert.ok(!resolution.aliases.includes("pork"));
-  assert.ok(resolution.aliases.includes("lu rou fan"));
+  assert.ok(resolution.aliases.includes("French stew"));
+  assert.ok(resolution.aliases.includes("白飯"));
+  assert.ok(dishSearchTerms(resolution).includes("French stew"));
+  assert.ok(dishSearchTerms(resolution).includes("白飯"));
+  assert.ok(!resolution.identityAliases.includes("French stew"));
+  assert.ok(!resolution.identityAliases.includes("白飯"));
+  assert.ok(resolution.identityAliases.includes("魯肉飯"));
+  assert.ok(resolution.identityAliases.includes("lu rou fan"));
   assert.match(
-    namedDishRejectionReason({ title: "蔬菜飯碗" }, resolution),
+    namedDishRejectionReason({ title: "Classic French stew" }, resolution),
     /does not match/i,
   );
   assert.match(
-    namedDishRejectionReason({ title: "vegetable rice bowl" }, resolution),
-    /does not match/i,
-  );
-  assert.match(
-    namedDishRejectionReason({ title: "spiced pork stew" }, resolution),
+    namedDishRejectionReason({ title: "家常白飯" }, resolution),
     /does not match/i,
   );
   assert.equal(namedDishRejectionReason({ title: "家常肉燥飯" }, resolution), "");

@@ -15,14 +15,6 @@ function tokenScore(left, right) {
   return common / new Set([...leftTokens, ...rightTokens]).size;
 }
 
-function hasCjkCharacters(value) {
-  return /[\u3400-\u9fff]/u.test(value);
-}
-
-function isSafeAlias(name) {
-  return hasCjkCharacters(name) || name.split(" ").filter(Boolean).length >= 2;
-}
-
 function ingredientLinesFor(meal) {
   return Array.from({ length: 20 }, (_, index) => {
     const ingredient = String(meal?.[`strIngredient${index + 1}`] || "").trim();
@@ -63,9 +55,9 @@ function sourceCompletenessDescriptor({
 export function scoreSourceCandidate(title, resolution) {
   const candidate = normalize(title);
   const canonicalName = normalize(resolution.canonicalName);
-  const names = [canonicalName, ...(resolution.aliases || [])
+  const names = [canonicalName, ...(resolution.identityAliases || [])
     .map(normalize)
-    .filter((name) => name && isSafeAlias(name))];
+    .filter(Boolean)];
   return Math.max(0, ...names.map((name) => {
     if (candidate === name) return 1;
     if (candidate.includes(name)) return 0.9;

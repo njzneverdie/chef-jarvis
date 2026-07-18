@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { baselineDishResolution } from "../supabase/functions/_shared/dish-resolver.js";
+import {
+  baselineDishResolution,
+  normalizeDishResolution,
+} from "../supabase/functions/_shared/dish-resolver.js";
 import {
   normalizeTheMealDbRecipe,
   selectSourceCandidate,
@@ -76,6 +79,29 @@ test("rejects truncated titles and one-word aliases for a multi-word dish", () =
       strIngredient2: "Red Wine",
     }], resolution)?.strMeal,
     "Beef Bourguignon Stew",
+  );
+});
+
+test("does not select provider candidates that match only untrusted model aliases", () => {
+  const resolution = normalizeDishResolution("肉躁飯", {
+    canonical_name: "肉燥飯",
+    aliases: ["French stew", "白飯"],
+    confidence: 0.98,
+  });
+  const completeMeal = (strMeal) => ({
+    strMeal,
+    strInstructions: "Cook until ready.",
+    strIngredient1: "Pork",
+    strIngredient2: "Rice",
+  });
+
+  assert.equal(selectSourceCandidate([
+    completeMeal("Classic French Stew"),
+    completeMeal("家常白飯"),
+  ], resolution), null);
+  assert.equal(
+    selectSourceCandidate([completeMeal("經典魯肉飯")], resolution)?.strMeal,
+    "經典魯肉飯",
   );
 });
 
