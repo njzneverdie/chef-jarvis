@@ -31,12 +31,12 @@ function ingredientLinesFor(meal) {
   }).filter(Boolean);
 }
 
-function sourceCompleteness(meal) {
-  return Number(Boolean(String(meal?.strMeal || "").trim()))
-    + Number(ingredientLinesFor(meal).length >= 2)
-    + Number(Boolean(String(meal?.strInstructions || "").trim()))
-    + Number(Boolean(String(meal?.strSource || "").trim()))
-    + Number(Boolean(String(meal?.strMealThumb || "").trim()));
+function hasRequiredSourceCompleteness({
+  sourceTitle,
+  ingredientLines,
+  instructionsText,
+}) {
+  return Boolean(sourceTitle) && ingredientLines.length >= 2 && Boolean(instructionsText);
 }
 
 function sourceCompletenessDescriptor({
@@ -52,7 +52,11 @@ function sourceCompletenessDescriptor({
     has_instructions: hasInstructions,
     has_image: Boolean(sourceImageUrl),
     has_source_url: Boolean(sourceUrl),
-    is_complete: Boolean(sourceTitle) && ingredientLines.length >= 2 && hasInstructions,
+    is_complete: hasRequiredSourceCompleteness({
+      sourceTitle,
+      ingredientLines,
+      instructionsText,
+    }),
   };
 }
 
@@ -74,10 +78,16 @@ export function selectSourceCandidate(meals, resolution) {
     .map((meal) => ({
       meal,
       score: scoreSourceCandidate(meal?.strMeal, resolution),
-      completeness: sourceCompleteness(meal),
+      isComplete: hasRequiredSourceCompleteness({
+        sourceTitle: String(meal?.strMeal || "").trim(),
+        ingredientLines: ingredientLinesFor(meal),
+        instructionsText: String(meal?.strInstructions || "").trim(),
+      }),
+      metadata: Number(Boolean(String(meal?.strSource || "").trim()))
+        + Number(Boolean(String(meal?.strMealThumb || "").trim())),
     }))
-    .filter(({ score, completeness }) => score >= 0.82 && completeness >= 3)
-    .sort((left, right) => right.score - left.score || right.completeness - left.completeness);
+    .filter(({ score, isComplete }) => score >= 0.82 && isComplete)
+    .sort((left, right) => right.score - left.score || right.metadata - left.metadata);
   return ranked[0]?.meal || null;
 }
 

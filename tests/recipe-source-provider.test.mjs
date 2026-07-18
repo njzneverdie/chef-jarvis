@@ -84,6 +84,9 @@ test("prefers a complete close match over an incomplete exact title", () => {
     {
       strMeal: "Beef Bourguignon",
       strIngredient1: "Beef",
+      strIngredient2: "Red Wine",
+      strSource: "https://example.com/beef-bourguignon",
+      strMealThumb: "https://example.com/beef-bourguignon.jpg",
     },
     {
       strMeal: "Beef Bourguignon Stew",
