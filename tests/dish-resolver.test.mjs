@@ -6,6 +6,7 @@ import {
   dishSearchTerms,
   normalizeDishResolution,
 } from "../supabase/functions/_shared/dish-resolver.js";
+import { namedDishRejectionReason } from "../supabase/functions/_shared/named-recipe-integrity.js";
 
 test("classifies recognizable dish names separately from broad requests", () => {
   assert.equal(classifyMealRequest("肉燥飯"), "named_dish");
@@ -32,6 +33,35 @@ test("accepts a high-confidence typo resolution from the model", () => {
   assert.equal(resolution.needsClarification, false);
   assert.equal(resolution.displayName, "肉躁飯");
   assert.equal(resolution.canonicalName, "肉燥飯");
+});
+
+test("does not let generic model aliases authenticate unrelated recipe titles", () => {
+  const resolution = normalizeDishResolution("肉躁飯", {
+    canonical_name: "肉燥飯",
+    aliases: ["飯", "rice", "pork", "lu rou fan"],
+    confidence: 0.98,
+    candidates: [],
+  });
+
+  assert.equal(resolution.canonicalName, "肉燥飯");
+  assert.ok(!resolution.aliases.includes("飯"));
+  assert.ok(!resolution.aliases.includes("rice"));
+  assert.ok(!resolution.aliases.includes("pork"));
+  assert.ok(resolution.aliases.includes("lu rou fan"));
+  assert.match(
+    namedDishRejectionReason({ title: "蔬菜飯碗" }, resolution),
+    /does not match/i,
+  );
+  assert.match(
+    namedDishRejectionReason({ title: "vegetable rice bowl" }, resolution),
+    /does not match/i,
+  );
+  assert.match(
+    namedDishRejectionReason({ title: "spiced pork stew" }, resolution),
+    /does not match/i,
+  );
+  assert.equal(namedDishRejectionReason({ title: "家常肉燥飯" }, resolution), "");
+  assert.equal(namedDishRejectionReason({ title: "classic lu rou fan" }, resolution), "");
 });
 
 test("requires clarification for a low-confidence dish resolution", () => {

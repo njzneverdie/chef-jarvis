@@ -12,6 +12,23 @@ function clean(value) {
   return String(value || "").normalize("NFKC").replace(/\s+/g, " ").trim();
 }
 
+function hasHanCharacters(value) {
+  return /\p{Script=Han}/u.test(value);
+}
+
+function isSpecificModelAlias(alias, canonicalName) {
+  const cleanedAlias = clean(alias);
+  const hanCharacters = cleanedAlias.match(/\p{Script=Han}/gu) || [];
+  if (hanCharacters.length > 0) return hanCharacters.length > 1;
+
+  const aliasWords = cleanedAlias.match(/[\p{L}\p{N}]+/gu) || [];
+  if (aliasWords.length !== 1) return aliasWords.length > 1;
+
+  const cleanedCanonicalName = clean(canonicalName);
+  const canonicalWords = cleanedCanonicalName.match(/[\p{L}\p{N}]+/gu) || [];
+  return !hasHanCharacters(cleanedCanonicalName) && canonicalWords.length === 1;
+}
+
 export function classifyMealRequest(request) {
   return isBroadMealRequest(clean(request)) ? "broad_request" : "named_dish";
 }
@@ -39,15 +56,21 @@ export function normalizeDishResolution(originalRequest, candidate = {}) {
     : [];
   const canonicalName = clean(candidate.canonical_name);
   const needsClarification = Number.isFinite(confidence) && confidence < 0.85;
+  const resolvedCanonicalName = needsClarification
+    ? baseline.canonicalName
+    : canonicalName || baseline.canonicalName;
+  const modelAliases = Array.isArray(candidate.aliases)
+    ? candidate.aliases.map(clean).filter((alias) =>
+      isSpecificModelAlias(alias, resolvedCanonicalName)
+    )
+    : [];
   const needsDescription = needsClarification && candidates.length === 0;
   return {
     ...baseline,
-    canonicalName: needsClarification
-      ? baseline.canonicalName
-      : canonicalName || baseline.canonicalName,
+    canonicalName: resolvedCanonicalName,
     aliases: [
       ...new Set([
-        ...(Array.isArray(candidate.aliases) ? candidate.aliases.map(clean) : []),
+        ...modelAliases,
         ...baseline.aliases,
       ].filter(Boolean)),
     ].slice(0, 8),
