@@ -15,15 +15,39 @@ function tokenScore(left, right) {
   return common / new Set([...leftTokens, ...rightTokens]).size;
 }
 
+function hasCjkCharacters(value) {
+  return /[\u3400-\u9fff]/u.test(value);
+}
+
+function isSafeAlias(name) {
+  return hasCjkCharacters(name) || name.split(" ").filter(Boolean).length >= 2;
+}
+
+function ingredientLinesFor(meal) {
+  return Array.from({ length: 20 }, (_, index) => {
+    const ingredient = String(meal?.[`strIngredient${index + 1}`] || "").trim();
+    const measure = String(meal?.[`strMeasure${index + 1}`] || "").trim();
+    return [measure, ingredient].filter(Boolean).join(" ");
+  }).filter(Boolean);
+}
+
+function sourceCompleteness(meal) {
+  return Number(Boolean(String(meal?.strMeal || "").trim()))
+    + Number(ingredientLinesFor(meal).length >= 2)
+    + Number(Boolean(String(meal?.strInstructions || "").trim()))
+    + Number(Boolean(String(meal?.strSource || "").trim()))
+    + Number(Boolean(String(meal?.strMealThumb || "").trim()));
+}
+
 export function scoreSourceCandidate(title, resolution) {
   const candidate = normalize(title);
-  const names = [
-    resolution.canonicalName,
-    ...(resolution.aliases || []),
-  ].map(normalize).filter(Boolean);
+  const canonicalName = normalize(resolution.canonicalName);
+  const names = [canonicalName, ...(resolution.aliases || [])
+    .map(normalize)
+    .filter((name) => name && isSafeAlias(name))];
   return Math.max(0, ...names.map((name) => {
     if (candidate === name) return 1;
-    if (candidate.includes(name) || name.includes(candidate)) return 0.9;
+    if (candidate.includes(name)) return 0.9;
     return tokenScore(candidate, name);
   }));
 }
@@ -33,18 +57,15 @@ export function selectSourceCandidate(meals, resolution) {
     .map((meal) => ({
       meal,
       score: scoreSourceCandidate(meal?.strMeal, resolution),
+      completeness: sourceCompleteness(meal),
     }))
-    .filter(({ score }) => score >= 0.82)
-    .sort((left, right) => right.score - left.score);
+    .filter(({ score, completeness }) => score >= 0.82 && completeness >= 3)
+    .sort((left, right) => right.score - left.score || right.completeness - left.completeness);
   return ranked[0]?.meal || null;
 }
 
 export function normalizeTheMealDbRecipe(meal, persistencePolicy) {
-  const ingredientLines = Array.from({ length: 20 }, (_, index) => {
-    const ingredient = String(meal?.[`strIngredient${index + 1}`] || "").trim();
-    const measure = String(meal?.[`strMeasure${index + 1}`] || "").trim();
-    return [measure, ingredient].filter(Boolean).join(" ");
-  }).filter(Boolean);
+  const ingredientLines = ingredientLinesFor(meal);
   const sourceTitle = String(meal?.strMeal || "").trim();
   const instructionsText = String(meal?.strInstructions || "").trim();
 
