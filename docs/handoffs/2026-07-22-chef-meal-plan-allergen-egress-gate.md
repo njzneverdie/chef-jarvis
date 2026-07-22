@@ -3,8 +3,45 @@
 **Last updated:** 2026-07-22  
 **Repository:** `/Users/daniel/Desktop/chef jarvis by chatgpt/chef-jarvis-netlify-web`  
 **Branch:** `agent/optimize-startup-and-chef-mode`  
-**Current phase:** Implemented and locally verified. All three plan tasks are
-complete; the Supabase Edge Function has not been redeployed yet.
+**Current phase:** Follow-up review FR-01–FR-04 plus RR-01/RR-02/RR-05
+remediated and locally verified; function version bumped to
+`2026-07-22.named-recipe.15` for deployment.
+
+## Follow-up remediation (2026-07-22, review: docs/reviews/2026-07-22-allergen-matcher-hardening-follow-up-review.md)
+
+- **FR-01:** `withoutLabeledDairyFreeProducts` no longer guesses phrase
+  boundaries with a connector blacklist; only a closed descriptor whitelist
+  (`whole|skim|...`) may sit between the safety label and the dairy word.
+  All five probe phrases (`Dairy-free sauce including milk`, `… spread has
+  butter`, `… recipe includes milk`, `… sauce, milk`, `Non-dairy sauce,
+  milk`) now BLOCK in both `name` and `usda_query`.
+- **FR-02:** every safety-label strip goes through `replaceUnlessNegated`;
+  labels preceded by `not/never/isn't/…` or `並非/并非/不是/絕非/非` are kept
+  so the allergen stays visible and the plan is rejected. English and
+  Chinese negation regressions added.
+- **FR-03:** plant-based/meatless analogue phrases must be label-adjacent;
+  connector bypasses (`Plant-based sauce including chicken`, …) now report
+  conflicts while `Plant-based chicken pieces` stays allowed.
+- **FR-04:** the gate distinguishes a missing `plan` key (pass-through for
+  error/clarification bodies) from a present-but-malformed `plan` key —
+  `null`, `undefined`, arrays, and primitives all fail closed.
+- **RR-02:** the handler validates the profile row after the query: missing
+  row or non-string-array `allergies`/`dietary_preferences` returns 503
+  `profile_unavailable` before resolution, provider, quota, or model work.
+- **RR-05:** the metered success branch sets
+  `failureStage = "egress_validation"` before the gate runs, so an egress
+  rejection is diagnosed as `egress_validation`/`restriction_conflict`.
+- **RR-01:** `FUNCTION_VERSION` and `requiredMealPlanVersion` bumped
+  together to `2026-07-22.named-recipe.15`.
+
+Verification: focused RED observed for all 16 new tests before the fix;
+`npm test` 226/226, `npm run check`, `git diff --check` all pass; direct
+probes rerun for every FR case (all BLOCK) and every safe-label positive
+(all pass).
+
+**Still open:** RR-03 (execution-level response-boundary tests for the three
+real plan paths) and RR-04 (onboarding custom-allergen input flow) are not
+covered by this remediation.
 
 ## Implementation evidence (2026-07-22)
 
