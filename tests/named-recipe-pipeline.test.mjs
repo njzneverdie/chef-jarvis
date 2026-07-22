@@ -15,6 +15,7 @@ import {
   deadlineTimeout,
   remainingTimeout,
 } from "../supabase/functions/_shared/named-recipe-integrity.js";
+import * as namedRecipeIntegrity from "../supabase/functions/_shared/named-recipe-integrity.js";
 
 test("later model failures do not hide a deeper recipe validation failure", () => {
   assert.deepEqual(
@@ -349,6 +350,84 @@ test("rejects dietary conflicts that appear only in cooking instructions", () =>
   );
 
   assert.equal(reason, "Recipe contains an allergen or dietary restriction conflict.");
+});
+
+test("exports a meal-plan allergen egress gate", () => {
+  assert.equal(
+    typeof namedRecipeIntegrity.mealPlanResponseAllergenGate,
+    "function",
+  );
+});
+
+const allergenFamilyCases = [
+  ["peanut", "Roasted peanuts"],
+  ["Nut allergy", "Almond flour"],
+  ["dairy", "Unsalted butter"],
+  ["egg", "Large eggs"],
+  ["soy", "Extra-firm tofu"],
+  ["gluten", "Wheat flour"],
+  ["sesame", "Tahini"],
+  ["fish", "Salmon fillet"],
+  ["shellfish", "Raw shrimp"],
+  ["cilantro", "Fresh cilantro"],
+];
+
+const planResponseCases = [
+  ["ai/provider success", (plan) => ({ plan, model: "gemini-test" })],
+  ["Gemini-unconfigured fallback", (plan) => ({
+    plan,
+    fallback: true,
+    notice: "Gemini is not configured yet.",
+  })],
+  ["all-models-failed fallback", (plan) => ({
+    plan,
+    fallback: true,
+    meta: { outcome: "fallback_models_failed" },
+  })],
+];
+
+test("every plan response path rejects every saved allergen family before serialization", () => {
+  const gate = namedRecipeIntegrity.mealPlanResponseAllergenGate;
+  for (const [pathName, makeBody] of planResponseCases) {
+    for (const [allergy, ingredient] of allergenFamilyCases) {
+      const body = makeBody({
+        ingredients: [{ name: ingredient, usda_query: ingredient }],
+      });
+      assert.throws(
+        () => gate(body, { allergies: [allergy] }),
+        /allergen egress/i,
+        `${pathName} exposed ${ingredient} for ${allergy}`,
+      );
+    }
+  }
+});
+
+test("the egress gate fails closed without a profile but leaves non-plan responses unchanged", () => {
+  const gate = namedRecipeIntegrity.mealPlanResponseAllergenGate;
+  const errorBody = { error: "Please sign in first." };
+  const clarificationBody = { clarification_required: true, candidates: [] };
+
+  assert.equal(gate(errorBody, null), errorBody);
+  assert.equal(gate(clarificationBody, null), clarificationBody);
+  assert.throws(
+    () => gate({ plan: { ingredients: [{ name: "Rice" }] } }, null),
+    /safety profile is unavailable/i,
+  );
+});
+
+test("the egress gate preserves explicit allergen-free ingredients", () => {
+  const body = {
+    plan: {
+      ingredients: [{ name: "Peanut-free sauce", usda_query: "peanut-free sauce" }],
+    },
+    fallback: true,
+  };
+  assert.equal(
+    namedRecipeIntegrity.mealPlanResponseAllergenGate(body, {
+      allergies: ["peanut"],
+    }),
+    body,
+  );
 });
 
 test("rejects a title-matching plan with none of a named dish's core identity", () => {

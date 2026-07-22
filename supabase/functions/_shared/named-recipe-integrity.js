@@ -260,6 +260,26 @@ export function recipeRestrictionRejectionReason(plan, profile) {
   return "";
 }
 
+/**
+ * Final egress gate for chef-meal-plan JSON bodies: any body carrying a plan
+ * must be free of the profile's saved allergen families, or the whole
+ * response is rejected. Never sanitizes individual ingredients.
+ */
+export function mealPlanResponseAllergenGate(body, profile) {
+  if (!body || typeof body !== "object" || body.plan == null) return body;
+  if (!profile || typeof profile !== "object") {
+    throw new Error("Meal plan response safety profile is unavailable.");
+  }
+  const reason = recipeRestrictionRejectionReason(body.plan, {
+    allergies: Array.isArray(profile.allergies) ? profile.allergies : [],
+    dietary_preferences: [],
+  });
+  if (reason) {
+    throw new Error("Meal plan response failed allergen egress validation.");
+  }
+  return body;
+}
+
 function coreIdentityText(value) {
   return normalizeRestrictionText(value);
 }
