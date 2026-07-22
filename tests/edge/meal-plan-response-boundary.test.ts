@@ -116,13 +116,13 @@ function stubGemini(url: URL, init?: RequestInit): Response {
           content: {
             parts: [{
               text: JSON.stringify({
-                canonical_name: "波隆那千層麵",
-                aliases: ["Bolognese lasagna", "Lasagna alla Bolognese"],
+                canonical_name: "香草燉豆腐",
+                aliases: ["Herb-braised tofu"],
                 core_ingredient_groups: [
-                  ["ground beef", "beef mince"],
-                  ["lasagna noodles"],
+                  ["tofu"],
+                  ["mixed herbs"],
                 ],
-                core_techniques: ["layer", "bake"],
+                core_techniques: ["braise", "simmer"],
                 confidence: 0.99,
                 candidates: [],
               }),
@@ -361,61 +361,52 @@ Deno.test("a named recipe falls back to the working generation model when the pr
   resetScenario({
     geminiMode: "named_verifier_fallback",
     geminiRecipe: {
-      title: "波隆那千層麵",
-      image_query: "Bolognese lasagna",
-      summary: "Classic layered lasagna with Bolognese sauce and cheese.",
-      minutes: 75,
+      title: "香草燉豆腐",
+      image_query: "herb braised tofu",
+      summary: "Tofu gently braised with tomatoes and mixed herbs.",
+      minutes: 35,
       servings: 4,
-      kcal: 720,
-      protein_g: 42,
-      carbs_g: 68,
-      fat_g: 31,
+      kcal: 380,
+      protein_g: 28,
+      carbs_g: 24,
+      fat_g: 20,
       ingredients: [
         {
-          name: "牛絞肉",
-          usda_query: "ground beef",
-          quantity: 500,
+          name: "板豆腐",
+          usda_query: "firm tofu",
+          quantity: 600,
           unit: "g",
-          preparation: "解凍並撥散",
+          preparation: "切成大塊",
           category: "protein",
         },
         {
-          name: "千層麵片",
-          usda_query: "dry lasagna noodles",
-          quantity: 250,
+          name: "番茄",
+          usda_query: "tomatoes",
+          quantity: 400,
           unit: "g",
-          preparation: "依包裝說明預煮",
-          category: "grain",
-        },
-        {
-          name: "番茄泥",
-          usda_query: "tomato puree",
-          quantity: 500,
-          unit: "g",
-          preparation: "no preparation",
+          preparation: "切丁",
           category: "produce",
         },
         {
-          name: "莫札瑞拉起司",
-          usda_query: "mozzarella cheese",
-          quantity: 200,
-          unit: "g",
-          preparation: "刨絲",
-          category: "dairy",
+          name: "綜合香草",
+          usda_query: "mixed dried herbs",
+          quantity: 2,
+          unit: "tsp",
+          preparation: "no preparation",
+          category: "seasoning",
         },
       ],
       steps: [
         {
-          instruction: "將牛絞肉炒 8 分鐘，再加入番茄泥燉煮 20 分鐘。",
+          instruction: "將番茄與綜合香草炒 5 分鐘。",
           timers: [
-            { label: "炒牛絞肉", kind: "cook", duration_seconds: 480 },
-            { label: "燉煮波隆那醬", kind: "simmer", duration_seconds: 1200 },
+            { label: "炒香番茄與香草", kind: "cook", duration_seconds: 300 },
           ],
         },
         {
-          instruction: "將麵片、波隆那醬與莫札瑞拉起司分層鋪好，以 190°C 烘烤 35 分鐘。",
+          instruction: "加入板豆腐，以小火燉煮 20 分鐘。",
           timers: [
-            { label: "烘烤千層麵", kind: "bake", duration_seconds: 2100 },
+            { label: "燉煮香草豆腐", kind: "simmer", duration_seconds: 1200 },
           ],
         },
       ],
@@ -426,10 +417,10 @@ Deno.test("a named recipe falls back to the working generation model when the pr
   });
   Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
 
-  const { status, body } = await requestPlan("波隆那千層麵");
+  const { status, body } = await requestPlan("香草燉豆腐");
 
   assertEquals(status, 200);
-  assertEquals(body.plan?.title, "波隆那千層麵");
+  assertEquals(body.plan?.title, "香草燉豆腐");
   assertEquals(state.refundCalls, 0);
   assertEquals(completions.length, 1);
   assertEquals(state.geminiCalls, [

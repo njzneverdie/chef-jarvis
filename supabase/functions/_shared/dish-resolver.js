@@ -17,6 +17,27 @@ const aliasGroups = [
       "煨", "煨煮", "慢煮", "滷煮", "卤煮",
     ],
   },
+  {
+    canonicalName: "波隆那千層麵",
+    pattern: /^(?:波隆那(?:肉醬|肉酱)?千層麵|波隆那(?:肉醬|肉酱)?千层面|波隆尼亞(?:肉醬|肉酱)?千層麵|波隆尼亚(?:肉醬|肉酱)?千层面|lasagn[ae] alla bolognese|bolognese lasagn[ae]|lasagn[ae] bolognese)$/i,
+    aliases: [
+      "波隆那千層麵",
+      "波隆那肉醬千層麵",
+      "波隆尼亞千層麵",
+      "Bolognese lasagna",
+      "Lasagna alla Bolognese",
+      "Lasagne alla Bolognese",
+      "Lasagna Bolognese",
+    ],
+    coreIngredientGroups: [[
+      "lasagna noodles", "lasagne sheets", "lasagna sheets",
+      "千層麵片", "千层面片", "千層麵", "千层面",
+    ]],
+    coreTechniqueTerms: [
+      "layer", "layered", "assemble", "bake", "baked",
+      "分層", "分层", "層疊", "层叠", "烘烤", "焗烤",
+    ],
+  },
 ];
 
 function clean(value) {

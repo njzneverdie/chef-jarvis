@@ -45,7 +45,7 @@ import {
 } from "../_shared/named-recipe-integrity.js";
 
 const PROMPT_VERSION = "2026-07-22.10";
-const FUNCTION_VERSION = "2026-07-23.named-recipe.16";
+const FUNCTION_VERSION = "2026-07-23.named-recipe.17";
 const EDGE_DEADLINE_MS = 42_000;
 const REFUND_RESERVE_MS = 1_500;
 const MAX_RECIPE_REPAIRS = 2;

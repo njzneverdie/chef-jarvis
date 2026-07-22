@@ -6,7 +6,10 @@ import {
   dishSearchTerms,
   normalizeDishResolution,
 } from "../supabase/functions/_shared/dish-resolver.js";
-import { namedDishRejectionReason } from "../supabase/functions/_shared/named-recipe-integrity.js";
+import {
+  namedDishCoreIdentityRejectionReason,
+  namedDishRejectionReason,
+} from "../supabase/functions/_shared/named-recipe-integrity.js";
 
 test("classifies recognizable dish names separately from broad requests", () => {
   assert.equal(classifyMealRequest("肉燥飯"), "named_dish");
@@ -162,6 +165,31 @@ test("normalizes approved aliases while preserving the original request", () => 
     group.includes("ground pork") && group.includes("minced pork"),
   ));
   assert.ok(resolution.coreTechniqueTerms.includes("braise"));
+});
+
+test("normalizes Bolognese lasagna aliases into one curated dish identity", () => {
+  for (const request of [
+    "波隆那千層麵",
+    "波隆那肉醬千層麵",
+    "Bolognese lasagna",
+    "Lasagna alla Bolognese",
+  ]) {
+    const resolution = baselineDishResolution(request);
+    assert.equal(resolution.requestType, "named_dish", request);
+    assert.equal(resolution.canonicalName, "波隆那千層麵", request);
+    assert.equal(resolution.coreEvidenceSource, "curated", request);
+    assert.ok(resolution.identityAliases.includes("Bolognese lasagna"), request);
+    assert.ok(resolution.identityAliases.includes("Lasagna alla Bolognese"), request);
+    assert.equal(
+      namedDishCoreIdentityRejectionReason({
+        title: request,
+        ingredients: [{ name: "千層麵片", usda_query: "dry lasagna noodles" }],
+        steps: [{ instruction: "將肉醬、麵片與起司分層鋪好後烘烤 35 分鐘。" }],
+      }, resolution),
+      "",
+      request,
+    );
+  }
 });
 
 test("normalizes small trusted core markers while keeping model aliases search-only", () => {
