@@ -61,6 +61,27 @@ test("normalizes stable completeness details for an incomplete recipe", () => {
   assert.equal(recipe, null);
 });
 
+for (const sourceUrl of [
+  "",
+  "/recipes/beef-bourguignon",
+  "http://example.com/beef-bourguignon",
+  "javascript:alert(1)",
+  "https://",
+]) {
+  test(`rejects a provider recipe without a safely renderable HTTPS source URL: ${sourceUrl || "missing"}`, () => {
+    const recipe = normalizeTheMealDbRecipe({
+      idMeal: "invalid-source-url",
+      strMeal: "Beef Bourguignon",
+      strInstructions: "Brown and braise the beef.",
+      strIngredient1: "Beef",
+      strIngredient2: "Red Wine",
+      strSource: sourceUrl,
+    }, "session_only");
+
+    assert.equal(recipe, null);
+  });
+}
+
 test("rejects truncated titles and one-word aliases for a multi-word dish", () => {
   const resolution = baselineDishResolution("Beef Bourguignon");
   resolution.aliases.push("Beef");
@@ -70,6 +91,7 @@ test("rejects truncated titles and one-word aliases for a multi-word dish", () =
     strInstructions: "Brown and braise the beef.",
     strIngredient1: "Beef",
     strIngredient2: "Red Wine",
+    strSource: "https://example.com/beef-bourguignon-stew",
   }], resolution), null);
   assert.equal(
     selectSourceCandidate([{
@@ -77,6 +99,7 @@ test("rejects truncated titles and one-word aliases for a multi-word dish", () =
       strInstructions: "Brown and braise the beef.",
       strIngredient1: "Beef",
       strIngredient2: "Red Wine",
+      strSource: "https://example.com/beef-bourguignon-stew",
     }], resolution)?.strMeal,
     "Beef Bourguignon Stew",
   );
@@ -93,6 +116,7 @@ test("does not select provider candidates that match only untrusted model aliase
     strInstructions: "Cook until ready.",
     strIngredient1: "Pork",
     strIngredient2: "Rice",
+    strSource: "https://example.com/recipe",
   });
 
   assert.equal(selectSourceCandidate([
@@ -119,6 +143,7 @@ test("prefers a complete close match over an incomplete exact title", () => {
       strInstructions: "Brown the beef, then braise until tender.",
       strIngredient1: "Beef",
       strIngredient2: "Red Wine",
+      strSource: "https://example.com/beef-bourguignon-stew",
     },
   ], baselineDishResolution("Beef Bourguignon"));
 
@@ -174,6 +199,25 @@ test("reports a matching incomplete source", async () => {
     resolution: baselineDishResolution("Beef Bourguignon"),
     fetchImpl: async () => new Response(JSON.stringify({
       meals: [{ strMeal: "Beef Bourguignon", strIngredient1: "Beef" }],
+    })),
+  });
+
+  assert.equal(result.outcome, "provider_recipe_incomplete");
+  assert.equal(result.recipe, null);
+});
+
+test("reports a matching recipe with an unsafe source URL as incomplete", async () => {
+  const result = await fetchTheMealDbRecipe({
+    apiKey: "test-key",
+    resolution: baselineDishResolution("Beef Bourguignon"),
+    fetchImpl: async () => new Response(JSON.stringify({
+      meals: [{
+        strMeal: "Beef Bourguignon",
+        strInstructions: "Brown and braise the beef.",
+        strIngredient1: "Beef",
+        strIngredient2: "Red Wine",
+        strSource: "javascript:alert(1)",
+      }],
     })),
   });
 

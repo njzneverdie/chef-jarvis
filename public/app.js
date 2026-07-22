@@ -9,6 +9,16 @@ let timers = [];
 let authSignup = false;
 let renderedViews = new Set();
 
+function resetChefState() {
+  timers = [];
+  renderedViews = new Set();
+  window.resetChefModeState?.();
+}
+
+function isCurrentAppUser(expectedUserId) {
+  return Boolean(expectedUserId) && user?.id === expectedUserId;
+}
+
 const esc = (value) =>
   String(value ?? "").replace(
     /[&<>'"]/g,
@@ -68,6 +78,22 @@ queueMicrotask(() => associateFieldLabels(document));
 function languageToggleMarkup() {
   return `<button class="language-toggle" id="language-toggle" type="button" aria-label="Switch language">文/A · ${window.I18n.toggleLabel()}</button>`;
 }
+
+function connectionStatusMarkup() {
+  return '<p class="connection-status" id="connection-status" role="status" aria-live="polite" hidden></p>';
+}
+
+function updateConnectionStatus() {
+  const banner = document.querySelector("#connection-status");
+  if (!banner) return;
+  banner.hidden = navigator.onLine;
+  banner.textContent = window.I18n.translate(
+    "You’re offline. Current cooking progress stays on this device; planning, sync, and nutrition references need a connection.",
+  );
+}
+
+window.addEventListener("online", updateConnectionStatus);
+window.addEventListener("offline", updateConnectionStatus);
 
 function bindLanguageToggle() {
   document.querySelector("#language-toggle")?.addEventListener("click", () => {
@@ -182,8 +208,10 @@ function nutrition() {
 
 function authScreen(signup = false) {
   authSignup = signup;
+  app.className = "";
   app.innerHTML = `
     ${languageToggleMarkup()}
+    ${connectionStatusMarkup()}
     <main class="auth">
       <section class="auth-copy">
         <div class="brand"><span>✦</span>Chef <em>Jarvis</em></div>
@@ -201,13 +229,14 @@ function authScreen(signup = false) {
           <button type="submit" class="auth-submit">${signup ? "Create account & send confirmation →" : "Sign in →"}</button>
           ${signup ? "" : '<button type="button" class="auth-toggle" id="forgot-password">Forgot your password?</button>'}
           <button type="button" class="auth-toggle" id="auth-toggle">${signup ? "Already have an account? Sign in" : "New to Chef Jarvis? Create an account"}</button>
-          <p class="note">Your body and food preferences are private to your account.</p>
+          <p class="note">Your body and food preferences are private to your account. <a href="/privacy.html">Privacy & retention</a></p>
         </form>
       </section>
     </main>`;
 
   associateFieldLabels(app);
   bindLanguageToggle();
+  updateConnectionStatus();
 
   document.querySelector("#auth-toggle").onclick = () => authScreen(!signup);
   document
@@ -327,7 +356,9 @@ function showPasswordUpdate() {
 
 function shell() {
   renderedViews = new Set();
+  app.className = "";
   app.innerHTML = `
+    ${connectionStatusMarkup()}
     <div class="layout">
       <aside class="side">
         <div class="brand"><span>✦</span>Chef <em>Jarvis</em></div>
@@ -364,6 +395,7 @@ function shell() {
     </div>`;
 
   bindLanguageToggle();
+  updateConnectionStatus();
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.onclick = () => show(button.dataset.view);
   });
@@ -372,17 +404,23 @@ function shell() {
       typeof activeRecipe !== "undefined" &&
       activeRecipe &&
       !(await confirmAction({
-        title: "Sign out while cooking?",
-        message:
-          "Your cooking progress will stay saved on this device and return after you sign in again.",
-        confirmLabel: "Sign out",
+        title: window.I18n.translate("Sign out while cooking?"),
+        message: isCurrentCookingEphemeral()
+          ? window.I18n.translate(
+              "This unsaved cooking progress will be lost when you sign out.",
+            )
+          : window.I18n.translate(
+              "Saved cooking progress will remain available when you sign in again.",
+            ),
+        confirmLabel: window.I18n.translate("Sign out"),
       }))
     )
       return;
     if (typeof persistCookingState === "function") persistCookingState();
-    await releaseWakeLock();
     const { error } = await sb.auth.signOut();
     if (error) return toast(error.message);
+    resetChefState();
+    await releaseWakeLock();
     user = null;
     profile = null;
     authScreen();
@@ -452,6 +490,74 @@ function renderHome() {
             : element.dataset.promptEn;
       }),
   );
+  function renderDishClarification(result) {
+    document.querySelector("#dish-clarification")?.remove();
+    const form = document.querySelector("#meal-form");
+    const input = document.querySelector("#meal-input");
+    if (!form || !input) return;
+    const panel = document.createElement("article");
+    panel.id = "dish-clarification";
+    panel.className = "dish-clarification";
+    panel.setAttribute("role", "status");
+    panel.setAttribute("aria-live", "polite");
+    const title = document.createElement("h2");
+    title.textContent = window.I18n.translate("Which dish did you mean?");
+    const message = document.createElement("p");
+    message.textContent = window.I18n.translate(
+      result.needsDescription
+        ? "Add ingredients or cooking details so Jarvis can identify this custom dish."
+        : "Choose a dish so Jarvis does not guess.",
+    );
+    panel.append(title, message);
+    if (!result.needsDescription && result.candidates.length) {
+      const candidates = document.createElement("div");
+      candidates.className = "dish-candidates";
+      candidates.setAttribute("aria-label", title.textContent);
+      result.candidates.forEach((candidate) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "dish-candidate";
+        button.dataset.dishCandidate = candidate;
+        button.setAttribute("data-dish-candidate", candidate);
+        button.textContent = candidate;
+        button.onclick = () => {
+          input.value = candidate;
+          form.requestSubmit();
+        };
+        candidates.append(button);
+      });
+      panel.append(candidates);
+    }
+    form.insertAdjacentElement("afterend", panel);
+  }
+
+  function renderDishGenerationError(error) {
+    document.querySelector("#dish-generation-error")?.remove();
+    if (error?.code !== "named_recipe_unavailable") return;
+    const form = document.querySelector("#meal-form");
+    if (!form) return;
+    const panel = document.createElement("article");
+    panel.id = "dish-generation-error";
+    panel.className = "dish-clarification dish-generation-error";
+    panel.setAttribute("role", "alert");
+    if (error.meta) {
+      panel.dataset.requestId = String(error.meta.request_id || "");
+      panel.dataset.outcome = String(error.meta.outcome || "");
+      panel.dataset.durationMs = String(error.meta.duration_ms || 0);
+      panel.dataset.failureStage = String(error.meta.failure_stage || "");
+      panel.dataset.failureReason = String(error.meta.failure_reason || "");
+    }
+    const message = document.createElement("p");
+    message.textContent = error.message;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "dish-candidate";
+    retry.textContent = window.I18n.translate("Try again");
+    retry.onclick = () => form.requestSubmit();
+    panel.append(message, retry);
+    form.insertAdjacentElement("afterend", panel);
+  }
+
   document.querySelector("#meal-form").onsubmit = async (event) => {
     event.preventDefault();
     const input = document.querySelector("#meal-input").value.trim();
@@ -481,10 +587,19 @@ function renderHome() {
       }, 22000),
     );
     try {
-      const plan = await generatePlan(input);
-      renderPlan(plan);
+      document.querySelector("#dish-clarification")?.remove();
+      document.querySelector("#dish-generation-error")?.remove();
+      const result = await generatePlan(input);
+      assertGenerationContext(result.ownerUserId, result.generationEpoch);
+      if (result.kind === "clarification") {
+        renderDishClarification(result);
+        return;
+      }
+      renderPlan(result.plan);
       show("plan");
     } catch (error) {
+      if (error?.code === "stale_auth_context") return;
+      renderDishGenerationError(error);
       toast(error.message || "Jarvis could not create a plan right now.");
     } finally {
       statusTimers.forEach(clearTimeout);
@@ -668,6 +783,92 @@ async function exportMyData(button) {
   }
 }
 
+function clearAccountLocalData(accountId) {
+  [
+    `chef-jarvis:cooking:${accountId}`,
+    `chef-jarvis:saved-plans:${accountId}`,
+    `chef-jarvis:voice-tip:${accountId}`,
+  ].forEach((key) => localStorage.removeItem(key));
+}
+
+function openAccountDeletionModal() {
+  const modal = document.createElement("div");
+  modal.className = "modal account-deletion-modal";
+  modal.innerHTML = `
+    <form class="modal-card account-deletion-card" id="account-deletion-form">
+      <p class="eyebrow">PERMANENT ACCOUNT DELETION</p>
+      <h2>Delete your Chef Jarvis account?</h2>
+      <p>This permanently deletes your account, profile, pantry, saved recipes, shopping lists, meal plans, cooking sessions, nutrition logs, and feedback. This cannot be undone.</p>
+      <p>Download your data first if you want to keep a copy.</p>
+      <div class="field"><label>Type DELETE to confirm</label><input name="confirmation" autocomplete="off" spellcheck="false" required></div>
+      <p class="error hidden" id="account-deletion-error"></p>
+      <div class="form-actions"><button type="button" class="cream" id="cancel-account-deletion">Cancel</button><button class="danger-button" id="confirm-account-deletion" disabled>Delete my account permanently</button></div>
+    </form>`;
+  document.body.append(modal);
+  associateFieldLabels(modal);
+  const closeModal = bindDismissibleModal(modal);
+  modal.querySelector("#cancel-account-deletion").onclick = closeModal;
+  const form = modal.querySelector("#account-deletion-form");
+  const input = form.elements.confirmation;
+  const submit = modal.querySelector("#confirm-account-deletion");
+  input.addEventListener("input", () => {
+    submit.disabled = input.value !== "DELETE";
+  });
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const errorElement = modal.querySelector("#account-deletion-error");
+    if (input.value !== "DELETE") {
+      errorElement.textContent = "Type DELETE exactly to continue.";
+      errorElement.classList.remove("hidden");
+      return;
+    }
+    submit.disabled = true;
+    submit.textContent = "Deleting account…";
+    errorElement.classList.add("hidden");
+    try {
+      const {
+        data: { session },
+      } = await sb.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error("Your sign-in session has expired. Sign in again.");
+      }
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/chef-delete-account`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: SUPABASE_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ confirmation: "DELETE" }),
+        },
+      );
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.deleted) {
+        throw new Error(result.error || "Account deletion failed.");
+      }
+
+      const deletedUserId = user.id;
+      clearAccountLocalData(deletedUserId);
+      resetChefState();
+      await sb.auth.signOut({ scope: "local" });
+      user = null;
+      profile = null;
+      modal.remove();
+      authScreen();
+      toast("Your Chef Jarvis account and data were permanently deleted.");
+    } catch (error) {
+      submit.disabled = input.value !== "DELETE";
+      submit.textContent = "Delete my account permanently";
+      errorElement.textContent =
+        error.message || "Account deletion failed. Please try again.";
+      errorElement.classList.remove("hidden");
+    }
+  };
+  queueMicrotask(() => input.focus());
+}
+
 function renderProfile() {
   markViewRendered("profile");
   const dietary = profile?.dietary_preferences || [];
@@ -695,11 +896,17 @@ function renderProfile() {
           )
           .join("")}<button class="dark">Save kitchen setup →</button></form>
       </article>
+      <article class="card account-danger-zone">
+        <div><p class="eyebrow">DANGER ZONE</p><h2>Delete account and data.</h2><p>Permanent deletion removes your sign-in and all linked Chef Jarvis product data. <a href="/privacy.html">Read privacy & retention</a></p></div>
+        <button class="danger-button" id="delete-account">Delete my account</button>
+      </article>
     </div>`;
   document.querySelector("#edit-profile").onclick = () => onboarding(true);
   document.querySelector("#saved-meals").onclick = showSaved;
   document.querySelector("#export-my-data").onclick = (event) =>
     exportMyData(event.currentTarget);
+  document.querySelector("#delete-account").onclick =
+    openAccountDeletionModal;
   document.querySelector("#equipment-form").onsubmit = async (event) => {
     event.preventDefault();
     const equipment = [
@@ -868,11 +1075,14 @@ function onboarding(edit = false) {
 }
 
 async function boot() {
+  const expectedUserId = user?.id;
+  if (!expectedUserId) return false;
   const result = await sb
     .from("app_profiles")
     .select("*")
-    .eq("app_user_id", user.id)
+    .eq("app_user_id", expectedUserId)
     .maybeSingle();
+  if (!isCurrentAppUser(expectedUserId)) return false;
   if (result.error) {
     profile = null;
     shell();
@@ -894,8 +1104,15 @@ async function startApp() {
     data: { session },
   } = await sb.auth.getSession();
   if (!session) {
+    resetChefState();
     authScreen();
     return;
+  }
+  if (user && user.id !== session.user.id) {
+    resetChefState();
+    user = null;
+    profile = null;
+    authScreen();
   }
   user = session.user;
   await boot();
@@ -904,8 +1121,17 @@ async function startApp() {
 sb.auth.onAuthStateChange((event, session) => {
   if (event === "PASSWORD_RECOVERY") showPasswordUpdate();
   if (!session && user) {
+    resetChefState();
     user = null;
     profile = null;
     authScreen();
+  }
+  if (session && (!user || user.id !== session.user.id)) {
+    resetChefState();
+    user = null;
+    profile = null;
+    authScreen();
+    user = session.user;
+    void boot();
   }
 });

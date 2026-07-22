@@ -2,7 +2,7 @@
 
 > 文件日期：2026-07-18
 >
-> 文件狀態：已核准
+> 文件狀態：已核准；2026-07-18 缺口修正後更新
 >
 > 適用產品：Chef Jarvis 正式 Web/PWA
 >
@@ -19,7 +19,8 @@
 驗收證據分為：
 
 - **正式站實測**：已在登入狀態下檢查正式站畫面與唯讀流程。
-- **自動測試**：目前 `npm test` 共 61 項，61 項通過。
+- **自動測試**：目前 `npm test` 共 71 項，71 項通過。
+- **瀏覽器測試**：Playwright 公開流程通過；登入七頁唯讀流程需專用測試帳號。
 - **程式驗證**：從前端、Edge Function、migration 或安全設定確認。
 - **待正式 E2E**：涉及寄信、AI/USDA 配額消耗或雲端資料異動，本次未實際觸發。
 
@@ -47,10 +48,10 @@ Chef Jarvis 是一個需要登入的雙語 Web/PWA 個人料理助手。產品�
 - 身分與資料：Supabase Auth、Postgres、Row Level Security。
 - AI：Supabase Edge Function 呼叫 Gemini。
 - 營養佐證：Supabase Edge Function 呼叫 USDA FoodData Central。
-- 圖片：Wikimedia Commons，須保留來源與授權標示。
+- 圖片：Wikimedia Commons，須保留來源、作者、授權及圖片符合度標示。
 - 正式前端來源：`chef-jarvis-netlify-web/public/`。
 - `chef-jarvis-codex/` 為歷史原型，不納入本規格。
-- 原生 iOS/Android App、管理後台、帳號刪除、照片辨識庫存與產品分析不在目前範圍。
+- 原生 iOS/Android App、管理後台、照片辨識庫存與產品分析不在目前範圍。
 
 ## 4. 功能規格與驗收標準
 
@@ -68,6 +69,9 @@ Chef Jarvis 是一個需要登入的雙語 Web/PWA 個人料理助手。產品�
 - [ ] 登出後清除前端使用者狀態並返回登入畫面。
 - [ ] 料理進行中登出前須顯示確認，並說明進度仍會保留。
 - [ ] 所有私人頁面與 Edge Function 都要求有效登入狀態。
+- [ ] 使用者可在 Profile 永久刪除帳號，且必須精確輸入 `DELETE`。
+- [ ] 刪除帳號由驗證 JWT 的 Edge Function 執行，service-role 金鑰不得進入瀏覽器。
+- [ ] Auth 使用者刪除後，所有連結的產品資料須由 foreign key cascade 一併刪除。
 - [ ] 正式站完整註冊寄信與密碼重設流程標記為「待正式 E2E」。
 
 ### 4.2 初次設定與個人資料
@@ -152,6 +156,8 @@ Chef Jarvis 是一個需要登入的雙語 Web/PWA 個人料理助手。產品�
 - [ ] 單一無效 timer 或 substitution 應被移除，不得使整份合法食譜失效。
 - [ ] 圖片只能使用 HTTPS 與核准的 Wikimedia 主機。
 - [ ] 圖片必須顯示來源、作者與授權資訊。
+- [ ] 圖片必須帶有 `exact`、`representative` 或 `curated` 符合度。
+- [ ] 廣泛料理家族 fallback 必須標示「Representative dish image」，不得冒充精確成品照片。
 - [ ] 食譜產生前端總等待時間上限為 50 秒。
 - [ ] Gemini 第一模型 12 秒失敗後切換第二模型，第二模型上限 20 秒。
 - [ ] Gemini 未設定、逾時或兩個模型失敗時回傳有明確標示的完整 fallback 食譜。
@@ -296,6 +302,8 @@ USDA 查詢在食譜先顯示後於背景執行，不阻塞料理流程。
 - [ ] 匯出包含 profile、pantry、recipes、shopping lists、weekly plans、cooking sessions、nutrition logs、feedback 與 saved meal cards。
 - [ ] 匯出查詢只能取得目前使用者的資料。
 - [ ] 任一資料集合查詢失敗時不得產生不完整且未說明的匯出檔。
+- [ ] Profile 顯示資料保留政策與帳號永久刪除入口。
+- [ ] 刪除成功後清除該帳號的本機烹飪、食譜快取與語音提示資料。
 
 ## 5. 跨領域發布門檻
 
@@ -326,6 +334,8 @@ USDA 查詢在食譜先顯示後於背景執行，不阻塞料理流程。
 - [ ] AI 或使用者文字插入 HTML 前必須 escape。
 - [ ] 外部圖片 URL 必須經 allowlist 驗證。
 - [ ] Edge Function 回應使用 `Cache-Control: no-store`。
+- [ ] 三支 Edge Function 均回傳可由 `OPTIONS` 查驗的部署版本標頭。
+- [ ] 資料保留政策說明產品資料保留至帳號刪除、配額紀錄自動到期與下載檔案由使用者控制。
 - [ ] 正式站啟用 CSP、DENY framing、nosniff、Referrer Policy 與 Permissions Policy。
 
 ### 5.3 PWA、離線與啟動可靠性
@@ -339,6 +349,7 @@ USDA 查詢在食譜先顯示後於背景執行，不阻塞料理流程。
 - [ ] Supabase client bundle 自行託管並鎖定版本與 SRI。
 - [ ] Supabase client 或應用腳本載入失敗時顯示中英文啟動錯誤及重試按鈕。
 - [ ] PWA「離線」承諾只涵蓋靜態殼與本機料理進度；需要 Supabase、Gemini 或 USDA 的功能不保證離線可用。
+- [ ] 瀏覽器離線時顯示非阻斷狀態列，明確說明本機料理進度與需網路功能的界線。
 
 ### 5.4 效能與可靠性
 
@@ -353,8 +364,10 @@ USDA 查詢在食譜先顯示後於背景執行，不阻塞料理流程。
 
 ### 5.5 發布前檢查
 
-- [ ] `npm test` 全數通過；建立本文件時結果為 61/61。
+- [ ] `npm test` 全數通過；本次缺口修正後結果為 71/71。
 - [ ] `npm run check` 通過。
+- [ ] `npm run test:e2e` 的公開流程通過；有憑證時登入七頁唯讀流程通過。
+- [ ] `npm run verify:deployment` 確認四個前端核心檔案雜湊與三支 Edge Function 版本。
 - [ ] `git diff --check` 通過。
 - [ ] PWA 資產版本同步檢查通過。
 - [ ] 正式站首頁可載入。
@@ -365,16 +378,20 @@ USDA 查詢在食譜先顯示後於背景執行，不阻塞料理流程。
 
 ## 6. 已知缺口與差異
 
-下列項目不應被當成目前已通過的產品承諾：
+原缺口已依可控範圍修正或收斂：
 
-- 正式站存在舊食譜／舊購物清單資料，可能含模糊食材或未標示份量；新版驗證只保證新生成資料。
-- 本次沒有消耗正式 AI/USDA 配額或修改正式雲端資料，因此相關流程僅由程式合約及自動測試確認。
-- 前端公開資產已確認與目前工作區一致；Edge Function 部署內容尚未做逐檔雜湊比對。
-- 目前沒有完整瀏覽器 E2E 測試套件，主要依 Node contract tests、正式站唯讀煙霧測試及人工驗收。
-- 離線能力不等於完整離線產品；登入、雲端資料、AI 與 USDA 仍需要網路。
-- 尚未提供帳號刪除與正式資料保留政策。
-- 食譜圖片仍依賴 Wikimedia 搜尋及少量 curated fallback，不保證每道菜都有精準圖片。
-- 專案目錄名稱仍含 `netlify-web`，但正式部署平台已是 Cloudflare Pages。
+- **舊資料已受控**：舊食譜／購物清單仍可能缺少精確食材份量，但現在會顯示警告；不得直接開始 Chef Mode、建立新清單或加入 pantry，直到重新產生精確食譜。系統不猜測舊資料份量。
+- **瀏覽器 E2E 已建立**：公開登入殼、驗證、語言保存與隱私頁由 Playwright 自動檢查；登入後七頁唯讀 smoke test 在提供專用帳號時執行。
+- **Edge 部署可驗證**：三支 Edge Function 提供版本標頭，`npm run verify:deployment` 會連同四個前端核心檔案 SHA-256 一併比對。新版尚未部署前，此檢查應失敗且不可宣稱正式環境已同步。
+- **離線範圍已揭露**：離線時有明確狀態列。本機料理進度可用，但登入、雲端同步、AI 與 USDA 仍需要網路；產品並未承諾完整離線。
+- **帳號刪除已實作**：前端二次確認、JWT 驗證 Edge Function、Auth admin 刪除、資料 foreign-key cascade、localStorage 清除與 `PRIVACY.md` 資料保留政策均已加入。正式驗收仍需先套 migration 並部署 deletion function。
+- **圖片不確定性已揭露**：Wikimedia exact、representative 與 curated 結果分級；廣泛 fallback 會標示為相似料理示意照片。仍不保證每道菜都有可驗證的精確圖片，無合格圖片時採無圖版面。
+- **歷史路徑保留**：工作區目錄仍含 `netlify-web`，避免破壞既有本機與部署路徑；tracked Supabase project ID 與 Cloudflare project name 已統一為 `chef-jarvis`。
+
+仍需要外部憑證或部署後證據的項目：
+
+- 本次沒有消耗正式 AI/USDA 配額或修改正式雲端資料；完整生成、採買、烹飪、刪除 E2E 必須使用可丟棄的專用帳號。
+- Cloudflare Pages、migration 與三支 Edge Function 必須部署後，才可讓 `npm run verify:deployment` 通過。
 
 ## 7. 主要證據來源
 
@@ -387,10 +404,15 @@ USDA 查詢在食譜先顯示後於背景執行，不阻塞料理流程。
 - `public/_headers`
 - `supabase/functions/chef-meal-plan/index.ts`
 - `supabase/functions/chef-usda-nutrition/index.ts`
+- `supabase/functions/chef-delete-account/index.ts`
 - `supabase/migrations/*.sql`
 - `tests/*.test.mjs`
+- `e2e/*.spec.mjs`
+- `PRIVACY.md`
+- `docs/RELEASE_REVIEW.md`
 
 ## 8. 核准紀錄
 
 - 2026-07-18：使用者選擇完整發布基線，涵蓋功能、資料、安全、PWA、效能、相容性與降級情境。
 - 2026-07-18：使用者核准本規格內容，允許寫入 Markdown；不修改程式碼。
+- 2026-07-18：使用者要求依「已知缺口與差異」修正程式；本文件同步標示已收斂項目與仍需部署／專用帳號的外部驗收。

@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.110.5";
 
+const FUNCTION_VERSION = "2026-07-18.1";
 const defaultOrigins = [
   "https://chef-jarvis.pages.dev",
   "http://localhost:3000",
@@ -24,6 +25,7 @@ const corsHeaders = (request: Request) => {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Content-Type": "application/json",
     "Cache-Control": "no-store",
+    "X-Chef-Jarvis-Function-Version": FUNCTION_VERSION,
     Vary: "Origin",
   };
 };

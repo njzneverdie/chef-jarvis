@@ -23,12 +23,25 @@ function ingredientLinesFor(meal) {
   }).filter(Boolean);
 }
 
+function safeHttpsSourceUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function hasRequiredSourceCompleteness({
   sourceTitle,
   ingredientLines,
   instructionsText,
+  sourceUrl,
 }) {
-  return Boolean(sourceTitle) && ingredientLines.length >= 2 && Boolean(instructionsText);
+  return Boolean(sourceTitle)
+    && ingredientLines.length >= 2
+    && Boolean(instructionsText)
+    && Boolean(safeHttpsSourceUrl(sourceUrl));
 }
 
 function sourceCompletenessDescriptor({
@@ -39,15 +52,17 @@ function sourceCompletenessDescriptor({
   sourceImageUrl,
 }) {
   const hasInstructions = Boolean(instructionsText);
+  const hasSourceUrl = Boolean(safeHttpsSourceUrl(sourceUrl));
   return {
     ingredient_count: ingredientLines.length,
     has_instructions: hasInstructions,
     has_image: Boolean(sourceImageUrl),
-    has_source_url: Boolean(sourceUrl),
+    has_source_url: hasSourceUrl,
     is_complete: hasRequiredSourceCompleteness({
       sourceTitle,
       ingredientLines,
       instructionsText,
+      sourceUrl,
     }),
   };
 }
@@ -74,6 +89,7 @@ export function selectSourceCandidate(meals, resolution) {
         sourceTitle: String(meal?.strMeal || "").trim(),
         ingredientLines: ingredientLinesFor(meal),
         instructionsText: String(meal?.strInstructions || "").trim(),
+        sourceUrl: String(meal?.strSource || "").trim(),
       }),
       metadata: Number(Boolean(String(meal?.strSource || "").trim()))
         + Number(Boolean(String(meal?.strMealThumb || "").trim())),

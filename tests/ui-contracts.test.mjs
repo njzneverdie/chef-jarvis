@@ -4,6 +4,141 @@ import test from "node:test";
 
 const publicUrl = new URL("../public/", import.meta.url);
 
+function functionSource(source, declaration) {
+  const start = source.indexOf(declaration);
+  assert.ok(start >= 0, `Missing ${declaration}`);
+  const bodyStart = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`Could not parse ${declaration}`);
+}
+
+test("named recipe clarification does not render or persist a plan", async () => {
+  const [app, chefMode] = await Promise.all([
+    readFile(new URL("app.js", publicUrl), "utf8"),
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+  ]);
+  assert.match(chefMode, /kind: "clarification"/);
+  assert.match(app, /function renderDishClarification/);
+  assert.match(app, /data-dish-candidate/);
+  assert.match(app, /requestSubmit\(\)/);
+
+  const clarification = chefMode.indexOf("data.clarification_required");
+  const persistence = chefMode.indexOf("async function persistGeneratedPlan");
+  assert.ok(clarification >= 0, "clarification must be recognized");
+  assert.ok(persistence >= 0, "plans must have a dedicated persistence path");
+  assert.ok(
+    clarification < persistence,
+    "clarifications must return before the plan persistence path is reached",
+  );
+});
+
+test("external recipes show provenance and obey persistence policy", async () => {
+  const chefMode = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
+  assert.match(chefMode, /recipe-source-note/);
+  assert.match(chefMode, /source_type === "adapted"/);
+  assert.match(chefMode, /source_url/);
+  assert.match(chefMode, /source_persistence === "session_only"/);
+  assert.match(chefMode, /rel="noopener noreferrer"/);
+
+  const persistence = chefMode.slice(
+    chefMode.indexOf("async function persistGeneratedPlan"),
+    chefMode.indexOf("function recipeNutritionPerServing"),
+  );
+  assert.ok(
+    persistence.indexOf('plan.source_persistence === "session_only"') <
+      persistence.indexOf('.insert('),
+    "session-only recipes must exit before any recipes insert call",
+  );
+});
+
+test("session-only persistence makes no recipes insert call", async () => {
+  const chefMode = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
+  const persist = new Function(
+    "sb",
+    "user",
+    "finiteNumber",
+    "toast",
+    "window",
+    "assertGenerationContext",
+    `return ${functionSource(chefMode, "async function persistGeneratedPlan")};`,
+  )(
+    {
+      from() {
+        throw new Error("session-only plans must not reach Supabase");
+      },
+    },
+    { id: "user-1" },
+    Number,
+    () => {},
+    { I18n: { translate: (value) => value } },
+    () => {},
+  );
+  const plan = { source_persistence: "session_only", title: "Example" };
+  const result = await persist(plan, "Example", "user-1", 1);
+  assert.equal(result, plan);
+  assert.equal(result.is_saved, false);
+  assert.equal(result.saved_recipe_id, null);
+  assert.equal(
+    result.persistence_notice,
+    "This sourced recipe is available in this session and was not stored.",
+  );
+});
+
+test("ephemeral Chef Mode progress stays in memory while saved recipes retain guarded sync", async () => {
+  const [chefMode, i18n] = await Promise.all([
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+    readFile(new URL("i18n.js", publicUrl), "utf8"),
+  ]);
+
+  assert.match(chefMode, /function isEphemeralRecipe\(recipe\)/);
+  assert.match(
+    chefMode,
+    /source_persistence === "session_only"[\s\S]*saved_recipe_id[\s\S]*recipe\.id/,
+  );
+  assert.match(chefMode, /if \(isEphemeralRecipe\(activeRecipe\)\) \{/);
+  assert.match(chefMode, /isEphemeralRecipe\(saved\.activeRecipe\)/);
+  assert.match(chefMode, /isEphemeralRecipe\(remote\.activeRecipe\)/);
+  assert.match(chefMode, /let cookingSessionOwnerId/);
+  assert.match(chefMode, /const pendingCookingControllers = new Set\(\)/);
+  assert.match(chefMode, /pendingCookingControllers\.forEach\(\(controller\) => controller\.abort\(\)\)/);
+  assert.match(chefMode, /function assertCookingContext\(ownerUserId, expectedEpoch\)/);
+  assert.match(chefMode, /const syncEpoch = chefStateEpoch/);
+  assert.match(chefMode, /cookingSessionOwnerId === ownerId/);
+  assert.match(chefMode, /\.abortSignal\(controller\.signal\)/);
+  assert.match(
+    chefMode,
+    /Only real cooking and waiting times become recipe countdowns\. Your progress survives a refresh\./,
+  );
+  assert.match(
+    chefMode,
+    /This Chef Mode progress is available only in this tab and is lost on refresh\./,
+  );
+  assert.match(
+    i18n,
+    /Until you select Cook later, this plan stays only in this browser session and is lost on refresh\./,
+  );
+  assert.match(
+    i18n,
+    /This Chef Mode progress is available only in this tab and is lost on refresh\./,
+  );
+});
+
+test("named recipe unavailability preserves the server message for retry", async () => {
+  const [app, chefMode, i18n] = await Promise.all([
+    readFile(new URL("app.js", publicUrl), "utf8"),
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+    readFile(new URL("i18n.js", publicUrl), "utf8"),
+  ]);
+  assert.match(chefMode, /error\.code = data\.code/);
+  assert.match(app, /toast\(error\.message/);
+  assert.match(i18n, /目前無法取得「\{dish\}」的完整食譜，請稍後再試。/);
+});
+
 test("manual quick log intercepts submit before saved recipes finish loading", async () => {
   const source = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
   const manualHandler = source.indexOf("manualForm.onsubmit = async");
@@ -20,7 +155,7 @@ test("starting another recipe uses the active-cooking confirmation guard", async
   assert.match(source, /Replace the current cooking session\?/);
   assert.match(
     source,
-    /beginGuidedCooking\(recipe, ingredients, activeRecipeId\)/,
+    /beginGuidedCooking\(\s*recipe,\s*ingredients,\s*currentPlanRecipeId/,
   );
 });
 
@@ -52,6 +187,19 @@ test("meal generation exposes progress and has a bounded client wait", async () 
   assert.match(app, /詳細食譜可能需要約 30 秒/);
   assert.match(chefMode, /const timeout = setTimeout\(\(\) => controller\.abort\(\), 50000\)/);
   assert.match(chefMode, /食譜產生時間過久，請再試一次。/);
+});
+
+test("named recipe failures retain only safe server diagnostics for support", async () => {
+  const [app, chefMode] = await Promise.all([
+    readFile(new URL("app.js", publicUrl), "utf8"),
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+  ]);
+  assert.match(chefMode, /error\.meta = \{[\s\S]*request_id:[\s\S]*outcome:[\s\S]*duration_ms:[\s\S]*failure_stage:[\s\S]*failure_reason:/);
+  assert.match(app, /panel\.dataset\.requestId = String\(error\.meta\.request_id/);
+  assert.match(app, /panel\.dataset\.outcome = String\(error\.meta\.outcome/);
+  assert.match(app, /panel\.dataset\.durationMs = String\(error\.meta\.duration_ms/);
+  assert.match(app, /panel\.dataset\.failureStage = String\(error\.meta\.failure_stage/);
+  assert.match(app, /panel\.dataset\.failureReason = String\(error\.meta\.failure_reason/);
 });
 
 test("async form and shopping handlers retain their DOM targets before await", async () => {
@@ -100,6 +248,41 @@ test("PWA install keeps large icons on demand and self-hosts compact fonts", asy
   assert.match(worker, /fonts\/dm-serif-display-latin-400\.woff2/);
 });
 
+test("PWA version sync also updates the dynamic boot loader", async () => {
+  const [index, boot, worker, syncScript] = await Promise.all([
+    readFile(new URL("index.html", publicUrl), "utf8"),
+    readFile(new URL("boot.js", publicUrl), "utf8"),
+    readFile(new URL("sw.js", publicUrl), "utf8"),
+    readFile(
+      new URL("../scripts/sync-pwa-assets.mjs", import.meta.url),
+      "utf8",
+    ),
+  ]);
+  const version = index.match(/\?v=([^"']+)/)?.[1];
+  assert.ok(version);
+  assert.match(boot, new RegExp(`const APP_VERSION = "${version}"`));
+  assert.match(worker, new RegExp(`chef-jarvis-${version}`));
+  assert.match(syncScript, /const bootPath/);
+  assert.match(syncScript, /Boot script version is out of sync/);
+});
+
+test("generated meals use a selectable ingredient gallery and scannable step cards", async () => {
+  const [chefMode, ingredientCss, guidedCss] = await Promise.all([
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+    readFile(new URL("shopping-list.css", publicUrl), "utf8"),
+    readFile(new URL("guided-cooking.css", publicUrl), "utf8"),
+  ]);
+  assert.match(chefMode, /function ingredientVisual/);
+  assert.match(chefMode, /ingredient-card-grid/);
+  assert.match(chefMode, /data-ingredient-index/);
+  assert.match(chefMode, /function renderRecipeStepCards/);
+  assert.match(chefMode, /Review ingredients ↓/);
+  assert.match(ingredientCss, /grid-template-columns: repeat\(5/);
+  assert.match(ingredientCss, /label:not\(\.selected\)/);
+  assert.match(guidedCss, /recipe-showcase/);
+  assert.match(guidedCss, /grid-auto-flow: column/);
+});
+
 test("signed-in shell lazily renders views beyond the home dashboard", async () => {
   const app = await readFile(new URL("app.js", publicUrl), "utf8");
   const shell = app.slice(app.indexOf("function shell()"), app.indexOf("function show("));
@@ -110,17 +293,46 @@ test("signed-in shell lazily renders views beyond the home dashboard", async () 
 });
 
 test("meal images use the validated exact dish query and primary failure fails over quickly", async () => {
+  const [edge, chefMode] = await Promise.all([
+    readFile(
+      new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+  ]);
+  assert.match(edge, /gemini-3\.1-flash-lite", timeoutMs: 12000/);
+  assert.match(edge, /recipeImageQueryPlan/);
+  assert.match(edge, /imageCandidateMatchesFamily/);
+  assert.match(
+    edge,
+    /candidates\.map\(\(candidate\) =>[\s\S]*findRecipeImage\(candidate\.query, family, candidate\.match_kind\)/,
+  );
+  assert.match(edge, /PROMPT_VERSION/);
+  assert.match(edge, /chef_meal_plan_completed/);
+  assert.match(edge, /attachCuratedRecipeImage\(validatedPlan, meal\)/);
+  assert.doesNotMatch(edge, /findRecipeImage\(meal\)/);
+  assert.match(edge, /imageCandidateLooksPhotographic/);
+  assert.match(edge, /curatedImage \|\|[\s\S]*images\.find\(Boolean\)/);
+  assert.match(chefMode, /ChefDomain\.curatedRecipeImage\(recipe\)/);
+  assert.doesNotMatch(chefMode, /recipe-visual-symbols/);
+});
+
+test("broad meal prompts use recent-history deduplication and rotating fallbacks", async () => {
   const edge = await readFile(
     new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url),
     "utf8",
   );
-  assert.match(edge, /gemini-3\.1-flash-lite", timeoutMs: 12000/);
-  assert.match(edge, /const exactQuery = plan\.image_query \|\| plan\.title/);
-  assert.match(edge, /Promise\.all\(queries\.map\(findRecipeImage\)\)/);
-  assert.match(edge, /PROMPT_VERSION/);
-  assert.match(edge, /chef_meal_plan_completed/);
-  assert.match(edge, /addRecipeImage\(validatedPlan\)/);
-  assert.doesNotMatch(edge, /findRecipeImage\(meal\)/);
+  assert.match(edge, /\.from\("recipes"\)[\s\S]*\.limit\(12\)/);
+  assert.match(
+    edge,
+    /recipeContextPromptEnvelope\(\{[\s\S]*recentMeals,[\s\S]*\}\)/,
+  );
+  assert.match(edge, /recipeVarietyRejectionReason/);
+  assert.match(edge, /temperature: 0\.55/);
+  assert.match(edge, /selectLeastRecentFallback/);
+  assert.match(edge, /Lemon paprika chicken quinoa skillet/);
+  assert.match(edge, /Ginger beef broccoli skillet/);
+  assert.match(edge, /Turkey white bean tomato skillet/);
 });
 
 test("cooking progress syncs to the user's cloud session with a local fallback", async () => {
@@ -141,6 +353,36 @@ test("cooking progress syncs to the user's cloud session with a local fallback",
   assert.match(chefMode, /clearCookingState\("completed"\)/);
   assert.match(app, /void restoreCookingStateFromCloud\(\)/);
   assert.match(migration, /cooking_sessions_user_status_updated_idx/);
+});
+
+test("ephemeral cooking sessions never reach local or cloud persistence", async () => {
+  const chefMode = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
+  const persist = functionSource(chefMode, "function persistCookingState");
+  const cloud = functionSource(chefMode, "function queueCookingCloudSync");
+  const restore = functionSource(chefMode, "function restoreCookingState");
+  const restoreCloud = functionSource(
+    chefMode,
+    "async function restoreCookingStateFromCloud",
+  );
+
+  assert.match(persist, /isEphemeralRecipe\(activeRecipe\)/);
+  assert.match(cloud, /isEphemeralRecipe\(activeRecipe\)/);
+  assert.match(restore, /isEphemeralRecipe\(saved\.activeRecipe\)/);
+  assert.match(restoreCloud, /isEphemeralRecipe\(remote\.activeRecipe\)/);
+  assert.ok(
+    persist.indexOf("isEphemeralRecipe(activeRecipe)") <
+      persist.indexOf("localStorage.setItem"),
+  );
+  assert.ok(
+    cloud.indexOf("isEphemeralRecipe(activeRecipe)") <
+      cloud.indexOf('.from("cooking_sessions")'),
+  );
+});
+
+test("provider images accept TheMealDB and reject arbitrary hosts", async () => {
+  const chefMode = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
+  assert.match(chefMode, /\[\s*"wikimedia\.org",\s*"themealdb\.com",\s*\]/);
+  assert.match(chefMode, /\[\s*"wikimedia\.org",\s*"themealdb\.com",\s*\]/);
 });
 
 test("profile offers an authenticated JSON data export", async () => {
@@ -202,6 +444,181 @@ test("saved USDA totals are reused until ingredients change", async () => {
   assert.match(chefMode, /renderUsdaReference\(recipe, \{ force: true \}\)/);
 });
 
+test("generation context invalidates in-flight requests across an account reset", async () => {
+  const chefMode = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
+  assert.match(chefMode, /let chefStateEpoch = 0/);
+  assert.match(chefMode, /const pendingGenerationControllers = new Set\(\)/);
+  assert.match(chefMode, /function isCurrentGenerationContext\(/);
+  assert.match(chefMode, /function assertGenerationContext\(/);
+
+  const isCurrent = new Function(
+    `return ${functionSource(chefMode, "function isCurrentGenerationContext")};`,
+  )();
+  assert.equal(isCurrent("owner-1", 4, "owner-1", 4), true);
+  assert.equal(isCurrent("owner-1", 4, "owner-2", 4), false);
+  assert.equal(isCurrent("owner-1", 4, "owner-1", 5), false);
+
+  const reset = functionSource(chefMode, "function resetChefModeState");
+  assert.match(reset, /chefStateEpoch \+= 1/);
+  assert.match(reset, /controller\.abort\(\)/);
+  assert.match(reset, /pendingGenerationControllers\.clear\(\)/);
+});
+
+test("generation leaves normal plans in memory and explicit Cook later owns inserts", async () => {
+  const [app, chefMode] = await Promise.all([
+    readFile(new URL("app.js", publicUrl), "utf8"),
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+  ]);
+  const generate = functionSource(chefMode, "async function generatePlan");
+  const persist = functionSource(chefMode, "async function persistGeneratedPlan");
+  const saveForLater = functionSource(
+    chefMode,
+    "async function saveGeneratedPlanForLater",
+  );
+  const controls = functionSource(chefMode, "function renderPlanPersistenceControls");
+  assert.match(generate, /const ownerUserId = session\.user\.id/);
+  assert.match(generate, /assertGenerationContext\(ownerUserId, generationEpoch\)/);
+  assert.doesNotMatch(generate, /persistGeneratedPlan|\.from\("recipes"\)|\.insert\(/);
+  assert.match(controls, /if \(!currentPlanRecipeId\)/);
+  assert.match(controls, /saveGeneratedPlanForLater\(recipe, currentPlanInstanceId\)/);
+  assert.match(saveForLater, /const ownerUserId = session\.user\.id/);
+  assert.match(saveForLater, /assertGenerationContext\(ownerUserId, generationEpoch\)/);
+  assert.match(
+    saveForLater,
+    /persistGeneratedPlan\(\s*recipe,\s*recipe\.userRequest \|\| recipe\.title,\s*ownerUserId,\s*generationEpoch,\s*controller\.signal,?\s*\)/,
+  );
+  assert.match(saveForLater, /pendingPersistenceControllers\.add\(controller\)/);
+  assert.match(saveForLater, /pendingPersistenceControllers\.delete\(controller\)/);
+  assert.match(persist, /user_id: ownerUserId/);
+  assert.match(persist, /app_user_id: ownerUserId/);
+  assert.match(persist, /is_saved: true/);
+  assert.match(persist, /abortSignal\(signal\)/);
+  assert.doesNotMatch(persist, /user\.id/);
+  assert.match(app, /error\?\.code === "stale_auth_context"/);
+});
+
+test("plan persistence never retargets an unrelated active cooking session", async () => {
+  const chefMode = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
+  const renderPlan = functionSource(chefMode, "function renderPlan");
+  const persist = functionSource(
+    chefMode,
+    "async function saveGeneratedPlanForLater",
+  );
+  const controls = functionSource(chefMode, "function renderPlanPersistenceControls");
+
+  assert.match(chefMode, /let currentPlanRecipeId = null/);
+  assert.match(chefMode, /let currentPlanInstanceId = null/);
+  assert.doesNotMatch(renderPlan, /activeRecipeId\s*=/);
+  assert.match(renderPlan, /currentPlanRecipeId\s*=\s*recipe\.saved_recipe_id \|\| null/);
+  assert.match(renderPlan, /beginGuidedCooking\(\s*recipe,\s*ingredients,\s*currentPlanRecipeId/);
+  assert.match(controls, /\.eq\("id", currentPlanRecipeId\)/);
+  assert.match(persist, /currentPlanRecipeId = savedPlan\.saved_recipe_id/);
+  assert.match(persist, /activeRecipeInstanceId === planInstanceId/);
+  assert.match(persist, /activeRecipeId = savedPlan\.saved_recipe_id/);
+  assert.doesNotMatch(persist, /plan_instance_id:\s*savedPlan/);
+});
+
+test("cloud cooking restores are invalidated when cooking state changes", async () => {
+  const chefMode = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
+  const restore = functionSource(
+    chefMode,
+    "async function restoreCookingStateFromCloud",
+  );
+  const clear = functionSource(chefMode, "function clearCookingState");
+  const begin = functionSource(chefMode, "async function beginGuidedCooking");
+  const reset = functionSource(chefMode, "function resetChefModeState");
+
+  assert.match(chefMode, /let cookingStateRevision = 0/);
+  assert.match(chefMode, /const pendingCookingRestoreControllers = new Set\(\)/);
+  assert.match(restore, /const cookingRevision = cookingStateRevision/);
+  assert.match(restore, /assertCookingRestoreContext\(ownerId, syncEpoch, cookingRevision\)/);
+  assert.ok((restore.match(/assertCookingRestoreContext/g) || []).length >= 5);
+  assert.match(clear, /invalidateCookingRestores\(\)/);
+  assert.match(begin, /invalidateCookingRestores\(\)/);
+  assert.match(reset, /invalidateCookingRestores\(\)/);
+});
+
+test("sign-out copy distinguishes saved and ephemeral cooking progress in both languages", async () => {
+  const [app, chefMode, i18n] = await Promise.all([
+    readFile(new URL("app.js", publicUrl), "utf8"),
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+    readFile(new URL("i18n.js", publicUrl), "utf8"),
+  ]);
+  assert.match(chefMode, /function isCurrentCookingEphemeral\(\)/);
+  assert.match(app, /isCurrentCookingEphemeral\(\)/);
+  assert.match(app, /I18n\.translate\([\s\S]*"Saved cooking progress will remain available when you sign in again\."/);
+  assert.match(app, /I18n\.translate\([\s\S]*"This unsaved cooking progress will be lost when you sign out\."/);
+  assert.match(i18n, /"Saved cooking progress will remain available when you sign in again\.":/);
+  assert.match(i18n, /"This unsaved cooking progress will be lost when you sign out\.":/);
+});
+
+test("session-only recipes remain in-memory across nutrition, reuse, grocery, and completion", async () => {
+  const chefMode = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
+  const usda = chefMode.slice(
+    chefMode.indexOf("async function renderUsdaReference"),
+    chefMode.indexOf("async function generatePlan"),
+  );
+  const checklist = chefMode.slice(
+    chefMode.indexOf("function renderShoppingChecklist"),
+    chefMode.indexOf("function shoppingListIntegrityReport"),
+  );
+  const completion = chefMode.slice(
+    chefMode.indexOf("async function completeCooking"),
+    chefMode.indexOf("function updateVoiceButton"),
+  );
+  assert.match(usda, /if \(isSessionOnlyRecipe\(recipe\)\)/);
+  assert.ok(
+    usda.indexOf("isSessionOnlyRecipe(recipe)") < usda.indexOf("fetch("),
+    "session-only recipes must return before a USDA fetch",
+  );
+  assert.match(usda, /This recipe stays in this session/);
+  assert.match(checklist, /\{ allowPersistence = true \} = \{\}/);
+  assert.match(checklist, /if \(!allowPersistence \|\| !integrity\.safe\) return/);
+  assert.match(checklist, /Save to Grocery List unavailable/);
+  assert.match(chefMode, /const canSaveReuseIdeas = !isSessionOnlyRecipe\(recipe\)/);
+  assert.match(completion, /if \(isSessionOnlyRecipe\(recipe\)\)/);
+  assert.ok(
+    completion.indexOf("isSessionOnlyRecipe(recipe)") < completion.indexOf("logCompletedMeal"),
+    "session-only completion must skip nutrition and feedback persistence",
+  );
+  const sessionOnlyCompletion = completion.slice(
+    completion.indexOf("if (isSessionOnlyRecipe(recipe))"),
+    completion.indexOf("const nutritionLogPromise"),
+  );
+  assert.doesNotMatch(
+    sessionOnlyCompletion,
+    /deductRecipeFromPantry|sb\.|logCompletedMeal|openMealFeedback/,
+    "session-only completion must not change pantry or any database state",
+  );
+  assert.match(sessionOnlyCompletion, /nothing was saved or changed/i);
+});
+
+test("session-only voice tips stay in memory while normal recipes remain per-user", async () => {
+  const chefMode = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
+  const showTip = functionSource(chefMode, "function shouldShowVoiceTip");
+  const dismissTip = functionSource(chefMode, "function dismissVoiceTip");
+  const reset = functionSource(chefMode, "function resetChefModeState");
+
+  assert.match(chefMode, /let sessionVoiceTipDismissed = false/);
+  assert.match(showTip, /if \(isSessionOnlyRecipe\(recipe\)\) return !sessionVoiceTipDismissed/);
+  assert.match(
+    dismissTip,
+    /if \(isSessionOnlyRecipe\(recipe\)\) \{\s*sessionVoiceTipDismissed = true;\s*return;\s*\}/,
+  );
+  assert.match(showTip, /localStorage\.getItem/);
+  assert.match(dismissTip, /localStorage\.setItem/);
+  assert.match(reset, /sessionVoiceTipDismissed = false/);
+});
+
+test("account switches clear the old shell before profile boot and boot rejects stale results", async () => {
+  const app = await readFile(new URL("app.js", publicUrl), "utf8");
+  const boot = functionSource(app, "async function boot");
+  const authChange = functionSource(app, "sb.auth.onAuthStateChange");
+  assert.match(boot, /const expectedUserId =/);
+  assert.match(boot, /if \(!isCurrentAppUser\(expectedUserId\)\) return false/);
+  assert.match(authChange, /resetChefState\(\);[\s\S]*user = null;[\s\S]*profile = null;[\s\S]*authScreen\(\);[\s\S]*user = session\.user;[\s\S]*void boot\(\)/);
+});
+
 test("static hosting includes a restrictive security-header policy", async () => {
   const [headers, index, boot, worker] = await Promise.all([
     readFile(new URL("_headers", publicUrl), "utf8"),
@@ -230,4 +647,87 @@ test("timer ticker sleeps when idle and updates existing nodes between structura
   assert.match(chefMode, /function tickRunningTimers\(\)[\s\S]*updateTimerDisplays\(\)/);
   assert.match(chefMode, /now - lastTimerPersistAt >= 5000/);
   assert.doesNotMatch(chefMode, /setInterval\(\(\) => \{\s*const now = Date\.now\(\)/);
+});
+
+test("Chef Mode renders ordered strict timers and the AI contract forbids busywork", async () => {
+  const [chefMode, edge] = await Promise.all([
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+    readFile(new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(chefMode, /currentStep\.timers\.length/);
+  assert.match(chefMode, /data-current-step-timer/);
+  assert.match(chefMode, /stepTimerIndex/);
+  assert.match(chefMode, /reconcileStrictRecipeTimers/);
+  assert.match(edge, /Take 5 minutes to read the recipe.*forbidden busywork/);
+  assert.match(edge, /Sear side one for 20 seconds[\s\S]*two ordered 20-second timers/);
+  assert.match(edge, /each timer needs its own explicit duration occurrence/);
+  assert.match(edge, /"timers":\[/);
+});
+
+test("legacy recipe safety is visible and blocks unsafe downstream actions", async () => {
+  const [chefMode, i18n] = await Promise.all([
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+    readFile(new URL("i18n.js", publicUrl), "utf8"),
+  ]);
+  assert.match(chefMode, /ChefDomain\.recipeIntegrityReport\(recipe\)/);
+  assert.match(chefMode, /legacy-recipe-warning/);
+  assert.match(chefMode, /Regenerate precise recipe/);
+  assert.match(chefMode, /integrity\.safe \? "" : "disabled"/);
+  assert.match(chefMode, /This legacy recipe is missing exact ingredient measurements/);
+  assert.match(chefMode, /unsafe shopping list cannot be added to pantry/i);
+  assert.match(i18n, /This legacy recipe is missing exact ingredient measurements/);
+  assert.match(i18n, /這份舊食譜缺少精確的食材份量/);
+  const renderPlan = chefMode.slice(
+    chefMode.indexOf("function renderPlan("),
+    chefMode.indexOf("function renderEquipmentAdaptations("),
+  );
+  assert.ok(
+    renderPlan.indexOf("ChefDomain.recipeIntegrityReport(recipe)") <
+      renderPlan.indexOf("if (!recipe.steps.length)"),
+    "integrity must be measured before display-only fallback steps are added",
+  );
+});
+
+test("offline scope is visible and reacts to connection changes", async () => {
+  const app = await readFile(new URL("app.js", publicUrl), "utf8");
+  assert.match(app, /id="connection-status"/);
+  assert.match(app, /function updateConnectionStatus\(\)/);
+  assert.match(app, /window\.addEventListener\("online", updateConnectionStatus\)/);
+  assert.match(app, /window\.addEventListener\("offline", updateConnectionStatus\)/);
+  assert.match(app, /Current cooking progress stays on this device/);
+  assert.match(app, /planning, sync, and nutrition references need a connection/);
+});
+
+test("representative recipe imagery is disclosed instead of presented as exact", async () => {
+  const chefMode = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
+  assert.match(chefMode, /displayImage\?\.match_kind === "representative"/);
+  assert.match(chefMode, /Representative dish image/);
+  assert.match(chefMode, /displayImage\.source/);
+  assert.match(chefMode, /displayImage\.creator/);
+  assert.match(chefMode, /displayImage\.license/);
+});
+
+test("weekly planning stays read-only until an action and blocks unsafe recipes", async () => {
+  const [chefMode, i18n] = await Promise.all([
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+    readFile(new URL("i18n.js", publicUrl), "utf8"),
+  ]);
+  const weekly = chefMode.slice(
+    chefMode.indexOf("async function renderWeeklyPlanner()"),
+    chefMode.indexOf("function renderPersonalizedSwaps("),
+  );
+  assert.match(weekly, /async function ensureWeekPlan\(\)/);
+  assert.match(weekly, /if \(plan\) return plan/);
+  assert.match(weekly, /ChefDomain\.recipeIntegrityReport\(recipeRow\.recipe\)/);
+  assert.match(weekly, /unsafeWeeklyRecipes/);
+  assert.match(weekly, /Regenerate those recipes before building a weekly list/);
+  assert.match(i18n, /請先重新產生這些食譜，再建立本週購物清單/);
+});
+
+test("recipe responses do not await remote image lookup", async () => {
+  const edge = await readFile(
+    new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(edge, /await addRecipeImage/);
 });
