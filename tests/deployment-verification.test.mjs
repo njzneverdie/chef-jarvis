@@ -94,4 +94,8 @@ test("deployment verifier compares public hashes and Edge versions", async () =>
     JSON.parse(packageJson).scripts["verify:deployment"],
     "node scripts/verify-deployment.mjs",
   );
+  assert.equal(
+    JSON.parse(packageJson).scripts["test:e2e"],
+    "node ./node_modules/@playwright/test/cli.js test",
+  );
 });
