@@ -3,8 +3,8 @@
 **Last updated:** 2026-07-22  
 **Repository:** `/Users/daniel/Desktop/chef jarvis by chatgpt/chef-jarvis-netlify-web`  
 **Branch:** `agent/optimize-startup-and-chef-mode`  
-**Current phase:** Written design awaiting user review; production code has not
-been changed.
+**Current phase:** Written design approved; implementation plan completed and
+awaiting execution choice. Production code has not been changed.
 
 ## User request
 
@@ -29,8 +29,11 @@ Design commit:
 
 `dfbc512 docs: design allergen egress gate`
 
-The written spec still needs explicit user review before implementation because
-the brainstorming workflow has a written-spec review gate.
+The user explicitly approved the written spec.
+
+Implementation plan:
+
+`docs/superpowers/plans/2026-07-22-chef-meal-plan-allergen-egress-gate.md`
 
 ## Verified codebase facts
 
@@ -73,7 +76,8 @@ the brainstorming workflow has a written-spec review gate.
 
 ## TDD sequence
 
-No production-code implementation has been made. Continue test-first:
+No production-code implementation has been made. Execute the committed plan
+test-first:
 
 1. Add a focused test matrix to `tests/named-recipe-pipeline.test.mjs` (or a
    focused new test file if that keeps the boundary clearer).
