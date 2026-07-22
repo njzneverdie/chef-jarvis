@@ -634,6 +634,58 @@ test("never permits a deadline operation to consume the refund reserve", () => {
   assert.equal(deadlineTimeout(42_000, 40_000, 1_500, 40_400), 100);
 });
 
+test("chef-meal-plan routes every JSON return through one request-scoped allergen gate", async () => {
+  const edge = await readFile(
+    new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url),
+    "utf8",
+  );
+  const handler = edge.slice(edge.indexOf("Deno.serve"));
+
+  assert.match(edge, /mealPlanResponseAllergenGate/);
+  assert.match(handler, /let responseProfile: Profile \| null = null/);
+  assert.match(handler, /const safeRespond = \(/);
+  assert.match(
+    handler,
+    /mealPlanResponseAllergenGate\(body, responseProfile\)/,
+  );
+  assert.match(handler, /responseProfile = profile/);
+  assert.doesNotMatch(handler, /\breturn respond\(/);
+  assert.equal(
+    handler.match(/return new Response\(/g)?.length,
+    2,
+    "only OPTIONS may bypass the JSON response gate",
+  );
+
+  const unconfigured = handler.slice(
+    handler.indexOf('outcome: "fallback_unconfigured"'),
+    handler.indexOf("quotaRequestId = requestId"),
+  );
+  assert.match(unconfigured, /return safeRespond\(\{[\s\S]*?plan,/);
+
+  const generatedStart = handler.indexOf("const plan = namedRequest");
+  const generated = handler.slice(
+    generatedStart,
+    handler.indexOf("} catch (error)", generatedStart),
+  );
+  assert.match(generated, /const response = safeRespond\(\{[\s\S]*?plan,/);
+  assert.ok(
+    generated.indexOf("const response = safeRespond") <
+      generated.indexOf("quotaRequestId = null"),
+    "the gate must run before quota ownership is cleared",
+  );
+  assert.ok(
+    generated.indexOf("const response = safeRespond") <
+      generated.indexOf('console.log("chef_meal_plan_completed"'),
+    "the gate must run before success is logged",
+  );
+
+  const modelsFailed = handler.slice(
+    handler.indexOf('outcome: "fallback_models_failed"'),
+    handler.indexOf("} catch (error)", handler.indexOf('outcome: "fallback_models_failed"')),
+  );
+  assert.match(modelsFailed, /return safeRespond\(\{[\s\S]*?plan,/);
+});
+
 test("the Edge function uses provider-first flow and never named fallback", async () => {
   const edge = await readFile(
     new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url),

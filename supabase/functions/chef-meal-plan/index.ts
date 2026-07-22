@@ -32,6 +32,7 @@ import {
 import { refundQuotaSafely as runQuotaRefundSafely } from "../_shared/quota-refund.js";
 import {
   buildRecipeRepairPrompt,
+  mealPlanResponseAllergenGate,
   namedDishCoreIdentityRejectionReason,
   namedDishRejectionReason,
   recipeRestrictionRejectionReason,
@@ -2507,15 +2508,27 @@ function rpcQuery<T>(
 
 Deno.serve(async (request) => {
   const origin = request.headers.get("Origin");
+  let responseProfile: Profile | null = null;
+  const safeRespond = (
+    body: unknown,
+    status = 200,
+    extraHeaders: Record<string, string> = {},
+  ) =>
+    respond(
+      request,
+      mealPlanResponseAllergenGate(body, responseProfile),
+      status,
+      extraHeaders,
+    );
   if (request.method === "OPTIONS") {
     if (origin && !allowedOrigins.has(origin))
       return new Response(null, { status: 403 });
     return new Response("ok", { headers: corsHeaders(request) });
   }
   if (request.method !== "POST")
-    return respond(request, { error: "Method not allowed." }, 405);
+    return safeRespond({ error: "Method not allowed." }, 405);
   if (origin && !allowedOrigins.has(origin))
-    return respond(request, { error: "Origin not allowed." }, 403);
+    return safeRespond({ error: "Origin not allowed." }, 403);
 
   const requestStartedAt = Date.now();
   const deadlineAt = requestStartedAt + EDGE_DEADLINE_MS;
@@ -2547,8 +2560,7 @@ Deno.serve(async (request) => {
       outcome,
       duration_ms: durationMs,
     });
-    return respond(
-      request,
+    return safeRespond(
       {
         error:
           language === "zh-TW"
@@ -2575,8 +2587,7 @@ Deno.serve(async (request) => {
     const meal = typeof body.request === "string" ? body.request.trim() : "";
     const authorization = request.headers.get("Authorization");
     if (!authorization?.startsWith("Bearer "))
-      return respond(
-        request,
+      return safeRespond(
         {
           error: language === "zh-TW" ? "請先登入。" : "Please sign in first.",
         },
@@ -2586,8 +2597,7 @@ Deno.serve(async (request) => {
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!supabaseUrl || !anonKey || !serviceRoleKey)
-      return respond(
-        request,
+      return safeRespond(
         {
           error:
             language === "zh-TW"
@@ -2611,8 +2621,7 @@ Deno.serve(async (request) => {
       REFUND_RESERVE_MS,
     );
     if (authError || !user)
-      return respond(
-        request,
+      return safeRespond(
         {
           error:
             language === "zh-TW"
@@ -2626,8 +2635,7 @@ Deno.serve(async (request) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     if (!meal || meal.length > 500)
-      return respond(
-        request,
+      return safeRespond(
         {
           error:
             language === "zh-TW"
@@ -2712,8 +2720,7 @@ Deno.serve(async (request) => {
         request_id: requestId,
         duration_ms: durationMs,
       });
-      return respond(
-        request,
+      return safeRespond(
         {
           error:
             language === "zh-TW"
@@ -2730,6 +2737,7 @@ Deno.serve(async (request) => {
       );
     }
     const profile = (profileRow || {}) as Profile;
+    responseProfile = profile;
     const planningProfile = {
       ...profile,
       taste_feedback: (feedbackRows || []).map((item) => ({
@@ -2792,7 +2800,7 @@ Deno.serve(async (request) => {
       ? await dishObservabilityKey(resolution.canonicalName)
       : "";
     if (resolution.needsClarification) {
-      return respond(request, {
+      return safeRespond({
         clarification_required: true,
         needs_description: resolution.needsDescription,
         original_request: meal,
@@ -2855,7 +2863,7 @@ Deno.serve(async (request) => {
         duration_ms: Date.now() - requestStartedAt,
         image_found: Boolean(plan.image),
       });
-      return respond(request, {
+      return safeRespond({
         plan,
         fallback: true,
         notice: "Gemini is not configured yet.",
@@ -2885,8 +2893,7 @@ Deno.serve(async (request) => {
         quotaRequestId = null;
         await refundQuotaSafely(admin, quotaUserId, refundRequestId, deadlineAt);
       }
-      return respond(
-        request,
+      return safeRespond(
         {
           error:
             language === "zh-TW"
@@ -2899,8 +2906,7 @@ Deno.serve(async (request) => {
     const allowance = Array.isArray(quota) ? quota[0] : quota;
     if (!allowance?.allowed) {
       const retryAfter = String(allowance?.retry_after_seconds || 60);
-      return respond(
-        request,
+      return safeRespond(
         {
           error:
             allowance?.reason === "daily_limit"
@@ -3100,6 +3106,16 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
           }
           : attachCuratedRecipeImage(validatedPlan, meal);
         const durationMs = Date.now() - requestStartedAt;
+        const response = safeRespond({
+          plan,
+          model,
+          meta: {
+            request_id: requestId,
+            prompt_version: PROMPT_VERSION,
+            duration_ms: durationMs,
+            image_found: Boolean(plan.image),
+          },
+        });
         quotaRequestId = null;
         console.log("chef_meal_plan_completed", {
           request_id: requestId,
@@ -3110,16 +3126,7 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
           image_found: Boolean(plan.image),
           dish_key: dishKey || undefined,
         });
-        return respond(request, {
-          plan,
-          model,
-          meta: {
-            request_id: requestId,
-            prompt_version: PROMPT_VERSION,
-            duration_ms: durationMs,
-            image_found: Boolean(plan.image),
-          },
-        });
+        return response;
       } catch (error) {
         recordNamedFailure(failureStage, recipeValidationReasonCode(error));
         if (namedRequest && namedFailureOutcome(error) === "generation_timeout") {
@@ -3156,7 +3163,7 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
       duration_ms: Date.now() - requestStartedAt,
       image_found: Boolean(plan?.image),
     });
-    return respond(request, {
+    return safeRespond({
       plan,
       fallback: true,
       meta: {
@@ -3184,8 +3191,7 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
         reason: error instanceof Error ? error.message : "unknown",
       },
     );
-    return respond(
-      request,
+    return safeRespond(
       {
         error:
           language === "zh-TW"
