@@ -194,6 +194,8 @@
     "Gluten-free": "無麩質",
     "Nut allergy": "堅果過敏",
     "Shellfish allergy": "甲殼類過敏",
+    "Other allergies (comma separated)": "其他過敏原（以逗號分隔）",
+    "e.g. egg, sesame, kiwi": "例如：雞蛋、芝麻、奇異果",
     "Foods you dislike (comma separated)": "不喜歡的食物（以逗號分隔）",
     "e.g. cilantro, mushrooms": "例如：香菜、蘑菇",
     "KITCHEN SETUP": "廚房設備",

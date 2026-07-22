@@ -964,6 +964,8 @@ function onboarding(edit = false) {
   const allergies = saved.allergies || [];
   const dislikes = saved.dislikes || [];
   const equipment = saved.equipment || [];
+  const dietSafetyChoices = ["Vegetarian", "Vegan", "Halal", "Lactose intolerant", "Gluten-free", "Nut allergy", "Shellfish allergy"];
+  const customAllergies = allergies.filter((value) => !dietSafetyChoices.includes(value));
   const modal = document.createElement("div");
   modal.className = "modal";
   modal.innerHTML = `
@@ -998,7 +1000,8 @@ function onboarding(edit = false) {
         <div class="field"><label>Fat (g)</label><input name="fat" type="number" min="0" max="400" value="${finiteNumber(saved.fat_g, "")}"></div>
       </div>
       <p class="eyebrow">DIET & SAFETY</p>
-      <div class="choice-grid">${["Vegetarian", "Vegan", "Halal", "Lactose intolerant", "Gluten-free", "Nut allergy", "Shellfish allergy"].map((value) => `<label><input type="checkbox" name="needs" value="${value}" ${dietary.includes(value) || allergies.includes(value) ? "checked" : ""}>${value}</label>`).join("")}</div>
+      <div class="choice-grid">${dietSafetyChoices.map((value) => `<label><input type="checkbox" name="needs" value="${value}" ${dietary.includes(value) || allergies.includes(value) ? "checked" : ""}>${value}</label>`).join("")}</div>
+      <div class="field"><label>Other allergies (comma separated)</label><input name="custom_allergies" value="${esc(customAllergies.join(", "))}" placeholder="e.g. egg, sesame, kiwi"></div>
       <div class="field"><label>Foods you dislike (comma separated)</label><input name="dislikes" value="${esc(dislikes.join(", "))}" placeholder="e.g. cilantro, mushrooms"></div>
       <p class="eyebrow">KITCHEN SETUP</p>
       <div class="choice-grid">${equipmentChoices()
@@ -1036,6 +1039,18 @@ function onboarding(edit = false) {
       return;
     }
     const needs = formData.getAll("needs").map(String);
+    const checkboxAllergies = needs.filter((value) => value.includes("allergy"));
+    const seenAllergies = new Set(
+      checkboxAllergies.map((value) => value.toLocaleLowerCase()),
+    );
+    const mergedAllergies = [...checkboxAllergies];
+    for (const entry of String(values.custom_allergies || "").split(/[,、，]/)) {
+      const value = entry.trim();
+      const key = value.toLocaleLowerCase();
+      if (!value || seenAllergies.has(key)) continue;
+      seenAllergies.add(key);
+      mergedAllergies.push(value);
+    }
     const payload = {
       app_user_id: user.id,
       mode: values.mode,
@@ -1052,7 +1067,7 @@ function onboarding(edit = false) {
       fat_g: targets.fat,
       onboarding_completed: true,
       dietary_preferences: needs.filter((value) => !value.includes("allergy")),
-      allergies: needs.filter((value) => value.includes("allergy")),
+      allergies: mergedAllergies,
       dislikes: String(values.dislikes || "")
         .split(",")
         .map((value) => value.trim())

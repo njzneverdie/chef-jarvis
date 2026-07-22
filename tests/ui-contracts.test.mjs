@@ -166,7 +166,7 @@ test("the install experience uses the cache-refreshed app icon family", async ()
     readFile(new URL("manifest.webmanifest", publicUrl), "utf8"),
     readFile(new URL("sw.js", publicUrl), "utf8"),
   ]);
-  const version = "20260722-app-icon-1";
+  const version = "20260723-custom-allergies-1";
   const expected = [
     ["chef-jarvis-app-icon-v2-192.png", 192, "any"],
     ["chef-jarvis-app-icon-v2-1024.png", 1024, "any"],
@@ -785,4 +785,37 @@ test("recipe responses do not await remote image lookup", async () => {
     "utf8",
   );
   assert.doesNotMatch(edge, /await addRecipeImage/);
+});
+
+test("onboarding saves, reloads, edits, and dedupes custom allergies", async () => {
+  const [app, i18n] = await Promise.all([
+    readFile(new URL("app.js", publicUrl), "utf8"),
+    readFile(new URL("i18n.js", publicUrl), "utf8"),
+  ]);
+  const onboarding = app.slice(
+    app.indexOf("function onboarding("),
+    app.indexOf("async function boot()"),
+  );
+  assert.match(onboarding, /name="custom_allergies"/);
+  assert.match(
+    onboarding,
+    /allergies\.filter\(\(value\) => !dietSafetyChoices\.includes\(value\)\)/,
+    "saved custom allergies must reload into the input on edit",
+  );
+  assert.match(
+    onboarding,
+    /split\(\/\[,、，\]\/\)/,
+    "custom allergies must accept English and CJK comma separators",
+  );
+  assert.match(
+    onboarding,
+    /toLocaleLowerCase\(\)/,
+    "custom allergies must dedupe case-insensitively",
+  );
+  assert.match(onboarding, /seenAllergies/);
+  assert.ok(
+    onboarding.indexOf("allergies: mergedAllergies") >= 0,
+    "the saved payload must use the merged, deduped allergy list",
+  );
+  assert.match(i18n, /"Other allergies \(comma separated\)"/);
 });
