@@ -80,7 +80,7 @@ test("deployment verifier compares public hashes and Edge versions", async () =>
   assert.match(verifier, /x-chef-jarvis-function-version/i);
   assert.match(
     verifier,
-    /const requiredMealPlanVersion = "2026-07-22\.named-recipe\.14"/,
+    /const requiredMealPlanVersion = "2026-07-22\.named-recipe\.15"/,
   );
   assert.match(
     verifier,
@@ -88,7 +88,7 @@ test("deployment verifier compares public hashes and Edge versions", async () =>
   );
   assert.match(
     mealPlan,
-    /const FUNCTION_VERSION = "2026-07-22\.named-recipe\.14"/,
+    /const FUNCTION_VERSION = "2026-07-22\.named-recipe\.15"/,
   );
   assert.equal(
     JSON.parse(packageJson).scripts["verify:deployment"],

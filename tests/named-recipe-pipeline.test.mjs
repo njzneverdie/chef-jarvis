@@ -467,6 +467,82 @@ for (const [allergy, ingredient] of [
   }
 }
 
+for (const [allergy, ingredient] of [
+  ["dairy", "Dairy-free sauce including milk"],
+  ["dairy", "Dairy-free spread has butter"],
+  ["dairy", "Dairy-free recipe includes milk"],
+  ["dairy", "Dairy-free sauce, milk"],
+  ["dairy", "Non-dairy sauce, milk"],
+]) {
+  for (const field of ["name", "usda_query"]) {
+    test(`a safety-product label cannot swallow ${allergy} across boundaries in ${field}: ${ingredient}`, () => {
+      const entry = {
+        name: "Vegetable sauce",
+        usda_query: "vegetable sauce",
+        [field]: ingredient,
+      };
+      assert.throws(
+        () => namedRecipeIntegrity.mealPlanResponseAllergenGate(
+          { plan: { ingredients: [entry] } },
+          gateProfile([allergy]),
+        ),
+        /allergen egress/i,
+        `${field}: ${ingredient}`,
+      );
+    });
+  }
+}
+
+test("negated safety labels are never treated as safety labels", () => {
+  for (const [allergy, ingredient] of [
+    ["peanut", "Not peanut-free sauce"],
+    ["gluten", "Not gluten-free bread"],
+    ["dairy", "Not dairy-free milk"],
+    ["dairy", "This is not dairy-free milk"],
+    ["peanut", "not free from peanuts"],
+    ["peanut", "並非無花生醬"],
+  ]) {
+    assert.throws(
+      () => namedRecipeIntegrity.mealPlanResponseAllergenGate(
+        {
+          plan: {
+            ingredients: [{ name: ingredient, usda_query: "vegetable sauce" }],
+          },
+        },
+        gateProfile([allergy]),
+      ),
+      /allergen egress/i,
+      `negated label passed: ${ingredient} for ${allergy}`,
+    );
+  }
+});
+
+test("plant-based analogue labels cannot swallow animal ingredients across boundaries", () => {
+  for (const ingredient of [
+    "Plant-based sauce including chicken",
+    "Plant-based sauce includes chicken",
+    "Plant-based sauce but chicken",
+    "Meatless sauce including beef",
+  ]) {
+    assert.match(
+      recipeRestrictionRejectionReason(
+        { ingredients: [{ name: ingredient }] },
+        { dietary_preferences: ["vegan"] },
+      ),
+      /restriction/i,
+      ingredient,
+    );
+  }
+  assert.equal(
+    recipeRestrictionRejectionReason(
+      { ingredients: [{ name: "Plant-based chicken pieces" }] },
+      { dietary_preferences: ["vegan"] },
+    ),
+    "",
+    "true plant-based analogue must stay allowed",
+  );
+});
+
 test("lactose-free milk remains unsafe for dairy and milk allergy restrictions", () => {
   const body = {
     plan: {
@@ -577,6 +653,19 @@ test("lactic acid compounds do not produce dairy false positives", () => {
       ),
       body,
       ingredient,
+    );
+  }
+});
+
+test("a present plan key with a malformed value fails closed even when null", () => {
+  const gate = namedRecipeIntegrity.mealPlanResponseAllergenGate;
+  const errorBody = { error: "Please sign in first." };
+  assert.equal(gate(errorBody, null), errorBody);
+  for (const plan of [null, undefined, [], "plan", 42]) {
+    assert.throws(
+      () => gate({ plan }, gateProfile()),
+      /allergen egress/i,
+      `plan value passed through: ${String(plan)}`,
     );
   }
 });
@@ -948,7 +1037,7 @@ test("chef-meal-plan routes every JSON return through one request-scoped allerge
   );
 
   const modelsFailedStart = handler.indexOf(
-    'const plan = resolution.requestType === "broad_request"',
+    "return completeNamedFailure(latestNamedFailureOutcome);",
   );
   const modelsFailed = handler.slice(
     modelsFailedStart,
@@ -960,6 +1049,56 @@ test("chef-meal-plan routes every JSON return through one request-scoped allerge
     modelsFailed.indexOf("const response = safeRespond") <
       modelsFailed.indexOf('console.log("chef_meal_plan_completed"'),
     "the models-failed fallback must gate before logging completion",
+  );
+});
+
+test("a missing or malformed profile row fails closed before generation", async () => {
+  const edge = await readFile(
+    new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url),
+    "utf8",
+  );
+  const handler = edge.slice(edge.indexOf("Deno.serve"));
+  const guardStart = handler.indexOf("if (profileError)");
+  const guard = handler.slice(
+    guardStart,
+    handler.indexOf("const planningProfile"),
+  );
+  assert.match(guard, /!profileRow \|\|/);
+  assert.match(guard, /profileRow\.allergies/);
+  assert.match(guard, /profileRow\.dietary_preferences/);
+  assert.equal(
+    guard.match(/code: "profile_unavailable"/g)?.length,
+    2,
+    "both the query error and a malformed row must fail closed as profile_unavailable",
+  );
+  for (const laterWork of [
+    "resolveNamedDishWithGemini(",
+    "await fetchTheMealDbRecipe(",
+    "quotaRequestId = requestId",
+  ]) {
+    assert.ok(
+      guardStart < handler.indexOf(laterWork),
+      `profile validation must precede ${laterWork}`,
+    );
+  }
+});
+
+test("egress rejection in the metered branch is diagnosed as egress_validation", async () => {
+  const edge = await readFile(
+    new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url),
+    "utf8",
+  );
+  const handler = edge.slice(edge.indexOf("Deno.serve"));
+  const generatedStart = handler.indexOf("const plan = namedRequest");
+  const generated = handler.slice(
+    generatedStart,
+    handler.indexOf("} catch (error)", generatedStart),
+  );
+  assert.match(generated, /failureStage = "egress_validation"/);
+  assert.ok(
+    generated.indexOf('failureStage = "egress_validation"') <
+      generated.indexOf("const response = safeRespond"),
+    "the egress stage must be set before the gate can throw",
   );
 });
 

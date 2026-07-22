@@ -64,25 +64,39 @@ function escapesRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// A safety label preceded by a negation ("not gluten-free", "並非無花生")
+// asserts the allergen IS present, so it must never be cleared.
+const safetyLabelNegationTail =
+  /(?:\b(?:not|never|isn ?t|aren ?t|wasn ?t|don ?t|doesn ?t)(?: (?:a|an|the))? ?|並非|并非|不是|絕非|绝非|非)$/u;
+
+function replaceUnlessNegated(text, regex) {
+  return text.replace(regex, (...args) => {
+    const offset = args[args.length - 2];
+    return safetyLabelNegationTail.test(text.slice(0, offset))
+      ? args[0]
+      : " ";
+  });
+}
+
 function withoutExplicitlyFreePhrases(ingredient, term) {
   const normalizedTerm = normalizeRestrictionText(term);
   if (!normalizedTerm) return ingredient;
   const singular = normalizedTerm.replace(/s$/u, "");
   const escaped = escapesRegExp(singular);
-  const withoutBilingualLabels = ingredient.replace(
+  const withoutBilingualLabels = replaceUnlessNegated(
+    ingredient,
     new RegExp(`(?:無|无|不含)\\s*${escaped}s?`, "gu"),
-    " ",
   );
   if (!/^[a-z ]+$/u.test(normalizedTerm)) return withoutBilingualLabels;
   // Only phrases that name this exact term are safety labels for it; a
   // bare "free <term>" match is not, because the "free" may belong to a
   // preceding "<other>-free" label (e.g. "sesame-free tahini").
-  return withoutBilingualLabels.replace(
+  return replaceUnlessNegated(
+    withoutBilingualLabels,
     new RegExp(
       `(?:${escaped}[- ]?free|(?:no|without|free from) ${escaped}s?)`,
       "gu",
     ),
-    " ",
   );
 }
 
@@ -97,25 +111,28 @@ function withoutPlantBasedAnimalAnaloguePhrases(ingredient, term) {
   const normalizedTerm = normalizeRestrictionText(term);
   if (!animalAnalogueIngredients.has(term) || !normalizedTerm) return ingredient;
   if (!/^[a-z ]+$/u.test(normalizedTerm)) {
-    return ingredient.replace(
+    return replaceUnlessNegated(
+      ingredient,
       /(?:植物|素)(?:肉|雞肉|鸡肉|牛肉|豬肉|猪肉|魚|鱼)/gu,
-      " ",
     );
   }
   const singular = escapesRegExp(normalizedTerm.replace(/s$/u, ""));
-  return ingredient.replace(
+  // Only a provable analogue phrase — the analogue label immediately
+  // followed by the animal word — is cleared; any wording in between
+  // fails closed and keeps the conflict.
+  return replaceUnlessNegated(
+    ingredient,
     new RegExp(
-      `\\b(?:vegan|plant[ -]based|meatless)\\b(?:[ -]+(?!(?:with|containing|contains|plus|and|added)\\b)[a-z]+){0,2}?[ -]+${singular}s?\\b`,
+      `\\b(?:vegan|plant[ -]based|meatless)[ -]+${singular}s?\\b`,
       "gu",
     ),
-    " ",
   );
 }
 
 function withoutAllowedPlantMilkPhrases(ingredient) {
-  return ingredient.replace(
+  return replaceUnlessNegated(
+    ingredient,
     /\b(?:oat|coconut|rice|soy|almond|cashew) milk\b|(?:燕麥|燕麦|椰子|米|豆漿|豆浆|杏仁|腰果)奶/gu,
-    " ",
   );
 }
 
@@ -123,18 +140,25 @@ const dairyFreeAnalogueTerms = new Set([
   "milk", "butter", "cheese", "cream", "yogurt", "yoghurt",
 ]);
 
+// Closed set of product descriptors that may sit between a dairy safety
+// label and the dairy word itself ("lactose-free whole milk"). Any word
+// outside this list breaks the phrase and the dairy occurrence stays a
+// conflict — never guess phrase boundaries with a connector blacklist.
+const dairyFreeProductDescriptors =
+  "(?:whole|skim|skimmed|plain|greek|unsweetened|sweetened|low|fat|reduced|light|fresh)";
+
 function withoutLabeledDairyFreeProducts(ingredient, term, allowLactoseFree) {
   if (!dairyFreeAnalogueTerms.has(term)) return ingredient;
   const escaped = escapesRegExp(term.replace(/s$/u, ""));
   const freeLabels = allowLactoseFree
     ? "(?:dairy|lactose|milk)[- ]?free"
     : "(?:dairy|milk)[- ]?free";
-  return ingredient.replace(
+  return replaceUnlessNegated(
+    ingredient,
     new RegExp(
-      `(?:${freeLabels}|non[- ]?dairy)(?: (?!(?:with|containing|contains|plus|and|added)\\b)[a-z]+){0,2} ${escaped}s?\\b`,
+      `(?:${freeLabels}|non[- ]?dairy)(?: ${dairyFreeProductDescriptors}){0,2} ${escaped}s?\\b`,
       "gu",
     ),
-    " ",
   );
 }
 
@@ -332,7 +356,15 @@ export function recipeRestrictionRejectionReason(plan, profile) {
  * response is rejected. Never sanitizes individual ingredients.
  */
 export function mealPlanResponseAllergenGate(body, profile) {
-  if (!body || typeof body !== "object" || body.plan == null) return body;
+  // Only bodies without any plan key (errors, clarifications) pass through;
+  // a present plan key with a malformed value — including null — fails closed.
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !Object.prototype.hasOwnProperty.call(body, "plan")
+  ) {
+    return body;
+  }
   const isStringArray = (value) =>
     Array.isArray(value) && value.every((item) => typeof item === "string");
   if (
@@ -346,6 +378,7 @@ export function mealPlanResponseAllergenGate(body, profile) {
   if (
     !body.plan ||
     typeof body.plan !== "object" ||
+    Array.isArray(body.plan) ||
     !Array.isArray(body.plan.ingredients) ||
     !body.plan.ingredients.every((ingredient) =>
       ingredient &&

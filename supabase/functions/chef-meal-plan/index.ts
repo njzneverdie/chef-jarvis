@@ -45,7 +45,7 @@ import {
 } from "../_shared/named-recipe-integrity.js";
 
 const PROMPT_VERSION = "2026-07-22.10";
-const FUNCTION_VERSION = "2026-07-22.named-recipe.14";
+const FUNCTION_VERSION = "2026-07-22.named-recipe.15";
 const EDGE_DEADLINE_MS = 42_000;
 const REFUND_RESERVE_MS = 1_500;
 const MAX_RECIPE_REPAIRS = 2;
@@ -2736,7 +2736,36 @@ Deno.serve(async (request) => {
         503,
       );
     }
-    const profile = (profileRow || {}) as Profile;
+    const isSafetyStringArray = (value: unknown) =>
+      Array.isArray(value) && value.every((item) => typeof item === "string");
+    if (
+      !profileRow ||
+      !isSafetyStringArray(profileRow.allergies) ||
+      !isSafetyStringArray(profileRow.dietary_preferences)
+    ) {
+      const durationMs = Date.now() - requestStartedAt;
+      console.error("chef_profile_query_failed", {
+        request_id: requestId,
+        duration_ms: durationMs,
+        reason: "profile_row_malformed",
+      });
+      return safeRespond(
+        {
+          error:
+            language === "zh-TW"
+              ? "目前無法安全讀取你的飲食與過敏設定，請稍後再試。"
+              : "Your dietary and allergy settings are temporarily unavailable. Please try again.",
+          code: "profile_unavailable",
+          meta: {
+            request_id: requestId,
+            outcome: "profile_unavailable",
+            duration_ms: durationMs,
+          },
+        },
+        503,
+      );
+    }
+    const profile = profileRow as Profile;
     responseProfile = profile;
     const planningProfile = {
       ...profile,
@@ -3107,6 +3136,7 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
           }
           : attachCuratedRecipeImage(validatedPlan, meal);
         const durationMs = Date.now() - requestStartedAt;
+        failureStage = "egress_validation";
         const response = safeRespond({
           plan,
           model,
@@ -3151,12 +3181,10 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
     if (resolution.requestType === "named_dish") {
       return completeNamedFailure(latestNamedFailureOutcome);
     }
-    const plan = resolution.requestType === "broad_request"
-      ? attachCuratedRecipeImage(
-        fallbackPlan(meal, profile, pantry, language, recentMeals),
-        meal,
-      )
-      : null;
+    const plan = attachCuratedRecipeImage(
+      fallbackPlan(meal, profile, pantry, language, recentMeals),
+      meal,
+    );
     const response = safeRespond({
       plan,
       fallback: true,
