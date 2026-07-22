@@ -727,7 +727,7 @@ test("an ambiguous quota-consume error refunds before returning quota unavailabl
   assert.ok(quotaErrorBlock, "expected the quota error response branch");
   assert.match(
     quotaErrorBlock,
-    /await refundQuotaSafely\(admin, quotaUserId, refundRequestId, deadlineAt\);[\s\S]*return respond\(/,
+    /await refundQuotaSafely\(admin, quotaUserId, refundRequestId, deadlineAt\);[\s\S]*return safeRespond\(/,
   );
 });
 
@@ -755,7 +755,7 @@ test("a profile query error fails closed before resolution, provider, model, or 
   }
 
   const failureBlock = edge.slice(failureIndex, edge.indexOf("const profile =", failureIndex));
-  assert.match(failureBlock, /return respond\(\s*request,/);
+  assert.match(failureBlock, /return safeRespond\(/);
   assert.match(failureBlock, /code:\s*"profile_unavailable"/);
   assert.match(failureBlock, /503/);
   assert.doesNotMatch(failureBlock, /refundQuotaSafely/);
