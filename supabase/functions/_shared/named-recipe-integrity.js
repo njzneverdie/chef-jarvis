@@ -64,19 +64,28 @@ function escapesRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function isExplicitlyFreeOf(ingredient, term) {
+function withoutExplicitlyFreePhrases(ingredient, term) {
   const normalizedTerm = normalizeRestrictionText(term);
-  if (!normalizedTerm || !/^[a-z ]+$/u.test(normalizedTerm)) return false;
+  if (!normalizedTerm || !/^[a-z ]+$/u.test(normalizedTerm)) return ingredient;
   const singular = normalizedTerm.replace(/s$/u, "");
   const escaped = escapesRegExp(singular);
-  return new RegExp(
-    `(?:${escaped}[- ]?free|free[- ]?${escaped}|(?:no|without|free from) ${escaped}s?)`,
-    "u",
-  ).test(ingredient);
+  // Only phrases that name this exact term are safety labels for it; a
+  // bare "free <term>" match is not, because the "free" may belong to a
+  // preceding "<other>-free" label (e.g. "sesame-free tahini").
+  return ingredient.replace(
+    new RegExp(
+      `(?:${escaped}[- ]?free|(?:no|without|free from) ${escaped}s?)`,
+      "gu",
+    ),
+    " ",
+  );
 }
 
 function hasPositiveIngredientTerm(ingredient, term) {
-  return hasIngredientTerm(ingredient, term) && !isExplicitlyFreeOf(ingredient, term);
+  if (!hasIngredientTerm(ingredient, term)) return false;
+  // A safety label only clears its own phrase; any allergen mention that
+  // survives outside "<term>-free" / "no <term>" wording stays a conflict.
+  return hasIngredientTerm(withoutExplicitlyFreePhrases(ingredient, term), term);
 }
 
 function isPlantBasedAnimalAnalogue(ingredient, term) {
@@ -94,6 +103,19 @@ function isPlantBasedAnimalAnalogue(ingredient, term) {
 
 function isAllowedPlantMilk(ingredient) {
   return /\b(?:oat|coconut|rice|soy|almond|cashew) milk\b|(?:燕麥|燕麦|椰子|米|豆漿|豆浆|杏仁|腰果)奶/u.test(ingredient);
+}
+
+const dairyFreeAnalogueTerms = new Set([
+  "milk", "butter", "cheese", "cream", "yogurt", "yoghurt",
+]);
+
+function isLabeledDairyFreeProduct(ingredient, term) {
+  if (!dairyFreeAnalogueTerms.has(term)) return false;
+  const escaped = escapesRegExp(term.replace(/s$/u, ""));
+  return new RegExp(
+    `(?:(?:dairy|lactose|milk)[- ]?free|non[- ]?dairy)(?: [a-z]+)? ${escaped}s?\\b`,
+    "u",
+  ).test(ingredient);
 }
 
 function profileRestrictionValues(profile) {
@@ -211,7 +233,8 @@ export function recipeRestrictionRejectionReason(plan, profile) {
       if (recipeContent.some((ingredient) => family.ingredients.some((term) =>
         hasPositiveIngredientTerm(ingredient, term) &&
         !(term === "gluten" && isGlutenFreeIngredient(ingredient)) &&
-        !((term === "milk" || term === "牛奶" || term === "乳") && isAllowedPlantMilk(ingredient))
+        !((term === "milk" || term === "牛奶" || term === "乳") && isAllowedPlantMilk(ingredient)) &&
+        !isLabeledDairyFreeProduct(ingredient, term)
       ))) {
         return "Recipe contains an allergen or dietary restriction conflict.";
       }

@@ -2856,14 +2856,7 @@ Deno.serve(async (request) => {
         fallbackPlan(meal, profile, pantry, language, recentMeals),
         meal,
       );
-      console.log("chef_meal_plan_completed", {
-        request_id: requestId,
-        prompt_version: PROMPT_VERSION,
-        outcome: "fallback_unconfigured",
-        duration_ms: Date.now() - requestStartedAt,
-        image_found: Boolean(plan.image),
-      });
-      return safeRespond({
+      const response = safeRespond({
         plan,
         fallback: true,
         notice: "Gemini is not configured yet.",
@@ -2873,6 +2866,14 @@ Deno.serve(async (request) => {
           duration_ms: Date.now() - requestStartedAt,
         },
       });
+      console.log("chef_meal_plan_completed", {
+        request_id: requestId,
+        prompt_version: PROMPT_VERSION,
+        outcome: "fallback_unconfigured",
+        duration_ms: Date.now() - requestStartedAt,
+        image_found: Boolean(plan.image),
+      });
+      return response;
     }
     quotaRequestId = requestId;
     quotaUserId = user.id;
@@ -3156,14 +3157,7 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
         meal,
       )
       : null;
-    console.log("chef_meal_plan_completed", {
-      request_id: requestId,
-      prompt_version: PROMPT_VERSION,
-      outcome: "fallback_models_failed",
-      duration_ms: Date.now() - requestStartedAt,
-      image_found: Boolean(plan?.image),
-    });
-    return safeRespond({
+    const response = safeRespond({
       plan,
       fallback: true,
       meta: {
@@ -3173,6 +3167,14 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
         image_found: Boolean(plan?.image),
       },
     });
+    console.log("chef_meal_plan_completed", {
+      request_id: requestId,
+      prompt_version: PROMPT_VERSION,
+      outcome: "fallback_models_failed",
+      duration_ms: Date.now() - requestStartedAt,
+      image_found: Boolean(plan?.image),
+    });
+    return response;
   } catch (error) {
     if (admin && quotaRequestId && quotaUserId) {
       const refundRequestId = quotaRequestId;

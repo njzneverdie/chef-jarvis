@@ -390,15 +390,37 @@ test("every plan response path rejects every saved allergen family before serial
   const gate = namedRecipeIntegrity.mealPlanResponseAllergenGate;
   for (const [pathName, makeBody] of planResponseCases) {
     for (const [allergy, ingredient] of allergenFamilyCases) {
-      const body = makeBody({
-        ingredients: [{ name: ingredient, usda_query: ingredient }],
-      });
-      assert.throws(
-        () => gate(body, { allergies: [allergy] }),
-        /allergen egress/i,
-        `${pathName} exposed ${ingredient} for ${allergy}`,
-      );
+      const fieldVariants = [
+        ["name only", { name: ingredient, usda_query: "vegetable broth" }],
+        ["usda_query only", { name: "Vegetable broth", usda_query: ingredient }],
+      ];
+      for (const [variantName, entry] of fieldVariants) {
+        const body = makeBody({ ingredients: [entry] });
+        assert.throws(
+          () => gate(body, { allergies: [allergy] }),
+          /allergen egress/i,
+          `${pathName} (${variantName}) exposed ${ingredient} for ${allergy}`,
+        );
+      }
     }
+  }
+});
+
+test("safety labels never mask a real allergen in the same field", () => {
+  const gate = namedRecipeIntegrity.mealPlanResponseAllergenGate;
+  for (const [allergy, ingredient] of [
+    ["peanut", "Peanut-free sauce with roasted peanuts"],
+    ["peanut", "No peanut sauce containing peanuts"],
+    ["sesame", "Sesame-free tahini sauce"],
+  ]) {
+    assert.throws(
+      () => gate(
+        { plan: { ingredients: [{ name: ingredient }] }, fallback: true },
+        { allergies: [allergy] },
+      ),
+      /allergen egress/i,
+      `contradictory label passed: ${ingredient} for ${allergy}`,
+    );
   }
 });
 
@@ -657,10 +679,16 @@ test("chef-meal-plan routes every JSON return through one request-scoped allerge
   );
 
   const unconfigured = handler.slice(
-    handler.indexOf('outcome: "fallback_unconfigured"'),
+    handler.indexOf("if (!apiKey)"),
     handler.indexOf("quotaRequestId = requestId"),
   );
-  assert.match(unconfigured, /return safeRespond\(\{[\s\S]*?plan,/);
+  assert.match(unconfigured, /const response = safeRespond\(\{[\s\S]*?plan,/);
+  assert.match(unconfigured, /outcome: "fallback_unconfigured"/);
+  assert.ok(
+    unconfigured.indexOf("const response = safeRespond") <
+      unconfigured.indexOf('console.log("chef_meal_plan_completed"'),
+    "the unconfigured fallback must gate before logging completion",
+  );
 
   const generatedStart = handler.indexOf("const plan = namedRequest");
   const generated = handler.slice(
@@ -679,11 +707,20 @@ test("chef-meal-plan routes every JSON return through one request-scoped allerge
     "the gate must run before success is logged",
   );
 
-  const modelsFailed = handler.slice(
-    handler.indexOf('outcome: "fallback_models_failed"'),
-    handler.indexOf("} catch (error)", handler.indexOf('outcome: "fallback_models_failed"')),
+  const modelsFailedStart = handler.indexOf(
+    'const plan = resolution.requestType === "broad_request"',
   );
-  assert.match(modelsFailed, /return safeRespond\(\{[\s\S]*?plan,/);
+  const modelsFailed = handler.slice(
+    modelsFailedStart,
+    handler.indexOf("} catch (error)", modelsFailedStart),
+  );
+  assert.match(modelsFailed, /const response = safeRespond\(\{[\s\S]*?plan,/);
+  assert.match(modelsFailed, /outcome: "fallback_models_failed"/);
+  assert.ok(
+    modelsFailed.indexOf("const response = safeRespond") <
+      modelsFailed.indexOf('console.log("chef_meal_plan_completed"'),
+    "the models-failed fallback must gate before logging completion",
+  );
 });
 
 test("the Edge function uses provider-first flow and never named fallback", async () => {
