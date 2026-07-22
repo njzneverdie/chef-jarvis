@@ -39,9 +39,24 @@ Verification: focused RED observed for all 16 new tests before the fix;
 probes rerun for every FR case (all BLOCK) and every safe-label positive
 (all pass).
 
-**Still open:** RR-03 (execution-level response-boundary tests for the three
-real plan paths) and RR-04 (onboarding custom-allergen input flow) are not
-covered by this remediation.
+**RR-03 (2026-07-23):** `tests/edge/meal-plan-response-boundary.test.ts`
+(`npm run test:edge`) imports the unmodified Edge Function under Deno,
+stubs Supabase auth/REST/RPC and Gemini behind a URL-routing fetch stub,
+and drives real HTTP requests through all three plan paths: AI success
+(200 `ai_generated`, quota kept), unconfigured fallback (200 labeled, no
+quota), and models-failed fallback (200 labeled, consume then refund).
+Unsafe variants assert the egress gate returns 500 with no plan, refunds
+reserved quota, and never logs `chef_meal_plan_completed`. 5/5 pass.
+`deno check --no-lock` on the Edge Function also passes (repo `deno.lock`
+is v5; the pinned deno-bin 2.2.7 skips it).
+
+**RR-04 (2026-07-23):** onboarding has an "Other allergies (comma
+separated)" input: prefills from saved `allergies` minus the checkbox
+choices, accepts English/CJK comma separators, dedupes case-insensitively
+against checkbox picks and itself, and saves the merged list to
+`app_profiles.allergies`. Covered by a `tests/ui-contracts.test.mjs`
+contract and verified rendering in the browser preview. PWA cache version
+bumped to `20260723-custom-allergies-1`.
 
 ## Implementation evidence (2026-07-22)
 
