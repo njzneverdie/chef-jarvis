@@ -3,8 +3,56 @@
 **Last updated:** 2026-07-22  
 **Repository:** `/Users/daniel/Desktop/chef jarvis by chatgpt/chef-jarvis-netlify-web`  
 **Branch:** `agent/optimize-startup-and-chef-mode`  
-**Current phase:** Written design approved; implementation plan completed and
-awaiting execution choice. Production code has not been changed.
+**Current phase:** Implemented and locally verified. All three plan tasks are
+complete; the Supabase Edge Function has not been redeployed yet.
+
+## Implementation evidence (2026-07-22)
+
+Executed test-first per the committed plan.
+
+**Commits:**
+
+- `3e5c6b3` test: enforce allergen-safe meal plan bodies — adds
+  `mealPlanResponseAllergenGate` to
+  `supabase/functions/_shared/named-recipe-integrity.js` plus the focused
+  gate tests in `tests/named-recipe-pipeline.test.mjs`.
+- `f8ef2aa` fix: gate meal plans against saved allergens — request-scoped
+  `safeRespond` in `supabase/functions/chef-meal-plan/index.ts`; all 14
+  handler `return respond(...)` calls replaced; metered success branch gates
+  before `quotaRequestId = null` and before the completion log.
+- `b045502` test: align source contracts with safeRespond — updates the two
+  pre-existing source-contract assertions that expected `return respond(`.
+
+**Observed RED before implementation:**
+
+- API test: `Expected values to be strictly equal: 'undefined' !== 'function'`.
+- Matrix: `Missing expected exception: ai/provider success exposed Roasted
+  peanuts for peanut`; fail-closed: `Missing expected exception.`
+- Source contract: `The input did not match the regular expression
+  /mealPlanResponseAllergenGate/`.
+
+**GREEN verification:**
+
+- Focused: 5/5 gate and source-contract tests pass.
+- Full suite: `npm test` → 188 tests, 188 pass, 0 fail (was 183 before).
+- `npm run check` → PWA assets synchronized at 20260722-app-icon-1 (15 files).
+- `git diff --check` → clean.
+- Response-path contract: zero `return respond(` after `Deno.serve`; exactly
+  two `return new Response(` in the handler, both in `OPTIONS`.
+- `deno` CLI is not installed locally, so no type-check ran; the deploy step
+  will surface any TypeScript issue.
+
+**Remaining work:** deploy `chef-meal-plan` when separately requested
+(`npx supabase functions deploy chef-meal-plan`), after bumping
+`FUNCTION_VERSION` in `supabase/functions/chef-meal-plan/index.ts:48` and the
+matching `requiredMealPlanVersion` in `scripts/verify-deployment.mjs:21`, then
+`npm run verify:deployment`.
+
+**If interrupted, resume with:**
+
+```bash
+npm test -- tests/named-recipe-pipeline.test.mjs
+```
 
 ## User request
 
