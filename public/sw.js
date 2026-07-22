@@ -1,28 +1,28 @@
-const CACHE = "chef-jarvis-20260722-named-recipe-3";
+const CACHE = "chef-jarvis-20260722-app-icon-1";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=20260722-named-recipe-3",
-  "/guided-cooking.css?v=20260722-named-recipe-3",
-  "/chef-mode.css?v=20260722-named-recipe-3",
-  "/shopping-list.css?v=20260722-named-recipe-3",
-  "/usda-reference.css?v=20260722-named-recipe-3",
-  "/personalized-swaps.css?v=20260722-named-recipe-3",
-  "/plan-persistence.css?v=20260722-named-recipe-3",
-  "/shopping-page.css?v=20260722-named-recipe-3",
-  "/product-features.css?v=20260722-named-recipe-3",
-  "/i18n.js?v=20260722-named-recipe-3",
-  "/domain.js?v=20260722-named-recipe-3",
-  "/boot.js?v=20260722-named-recipe-3",
+  "/styles.css?v=20260722-app-icon-1",
+  "/guided-cooking.css?v=20260722-app-icon-1",
+  "/chef-mode.css?v=20260722-app-icon-1",
+  "/shopping-list.css?v=20260722-app-icon-1",
+  "/usda-reference.css?v=20260722-app-icon-1",
+  "/personalized-swaps.css?v=20260722-app-icon-1",
+  "/plan-persistence.css?v=20260722-app-icon-1",
+  "/shopping-page.css?v=20260722-app-icon-1",
+  "/product-features.css?v=20260722-app-icon-1",
+  "/i18n.js?v=20260722-app-icon-1",
+  "/domain.js?v=20260722-app-icon-1",
+  "/boot.js?v=20260722-app-icon-1",
   "/vendor/supabase-2.110.5.min.js",
-  "/app.js?v=20260722-named-recipe-3",
-  "/chef-mode.js?v=20260722-named-recipe-3",
-  "/manifest.webmanifest?v=20260722-named-recipe-3",
+  "/app.js?v=20260722-app-icon-1",
+  "/chef-mode.js?v=20260722-app-icon-1",
+  "/manifest.webmanifest?v=20260722-app-icon-1",
   "/fonts/dm-serif-display-latin-400.woff2",
   "/fonts/dm-serif-display-latin-400-italic.woff2",
   "/fonts/manrope-latin-400-800.woff2",
-  "/chef-jarvis-icon-192.png?v=20260722-named-recipe-3",
-  "/apple-touch-icon.png?v=20260722-named-recipe-3",
+  "/chef-jarvis-app-icon-v2-192.png?v=20260722-app-icon-1",
+  "/chef-jarvis-app-icon-v2-apple-180.png?v=20260722-app-icon-1",
 ];
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -60,7 +60,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   const isAppIcon =
     url.origin === self.location.origin &&
-    /^\/(?:chef-jarvis-(?:icon-\d+|maskable-512)|apple-touch-icon)\.png$/.test(
+    /^\/chef-jarvis-app-icon-v2-(?:192|512|1024|maskable-512|apple-180)\.png$/.test(
       url.pathname,
     );
   if (

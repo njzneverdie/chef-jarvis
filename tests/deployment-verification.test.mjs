@@ -40,6 +40,11 @@ test("release asset discovery covers every deployed public file and critical she
     "chef-mode.css",
     "shopping-list.css",
     "product-features.css",
+    "chef-jarvis-app-icon-v2-192.png",
+    "chef-jarvis-app-icon-v2-512.png",
+    "chef-jarvis-app-icon-v2-1024.png",
+    "chef-jarvis-app-icon-v2-maskable-512.png",
+    "chef-jarvis-app-icon-v2-apple-180.png",
   ]) {
     assert.ok(discovered.includes(file), `${file} must be release verified`);
   }

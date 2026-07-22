@@ -159,23 +159,76 @@ test("starting another recipe uses the active-cooking confirmation guard", async
   );
 });
 
-test("the install experience includes translated servings and native PNG icons", async () => {
-  const [translations, index, manifestText] = await Promise.all([
+test("the install experience uses the cache-refreshed app icon family", async () => {
+  const [translations, index, manifestText, worker] = await Promise.all([
     readFile(new URL("i18n.js", publicUrl), "utf8"),
     readFile(new URL("index.html", publicUrl), "utf8"),
     readFile(new URL("manifest.webmanifest", publicUrl), "utf8"),
+    readFile(new URL("sw.js", publicUrl), "utf8"),
   ]);
+  const version = "20260722-app-icon-1";
+  const expected = [
+    ["chef-jarvis-app-icon-v2-192.png", 192, "any"],
+    ["chef-jarvis-app-icon-v2-1024.png", 1024, "any"],
+    ["chef-jarvis-app-icon-v2-512.png", 512, "any"],
+    ["chef-jarvis-app-icon-v2-maskable-512.png", 512, "maskable"],
+  ];
+
   assert.match(translations, /"Servings eaten": "實際食用份數"/);
-  assert.match(index, /rel="apple-touch-icon"[^>]+apple-touch-icon\.png/);
-  const manifest = JSON.parse(manifestText);
-  assert.ok(
-    manifest.icons.some(
-      (icon) =>
-        icon.type === "image/png" &&
-        icon.sizes === "512x512" &&
-        icon.purpose === "maskable",
+  assert.match(
+    index,
+    new RegExp(
+      `rel="icon"[^>]+chef-jarvis-app-icon-v2-192\\.png\\?v=${version}`,
     ),
   );
+  assert.match(
+    index,
+    new RegExp(
+      `rel="apple-touch-icon"[^>]+chef-jarvis-app-icon-v2-apple-180\\.png\\?v=${version}`,
+    ),
+  );
+
+  const manifest = JSON.parse(manifestText);
+  assert.deepEqual(
+    manifest.icons.map((icon) => [
+      icon.src,
+      icon.sizes,
+      icon.type,
+      icon.purpose,
+    ]),
+    expected.map(([name, size, purpose]) => [
+      `/${name}?v=${version}`,
+      `${size}x${size}`,
+      "image/png",
+      purpose,
+    ]),
+  );
+
+  for (const [name, size] of [
+    ...expected.map(([name, size]) => [name, size]),
+    ["chef-jarvis-app-icon-v2-apple-180.png", 180],
+  ]) {
+    const png = await readFile(new URL(name, publicUrl));
+    assert.equal(png.toString("ascii", 1, 4), "PNG");
+    assert.equal(png.readUInt32BE(16), size, `${name} width`);
+    assert.equal(png.readUInt32BE(20), size, `${name} height`);
+  }
+
+  const references = `${index}\n${manifestText}\n${worker}`;
+  assert.doesNotMatch(
+    references,
+    /(?:chef-jarvis-icon-(?:192|512|1024)|chef-jarvis-maskable-512|apple-touch-icon)\.png/,
+  );
+
+  for (const legacy of [
+    "chef-jarvis-icon-192.png",
+    "chef-jarvis-icon-512.png",
+    "chef-jarvis-icon-1024.png",
+    "chef-jarvis-maskable-512.png",
+    "apple-touch-icon.png",
+  ]) {
+    assert.ok((await stat(new URL(legacy, publicUrl))).isFile());
+  }
 });
 
 test("meal generation exposes progress and has a bounded client wait", async () => {
@@ -234,11 +287,13 @@ test("PWA install keeps large icons on demand and self-hosts compact fonts", asy
     readFile(new URL("sw.js", publicUrl), "utf8"),
     readFile(new URL("index.html", publicUrl), "utf8"),
     readFile(new URL("styles.css", publicUrl), "utf8"),
-    stat(new URL("chef-jarvis-icon-1024.png", publicUrl)),
+    stat(new URL("chef-jarvis-app-icon-v2-1024.png", publicUrl)),
   ]);
   const core = worker.slice(worker.indexOf("const CORE"), worker.indexOf("];", worker.indexOf("const CORE")));
-  assert.doesNotMatch(core, /chef-jarvis-icon-(?:512|1024)\.png/);
-  assert.doesNotMatch(core, /chef-jarvis-maskable-512\.png/);
+  assert.doesNotMatch(
+    core,
+    /chef-jarvis-app-icon-v2-(?:512|1024|maskable-512)\.png/,
+  );
   assert.match(worker, /Promise\.allSettled/);
   assert.match(worker, /if \(failed\.length\)[\s\S]*caches\.delete\(CACHE\)[\s\S]*throw new Error/);
   assert.match(worker, /await self\.skipWaiting\(\)/);
