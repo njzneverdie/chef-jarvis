@@ -66,13 +66,18 @@ function escapesRegExp(value) {
 
 function withoutExplicitlyFreePhrases(ingredient, term) {
   const normalizedTerm = normalizeRestrictionText(term);
-  if (!normalizedTerm || !/^[a-z ]+$/u.test(normalizedTerm)) return ingredient;
+  if (!normalizedTerm) return ingredient;
   const singular = normalizedTerm.replace(/s$/u, "");
   const escaped = escapesRegExp(singular);
+  const withoutBilingualLabels = ingredient.replace(
+    new RegExp(`(?:無|无|不含)\\s*${escaped}s?`, "gu"),
+    " ",
+  );
+  if (!/^[a-z ]+$/u.test(normalizedTerm)) return withoutBilingualLabels;
   // Only phrases that name this exact term are safety labels for it; a
   // bare "free <term>" match is not, because the "free" may belong to a
   // preceding "<other>-free" label (e.g. "sesame-free tahini").
-  return ingredient.replace(
+  return withoutBilingualLabels.replace(
     new RegExp(
       `(?:${escaped}[- ]?free|(?:no|without|free from) ${escaped}s?)`,
       "gu",
@@ -88,34 +93,64 @@ function hasPositiveIngredientTerm(ingredient, term) {
   return hasIngredientTerm(withoutExplicitlyFreePhrases(ingredient, term), term);
 }
 
-function isPlantBasedAnimalAnalogue(ingredient, term) {
+function withoutPlantBasedAnimalAnaloguePhrases(ingredient, term) {
   const normalizedTerm = normalizeRestrictionText(term);
-  if (!animalAnalogueIngredients.has(term) || !normalizedTerm) return false;
+  if (!animalAnalogueIngredients.has(term) || !normalizedTerm) return ingredient;
   if (!/^[a-z ]+$/u.test(normalizedTerm)) {
-    return /(?:植物|素)(?:肉|雞肉|鸡肉|牛肉|豬肉|猪肉|魚|鱼)/u.test(ingredient);
+    return ingredient.replace(
+      /(?:植物|素)(?:肉|雞肉|鸡肉|牛肉|豬肉|猪肉|魚|鱼)/gu,
+      " ",
+    );
   }
   const singular = escapesRegExp(normalizedTerm.replace(/s$/u, ""));
-  return new RegExp(
-    `\\b(?:vegan|plant[ -]based|meatless)\\b(?:[ -]+[a-z]+){0,2}?[ -]+${singular}s?\\b`,
-    "u",
-  ).test(ingredient);
+  return ingredient.replace(
+    new RegExp(
+      `\\b(?:vegan|plant[ -]based|meatless)\\b(?:[ -]+(?!(?:with|containing|contains|plus|and|added)\\b)[a-z]+){0,2}?[ -]+${singular}s?\\b`,
+      "gu",
+    ),
+    " ",
+  );
 }
 
-function isAllowedPlantMilk(ingredient) {
-  return /\b(?:oat|coconut|rice|soy|almond|cashew) milk\b|(?:燕麥|燕麦|椰子|米|豆漿|豆浆|杏仁|腰果)奶/u.test(ingredient);
+function withoutAllowedPlantMilkPhrases(ingredient) {
+  return ingredient.replace(
+    /\b(?:oat|coconut|rice|soy|almond|cashew) milk\b|(?:燕麥|燕麦|椰子|米|豆漿|豆浆|杏仁|腰果)奶/gu,
+    " ",
+  );
 }
 
 const dairyFreeAnalogueTerms = new Set([
   "milk", "butter", "cheese", "cream", "yogurt", "yoghurt",
 ]);
 
-function isLabeledDairyFreeProduct(ingredient, term) {
-  if (!dairyFreeAnalogueTerms.has(term)) return false;
+function withoutLabeledDairyFreeProducts(ingredient, term, allowLactoseFree) {
+  if (!dairyFreeAnalogueTerms.has(term)) return ingredient;
   const escaped = escapesRegExp(term.replace(/s$/u, ""));
-  return new RegExp(
-    `(?:(?:dairy|lactose|milk)[- ]?free|non[- ]?dairy)(?: [a-z]+)? ${escaped}s?\\b`,
-    "u",
-  ).test(ingredient);
+  const freeLabels = allowLactoseFree
+    ? "(?:dairy|lactose|milk)[- ]?free"
+    : "(?:dairy|milk)[- ]?free";
+  return ingredient.replace(
+    new RegExp(
+      `(?:${freeLabels}|non[- ]?dairy)(?: (?!(?:with|containing|contains|plus|and|added)\\b)[a-z]+){0,2} ${escaped}s?\\b`,
+      "gu",
+    ),
+    " ",
+  );
+}
+
+function hasFamilyIngredientTerm(ingredient, term, family) {
+  let remainder = withoutExplicitlyFreePhrases(ingredient, term);
+  if (family.dairyRestriction) {
+    if (term === "milk") {
+      remainder = withoutAllowedPlantMilkPhrases(remainder);
+    }
+    remainder = withoutLabeledDairyFreeProducts(
+      remainder,
+      term,
+      family.dairyRestriction === "lactose",
+    );
+  }
+  return hasIngredientTerm(remainder, term);
 }
 
 function profileRestrictionValues(profile) {
@@ -130,7 +165,7 @@ function profileRestrictionValues(profile) {
 const restrictionFamilies = [
   {
     restrictions: ["peanut", "peanuts", "nut allergy", "花生"],
-    ingredients: ["peanut", "花生"],
+    ingredients: ["peanut", "groundnut", "花生"],
   },
   {
     restrictions: ["tree nut", "tree nuts", "nut allergy", "nuts", "堅果", "坚果"],
@@ -141,11 +176,22 @@ const restrictionFamilies = [
     ],
   },
   {
-    restrictions: ["milk", "dairy", "lactose", "乳製品", "乳制品", "牛奶"],
+    restrictions: ["milk", "dairy", "乳製品", "乳制品", "牛奶"],
     ingredients: [
       "milk", "butter", "cheese", "cream", "yogurt", "yoghurt", "whey",
-      "casein", "ghee", "乳", "牛奶", "奶油", "起司", "奶酪", "優格", "酸奶",
+      "casein", "ghee", "牛奶", "奶油", "起司", "奶酪", "優格", "酸奶",
+      "乳製品", "乳制品", "乳酪", "乳清", "乳脂", "酪蛋白",
     ],
+    dairyRestriction: "milk",
+  },
+  {
+    restrictions: ["lactose", "乳糖"],
+    ingredients: [
+      "lactose", "milk", "butter", "cheese", "cream", "yogurt", "yoghurt",
+      "whey", "casein", "ghee", "乳糖", "牛奶", "奶油", "起司", "奶酪",
+      "優格", "酸奶", "乳製品", "乳制品", "乳酪", "乳清", "乳脂", "酪蛋白",
+    ],
+    dairyRestriction: "lactose",
   },
   {
     restrictions: ["egg", "eggs", "蛋類", "蛋类", "雞蛋", "鸡蛋"],
@@ -153,23 +199,23 @@ const restrictionFamilies = [
   },
   {
     restrictions: ["soy", "soya", "soybean", "大豆", "黃豆", "黄豆", "豆漿", "豆浆"],
-    ingredients: ["soy", "soya", "tofu", "edamame", "miso", "tempeh", "大豆", "黃豆", "黄豆", "豆腐", "毛豆", "味噌", "天貝", "天贝"],
+    ingredients: ["soy", "soya", "soybean", "tofu", "edamame", "miso", "tempeh", "大豆", "黃豆", "黄豆", "豆腐", "毛豆", "味噌", "天貝", "天贝"],
   },
   {
     restrictions: ["gluten", "wheat", "麩質", "麸质", "小麥", "小麦"],
-    ingredients: ["gluten", "wheat", "barley", "rye", "麩質", "麸质", "小麥", "小麦", "大麥", "大麦", "黑麥", "黑麦"],
+    ingredients: ["gluten", "wheat", "barley", "rye", "semolina", "麩質", "麸质", "小麥", "小麦", "大麥", "大麦", "黑麥", "黑麦"],
   },
   {
     restrictions: ["sesame", "芝麻"],
     ingredients: ["sesame", "tahini", "芝麻", "芝麻醬", "芝麻酱"],
   },
   {
-    restrictions: ["fish", "魚類", "鱼类", "魚", "鱼"],
-    ingredients: ["fish", "salmon", "tuna", "anchovy", "sardine", "魚", "鱼", "鮭", "鲑", "鮪", "金槍魚", "金枪鱼"],
+    restrictions: ["fish", "seafood", "魚類", "鱼类", "魚", "鱼", "海鮮", "海鲜"],
+    ingredients: ["fish", "salmon", "tuna", "cod", "anchovy", "sardine", "魚", "鱼", "鮭", "鲑", "鮪", "金槍魚", "金枪鱼"],
   },
   {
     restrictions: ["shellfish", "crustacean", "mollusk", "seafood", "甲殼類", "甲壳类", "貝類", "贝类", "海鮮", "海鲜"],
-    ingredients: ["shrimp", "prawn", "crab", "lobster", "scallop", "clam", "mussel", "oyster", "squid", "octopus", "蝦", "虾", "蟹", "龍蝦", "龙虾", "干貝", "干贝", "蛤", "牡蠣", "牡蛎", "魷魚", "鱿鱼", "章魚", "章鱼"],
+    ingredients: ["shrimp", "prawn", "crab", "lobster", "crayfish", "langoustine", "scallop", "clam", "mussel", "oyster", "squid", "octopus", "蝦", "虾", "蟹", "龍蝦", "龙虾", "干貝", "干贝", "蛤", "牡蠣", "牡蛎", "魷魚", "鱿鱼", "章魚", "章鱼"],
   },
   {
     restrictions: ["cilantro", "coriander", "香菜", "芫荽"],
@@ -201,10 +247,6 @@ function isVegetarianRestriction(value) {
   return /\bvegetarian\b|lacto ovo|ovo lacto|素食|蛋奶素|奶蛋素/u.test(value);
 }
 
-function isGlutenFreeIngredient(ingredient) {
-  return /gluten free|無麩質|无麸质/u.test(ingredient);
-}
-
 function isHalalRestriction(value) {
   return /\bhalal\b|清真/u.test(value);
 }
@@ -231,20 +273,21 @@ export function recipeRestrictionRejectionReason(plan, profile) {
     ))) {
       family.restrictions.forEach((term) => recognizedRestrictions.add(term));
       if (recipeContent.some((ingredient) => family.ingredients.some((term) =>
-        hasPositiveIngredientTerm(ingredient, term) &&
-        !(term === "gluten" && isGlutenFreeIngredient(ingredient)) &&
-        !((term === "milk" || term === "牛奶" || term === "乳") && isAllowedPlantMilk(ingredient)) &&
-        !isLabeledDairyFreeProduct(ingredient, term)
+        hasFamilyIngredientTerm(ingredient, term, family)
       ))) {
         return "Recipe contains an allergen or dietary restriction conflict.";
       }
     }
   }
 
-  const hasDietaryConflict = (ingredient, terms) => terms.some((term) =>
-    hasPositiveIngredientTerm(ingredient, term) &&
-    !isPlantBasedAnimalAnalogue(ingredient, term)
-  );
+  const hasDietaryConflict = (ingredient, terms) => terms.some((term) => {
+    const positiveRemainder = withoutExplicitlyFreePhrases(ingredient, term);
+    const nonAnalogueRemainder = withoutPlantBasedAnimalAnaloguePhrases(
+      positiveRemainder,
+      term,
+    );
+    return hasIngredientTerm(nonAnalogueRemainder, term);
+  });
   if (restrictions.some(isVeganRestriction) && recipeContent.some((ingredient) =>
     hasDietaryConflict(ingredient, veganIngredients)
   )) {
@@ -275,7 +318,7 @@ export function recipeRestrictionRejectionReason(plan, profile) {
     .filter((restriction) => !isVegetarianRestriction(restriction))
     .filter((restriction) => !isHalalRestriction(restriction));
   if (literalRestrictions.some((restriction) => recipeContent.some((ingredient) =>
-    hasIngredientTerm(ingredient, restriction)
+    hasPositiveIngredientTerm(ingredient, restriction)
   ))) {
     return "Recipe contains an allergen or dietary restriction conflict.";
   }
@@ -290,12 +333,39 @@ export function recipeRestrictionRejectionReason(plan, profile) {
  */
 export function mealPlanResponseAllergenGate(body, profile) {
   if (!body || typeof body !== "object" || body.plan == null) return body;
-  if (!profile || typeof profile !== "object") {
+  const isStringArray = (value) =>
+    Array.isArray(value) && value.every((item) => typeof item === "string");
+  if (
+    !profile ||
+    typeof profile !== "object" ||
+    !isStringArray(profile.allergies) ||
+    !isStringArray(profile.dietary_preferences)
+  ) {
     throw new Error("Meal plan response safety profile is unavailable.");
   }
+  if (
+    !body.plan ||
+    typeof body.plan !== "object" ||
+    !Array.isArray(body.plan.ingredients) ||
+    !body.plan.ingredients.every((ingredient) =>
+      ingredient &&
+      typeof ingredient === "object" &&
+      !Array.isArray(ingredient) &&
+      typeof ingredient.name === "string" &&
+      typeof ingredient.usda_query === "string"
+    )
+  ) {
+    throw new Error("Meal plan response failed allergen egress validation.");
+  }
+  const medicalDietaryPreferences = profile.dietary_preferences.filter((value) => {
+    const normalized = normalizeRestrictionText(value);
+    return [
+      "gluten", "wheat", "lactose", "麩質", "麸质", "小麥", "小麦", "乳糖",
+    ].some((term) => hasIngredientTerm(normalized, term));
+  });
   const reason = recipeRestrictionRejectionReason(body.plan, {
-    allergies: Array.isArray(profile.allergies) ? profile.allergies : [],
-    dietary_preferences: [],
+    allergies: profile.allergies,
+    dietary_preferences: medicalDietaryPreferences,
   });
   if (reason) {
     throw new Error("Meal plan response failed allergen egress validation.");

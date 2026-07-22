@@ -281,6 +281,13 @@ test("rejects non-analogue vegan restrictions that share a field with a plant-ba
     ),
     "",
   );
+  assert.equal(
+    recipeRestrictionRejectionReason(
+      { ingredients: [{ name: "Plant-based chicken pieces with chicken broth" }] },
+      { dietary_preferences: ["vegan"] },
+    ),
+    "Recipe contains an allergen or dietary restriction conflict.",
+  );
 });
 
 test("does not confuse explicitly allergen-free foods with allergens", () => {
@@ -386,6 +393,13 @@ const planResponseCases = [
   })],
 ];
 
+function gateProfile(allergies = [], dietaryPreferences = []) {
+  return {
+    allergies,
+    dietary_preferences: dietaryPreferences,
+  };
+}
+
 test("every plan response path rejects every saved allergen family before serialization", () => {
   const gate = namedRecipeIntegrity.mealPlanResponseAllergenGate;
   for (const [pathName, makeBody] of planResponseCases) {
@@ -397,7 +411,7 @@ test("every plan response path rejects every saved allergen family before serial
       for (const [variantName, entry] of fieldVariants) {
         const body = makeBody({ ingredients: [entry] });
         assert.throws(
-          () => gate(body, { allergies: [allergy] }),
+          () => gate(body, gateProfile([allergy])),
           /allergen egress/i,
           `${pathName} (${variantName}) exposed ${ingredient} for ${allergy}`,
         );
@@ -415,13 +429,238 @@ test("safety labels never mask a real allergen in the same field", () => {
   ]) {
     assert.throws(
       () => gate(
-        { plan: { ingredients: [{ name: ingredient }] }, fallback: true },
-        { allergies: [allergy] },
+        {
+          plan: {
+            ingredients: [{ name: ingredient, usda_query: "vegetable sauce" }],
+          },
+          fallback: true,
+        },
+        gateProfile([allergy]),
       ),
       /allergen egress/i,
       `contradictory label passed: ${ingredient} for ${allergy}`,
     );
   }
+});
+
+for (const [allergy, ingredient] of [
+  ["dairy", "Oat milk blended with whole milk"],
+  ["dairy", "Dairy-free yogurt with Greek yogurt"],
+  ["dairy", "Dairy-free sauce with milk"],
+  ["gluten", "Gluten-free seasoning with added gluten"],
+]) {
+  for (const field of ["name", "usda_query"]) {
+    test(`an explicit safety label does not mask ${allergy} in ${field}: ${ingredient}`, () => {
+      const entry = {
+        name: "Vegetable seasoning",
+        usda_query: "vegetable seasoning",
+        [field]: ingredient,
+      };
+      assert.throws(
+        () => namedRecipeIntegrity.mealPlanResponseAllergenGate(
+          { plan: { ingredients: [entry] } },
+          gateProfile([allergy]),
+        ),
+        /allergen egress/i,
+      );
+    });
+  }
+}
+
+test("lactose-free milk remains unsafe for dairy and milk allergy restrictions", () => {
+  const body = {
+    plan: {
+      ingredients: [{
+        name: "Lactose-free whole milk",
+        usda_query: "lactose-free whole milk",
+      }],
+    },
+  };
+  for (const allergy of ["dairy", "milk allergy"]) {
+    assert.throws(
+      () => namedRecipeIntegrity.mealPlanResponseAllergenGate(
+        body,
+        gateProfile([allergy]),
+      ),
+      /allergen egress/i,
+      allergy,
+    );
+  }
+});
+
+test("lactose-free milk is safe for a lactose-only restriction", () => {
+  const body = {
+    plan: {
+      ingredients: [{
+        name: "Lactose-free whole milk",
+        usda_query: "lactose-free whole milk",
+      }],
+    },
+  };
+  assert.equal(
+    namedRecipeIntegrity.mealPlanResponseAllergenGate(
+      body,
+      gateProfile([], ["lactose"]),
+    ),
+    body,
+  );
+});
+
+for (const [allergy, ingredient] of [
+  ["soy", "Roasted soybeans"],
+  ["seafood", "Salmon fillet"],
+  ["fish", "Cod fillet"],
+  ["Shellfish allergy", "Crayfish tails"],
+  ["Shellfish allergy", "Langoustine tails"],
+  ["Nut allergy", "Groundnut oil"],
+  ["gluten", "Semolina flour"],
+]) {
+  test(`the allergen family for ${allergy} includes ${ingredient}`, () => {
+    assert.throws(
+      () => namedRecipeIntegrity.mealPlanResponseAllergenGate(
+        {
+          plan: {
+            ingredients: [{ name: ingredient, usda_query: ingredient }],
+          },
+        },
+        gateProfile([allergy]),
+      ),
+      /allergen egress/i,
+    );
+  });
+}
+
+test("bilingual allergen-free labels remove only their safe occurrence", () => {
+  for (const [allergy, ingredient] of [
+    ["peanut", "無花生醬"],
+    ["gluten", "無麩質麵包"],
+  ]) {
+    const body = {
+      plan: {
+        ingredients: [{ name: ingredient, usda_query: ingredient }],
+      },
+    };
+    assert.equal(
+      namedRecipeIntegrity.mealPlanResponseAllergenGate(
+        body,
+        gateProfile([allergy]),
+      ),
+      body,
+      ingredient,
+    );
+  }
+
+  assert.throws(
+    () => namedRecipeIntegrity.mealPlanResponseAllergenGate(
+      {
+        plan: {
+          ingredients: [{ name: "無花生醬含花生", usda_query: "無花生醬含花生" }],
+        },
+      },
+      gateProfile(["peanut"]),
+    ),
+    /allergen egress/i,
+  );
+});
+
+test("lactic acid compounds do not produce dairy false positives", () => {
+  for (const ingredient of ["乳酸", "乳酸鈣"]) {
+    const body = {
+      plan: {
+        ingredients: [{ name: ingredient, usda_query: ingredient }],
+      },
+    };
+    assert.equal(
+      namedRecipeIntegrity.mealPlanResponseAllergenGate(
+        body,
+        gateProfile(["dairy"]),
+      ),
+      body,
+      ingredient,
+    );
+  }
+});
+
+test("the egress gate fails closed for malformed plan ingredient schemas", () => {
+  const malformedPlans = [
+    {},
+    { ingredients: null },
+    { ingredients: {} },
+    { ingredients: [null] },
+    { ingredients: ["Rice"] },
+    { ingredients: [{ usda_query: "rice" }] },
+    { ingredients: [{ name: 42, usda_query: "rice" }] },
+    { ingredients: [{ name: "Rice" }] },
+    { ingredients: [{ name: "Rice", usda_query: null }] },
+  ];
+  for (const plan of malformedPlans) {
+    assert.throws(
+      () => namedRecipeIntegrity.mealPlanResponseAllergenGate(
+        { plan },
+        gateProfile(),
+      ),
+      /allergen egress/i,
+      JSON.stringify(plan),
+    );
+  }
+});
+
+test("the egress gate fails closed for malformed safety profile arrays", () => {
+  const validBody = {
+    plan: {
+      ingredients: [{ name: "Rice", usda_query: "rice" }],
+    },
+  };
+  const malformedProfiles = [
+    { dietary_preferences: [] },
+    { allergies: null, dietary_preferences: [] },
+    { allergies: "peanut", dietary_preferences: [] },
+    { allergies: [null], dietary_preferences: [] },
+    { allergies: [] },
+    { allergies: [], dietary_preferences: null },
+    { allergies: [], dietary_preferences: "gluten" },
+    { allergies: [], dietary_preferences: [42] },
+  ];
+  for (const profile of malformedProfiles) {
+    assert.throws(
+      () => namedRecipeIntegrity.mealPlanResponseAllergenGate(validBody, profile),
+      /safety profile is unavailable/i,
+      JSON.stringify(profile),
+    );
+  }
+});
+
+test("the egress gate enforces only medical dietary preferences", () => {
+  for (const [preference, ingredient] of [
+    ["gluten", "Semolina flour"],
+    ["lactose", "Whole milk"],
+  ]) {
+    assert.throws(
+      () => namedRecipeIntegrity.mealPlanResponseAllergenGate(
+        {
+          plan: {
+            ingredients: [{ name: ingredient, usda_query: ingredient }],
+          },
+        },
+        gateProfile([], [preference]),
+      ),
+      /allergen egress/i,
+      preference,
+    );
+  }
+
+  const veganBody = {
+    plan: {
+      ingredients: [{ name: "Unsalted butter", usda_query: "butter" }],
+    },
+  };
+  assert.equal(
+    namedRecipeIntegrity.mealPlanResponseAllergenGate(
+      veganBody,
+      gateProfile([], ["vegan"]),
+    ),
+    veganBody,
+  );
 });
 
 test("the egress gate fails closed without a profile but leaves non-plan responses unchanged", () => {
@@ -447,6 +686,7 @@ test("the egress gate preserves explicit allergen-free ingredients", () => {
   assert.equal(
     namedRecipeIntegrity.mealPlanResponseAllergenGate(body, {
       allergies: ["peanut"],
+      dietary_preferences: [],
     }),
     body,
   );
