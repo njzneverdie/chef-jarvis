@@ -383,7 +383,7 @@ test("broad meal prompts use recent-history deduplication and rotating fallbacks
     /recipeContextPromptEnvelope\(\{[\s\S]*recentMeals,[\s\S]*\}\)/,
   );
   assert.match(edge, /recipeVarietyRejectionReason/);
-  assert.match(edge, /temperature: 0\.55/);
+  assert.match(edge, /generationConfig: recipeGenerationConfig\(0\.55\)/);
   assert.match(edge, /selectLeastRecentFallback/);
   assert.match(edge, /Lemon paprika chicken quinoa skillet/);
   assert.match(edge, /Ginger beef broccoli skillet/);

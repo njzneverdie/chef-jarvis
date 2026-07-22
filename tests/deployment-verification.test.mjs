@@ -88,7 +88,7 @@ test("deployment verifier compares public hashes and Edge versions", async () =>
   );
   assert.match(
     mealPlan,
-    /const FUNCTION_VERSION = "2026-07-23\.named-recipe\.17"/,
+    /const FUNCTION_VERSION = "2026-07-23\.named-recipe\.21"/,
   );
   assert.equal(
     JSON.parse(packageJson).scripts["verify:deployment"],

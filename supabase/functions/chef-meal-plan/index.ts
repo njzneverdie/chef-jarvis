@@ -45,7 +45,7 @@ import {
 } from "../_shared/named-recipe-integrity.js";
 
 const PROMPT_VERSION = "2026-07-22.10";
-const FUNCTION_VERSION = "2026-07-23.named-recipe.17";
+const FUNCTION_VERSION = "2026-07-23.named-recipe.21";
 const EDGE_DEADLINE_MS = 42_000;
 const REFUND_RESERVE_MS = 1_500;
 const MAX_RECIPE_REPAIRS = 2;
@@ -215,6 +215,14 @@ type MealPlan = {
   canonical_dish_name?: string;
   original_request?: string;
 };
+
+function recipeGenerationConfig(temperature: number) {
+  return {
+    temperature,
+    responseMimeType: "application/json",
+    maxOutputTokens: 6500,
+  };
+}
 
 const defaultOrigins = [
   "https://chef-jarvis.pages.dev",
@@ -3046,11 +3054,7 @@ Recipe variety is mandatory for broad requests:
 Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact finished dish name in English","summary":"string","minutes":number,"servings":number,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,"ingredients":[{"name":"string","usda_query":"specific English USDA search name","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other"}],"steps":[{"instruction":"string","timers":[{"label":"string","kind":"preheat|cook|bake|simmer|boil|steam|rest|marinate|chill|proof|cool","duration_seconds":number}]}],"substitutions":[{"from":"exact ingredients[].name","to":"specific replacement ingredient","usda_query":"specific English USDA search name for replacement","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other","reason":"string","step_updates":[{"step_index":number,"instruction":"complete replacement-safe instruction","timers":[{"label":"string","kind":"preheat|cook|bake|simmer|boil|steam|rest|marinate|chill|proof|cool","duration_seconds":number}]}]}],"equipment_adaptations":[{"original":"string","alternative":"string","instructions":"string","why":"string"}],"reuse_ideas":[{"title":"string","uses":["string"],"why":"string"}]}. Use an empty timers array when a step has no explicit timed cooking interval. Every substitution must include every affected step in step_updates using zero-based indexes, with safe technique, doneness guidance, temperature, and timer changes for the replacement; never leave instructions for the original ingredient. The maximums below are safety ceilings only, never targets: 60 ingredients, 40 steps, 8 substitutions and 4 reuse ideas.`;
     const geminiBody = JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.55,
-        responseMimeType: "application/json",
-        maxOutputTokens: 6500,
-      },
+      generationConfig: recipeGenerationConfig(0.55),
     });
 
     const modelAttempts = [
@@ -3123,11 +3127,7 @@ Return ONLY valid JSON with exactly: {"title":"string","image_query":"exact fini
                   role: "user",
                   parts: [{ text: `${prompt}\n\n${repairPrompt}` }],
                 }],
-                generationConfig: {
-                  temperature: 0,
-                  responseMimeType: "application/json",
-                  maxOutputTokens: 6500,
-                },
+                generationConfig: recipeGenerationConfig(0),
               }),
               deadlineTimeout(deadlineAt, 8_000, REFUND_RESERVE_MS),
             );

@@ -31,7 +31,9 @@ const aliasGroups = [
     ],
     coreIngredientGroups: [[
       "lasagna noodles", "lasagne sheets", "lasagna sheets",
+      "pasta sheets", "fresh pasta sheets", "fresh egg pasta sheets",
       "千層麵片", "千层面片", "千層麵", "千层面",
+      "義大利麵片", "意大利面片",
     ]],
     coreTechniqueTerms: [
       "layer", "layered", "assemble", "bake", "baked",

@@ -64,6 +64,26 @@ test("validation failures expose only fixed support reason codes", () => {
     "dish_core_technique",
   );
   assert.equal(
+    recipeValidationReasonCode(new Error("ingredients[2].name must describe one purchasable item")),
+    "ingredient_combined",
+  );
+  assert.equal(
+    recipeValidationReasonCode(new Error("ingredients[2].quantity is invalid")),
+    "ingredient_quantity",
+  );
+  assert.equal(
+    recipeValidationReasonCode(new Error("ingredients[2].unit is invalid")),
+    "ingredient_unit",
+  );
+  assert.equal(
+    recipeValidationReasonCode(new Error("ingredients[2].preparation is invalid")),
+    "ingredient_preparation",
+  );
+  assert.equal(
+    recipeValidationReasonCode(new Error("ingredients[2].category is invalid")),
+    "ingredient_category",
+  );
+  assert.equal(
     recipeValidationReasonCode(new SyntaxError("Unexpected end of JSON input")),
     "invalid_json",
   );
@@ -107,6 +127,10 @@ test("uses canonical name only for legacy resolutions without trusted aliases", 
 });
 
 test("only structural timer and field failures are repairable", () => {
+  assert.equal(
+    recipeValidationDisposition(new SyntaxError("Unexpected end of JSON input")),
+    "repairable",
+  );
   assert.equal(
     recipeValidationDisposition(
       new Error(
@@ -860,6 +884,16 @@ test("accepts diced pork belly slowly braised as another standard 肉燥飯 form
     ingredients: [{ name: "帶皮豬五花肉", usda_query: "pork belly" }],
     steps: [{ instruction: "加入滷汁，以小火煨煮 45 分鐘。" }],
   }, baselineDishResolution("肉燥飯"));
+
+  assert.equal(reason, "");
+});
+
+test("accepts fresh pasta sheets as the defining ingredient for Bolognese lasagna", () => {
+  const reason = namedDishCoreIdentityRejectionReason({
+    title: "波隆那千層麵",
+    ingredients: [{ name: "新鮮義大利麵片", usda_query: "fresh pasta sheets" }],
+    steps: [{ instruction: "將肉醬、白醬與麵片分層組裝後烘烤 35 分鐘。" }],
+  }, baselineDishResolution("波隆那千層麵"));
 
   assert.equal(reason, "");
 });

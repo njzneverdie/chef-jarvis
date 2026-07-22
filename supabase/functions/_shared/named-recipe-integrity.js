@@ -530,6 +530,8 @@ const repairablePatterns = [
 
 export function recipeValidationDisposition(error) {
   const message = error instanceof Error ? error.message : String(error || "");
+  if (error instanceof SyntaxError || /JSON|Unexpected (?:end|token)/i.test(message))
+    return "repairable";
   return repairablePatterns.some((pattern) => pattern.test(message))
     ? "repairable"
     : "fatal";
@@ -551,6 +553,16 @@ export function recipeValidationReasonCode(error) {
   if (/must use one exact duration/i.test(message))
     return "timer_ambiguous_range";
   if (/^steps\[|timer|duration/i.test(message)) return "timer_contract";
+  if (/^ingredients\[\d+\]\.name must describe one purchasable item/i.test(message))
+    return "ingredient_combined";
+  if (/^ingredients\[\d+\]\.quantity /i.test(message))
+    return "ingredient_quantity";
+  if (/^ingredients\[\d+\]\.unit /i.test(message))
+    return "ingredient_unit";
+  if (/^ingredients\[\d+\]\.preparation /i.test(message))
+    return "ingredient_preparation";
+  if (/^ingredients\[\d+\]\.category /i.test(message))
+    return "ingredient_category";
   if (/^ingredients\[|ingredient/i.test(message)) return "ingredient_contract";
   if (/allergen|dietary restriction/i.test(message)) return "restriction_conflict";
   if (/^Generated title /i.test(message)) return "dish_title";
