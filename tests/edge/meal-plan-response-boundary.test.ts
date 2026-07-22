@@ -14,8 +14,9 @@ Deno.env.delete("THEMEALDB_API_KEY");
 
 type StubState = {
   allergies: string[];
-  geminiMode: "fail" | "recipe";
+  geminiMode: "fail" | "recipe" | "named_verifier_fallback";
   geminiRecipe: Record<string, unknown> | null;
+  geminiCalls: Array<{ model: string; kind: string }>;
   consumeCalls: number;
   refundCalls: number;
 };
@@ -24,6 +25,7 @@ const state: StubState = {
   allergies: [],
   geminiMode: "fail",
   geminiRecipe: null,
+  geminiCalls: [],
   consumeCalls: 0,
   refundCalls: 0,
 };
@@ -93,7 +95,70 @@ function stubSupabase(url: URL, init?: RequestInit): Response {
   return json({ message: `unexpected supabase path ${path}` }, 500);
 }
 
-function stubGemini(): Response {
+function stubGemini(url: URL, init?: RequestInit): Response {
+  const model = url.pathname.match(/\/models\/([^:]+):generateContent/)?.[1] || "";
+  const requestBody = typeof init?.body === "string"
+    ? JSON.parse(init.body) as {
+      contents?: Array<{ parts?: Array<{ text?: string }> }>;
+    }
+    : {};
+  const prompt = requestBody.contents?.[0]?.parts?.[0]?.text || "";
+  const kind = prompt.includes("Treat the following as a dish label")
+    ? "resolver"
+    : prompt.includes("Independently verify whether the recipe is exactly")
+    ? "verifier"
+    : "generation";
+  state.geminiCalls.push({ model, kind });
+  if (state.geminiMode === "named_verifier_fallback") {
+    if (kind === "resolver") {
+      return json({
+        candidates: [{
+          content: {
+            parts: [{
+              text: JSON.stringify({
+                canonical_name: "波隆那千層麵",
+                aliases: ["Bolognese lasagna", "Lasagna alla Bolognese"],
+                core_ingredient_groups: [
+                  ["ground beef", "beef mince"],
+                  ["lasagna noodles"],
+                ],
+                core_techniques: ["layer", "bake"],
+                confidence: 0.99,
+                candidates: [],
+              }),
+            }],
+          },
+        }],
+      });
+    }
+    if (model === "gemini-3.5-flash") {
+      return json({ error: "stubbed model unavailable" }, 503);
+    }
+    if (kind === "verifier") {
+      return json({
+        candidates: [{
+          content: {
+            parts: [{
+              text: JSON.stringify({
+                same_dish: true,
+                confidence: 0.99,
+                missing_core: [],
+              }),
+            }],
+          },
+        }],
+      });
+    }
+    if (kind === "generation" && state.geminiRecipe) {
+      return json({
+        candidates: [{
+          content: {
+            parts: [{ text: JSON.stringify(state.geminiRecipe) }],
+          },
+        }],
+      });
+    }
+  }
   if (state.geminiMode === "recipe" && state.geminiRecipe) {
     return json({
       candidates: [{
@@ -120,7 +185,7 @@ globalThis.fetch = ((input: Request | URL | string, init?: RequestInit) => {
     return Promise.resolve(stubSupabase(url, { ...init, method }));
   }
   if (url.hostname === "generativelanguage.googleapis.com") {
-    return Promise.resolve(stubGemini());
+    return Promise.resolve(stubGemini(url, init));
   }
   if (url.hostname.endsWith("themealdb.com")) {
     return Promise.resolve(json({ meals: null }));
@@ -151,6 +216,7 @@ function resetScenario(overrides: Partial<StubState> = {}) {
   state.allergies = [];
   state.geminiMode = "fail";
   state.geminiRecipe = null;
+  state.geminiCalls = [];
   state.consumeCalls = 0;
   state.refundCalls = 0;
   Object.assign(state, overrides);
@@ -289,4 +355,87 @@ Deno.test("ai success returns a validated plan and keeps the quota consumed", { 
   assertEquals(state.refundCalls, 0, "a successful metered plan keeps its quota");
   assertEquals(completions.length, 1);
   assertEquals(completions[0].outcome, "ai_generated");
+});
+
+Deno.test("a named recipe falls back to the working generation model when the preferred identity verifier is unavailable", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  resetScenario({
+    geminiMode: "named_verifier_fallback",
+    geminiRecipe: {
+      title: "波隆那千層麵",
+      image_query: "Bolognese lasagna",
+      summary: "Classic layered lasagna with Bolognese sauce and cheese.",
+      minutes: 75,
+      servings: 4,
+      kcal: 720,
+      protein_g: 42,
+      carbs_g: 68,
+      fat_g: 31,
+      ingredients: [
+        {
+          name: "牛絞肉",
+          usda_query: "ground beef",
+          quantity: 500,
+          unit: "g",
+          preparation: "解凍並撥散",
+          category: "protein",
+        },
+        {
+          name: "千層麵片",
+          usda_query: "dry lasagna noodles",
+          quantity: 250,
+          unit: "g",
+          preparation: "依包裝說明預煮",
+          category: "grain",
+        },
+        {
+          name: "番茄泥",
+          usda_query: "tomato puree",
+          quantity: 500,
+          unit: "g",
+          preparation: "no preparation",
+          category: "produce",
+        },
+        {
+          name: "莫札瑞拉起司",
+          usda_query: "mozzarella cheese",
+          quantity: 200,
+          unit: "g",
+          preparation: "刨絲",
+          category: "dairy",
+        },
+      ],
+      steps: [
+        {
+          instruction: "將牛絞肉炒 8 分鐘，再加入番茄泥燉煮 20 分鐘。",
+          timers: [
+            { label: "炒牛絞肉", kind: "cook", duration_seconds: 480 },
+            { label: "燉煮波隆那醬", kind: "simmer", duration_seconds: 1200 },
+          ],
+        },
+        {
+          instruction: "將麵片、波隆那醬與莫札瑞拉起司分層鋪好，以 190°C 烘烤 35 分鐘。",
+          timers: [
+            { label: "烘烤千層麵", kind: "bake", duration_seconds: 2100 },
+          ],
+        },
+      ],
+      substitutions: [],
+      equipment_adaptations: [],
+      reuse_ideas: [],
+    },
+  });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+
+  const { status, body } = await requestPlan("波隆那千層麵");
+
+  assertEquals(status, 200);
+  assertEquals(body.plan?.title, "波隆那千層麵");
+  assertEquals(state.refundCalls, 0);
+  assertEquals(completions.length, 1);
+  assertEquals(state.geminiCalls, [
+    { model: "gemini-3.1-flash-lite", kind: "resolver" },
+    { model: "gemini-3.1-flash-lite", kind: "generation" },
+    { model: "gemini-3.5-flash", kind: "verifier" },
+    { model: "gemini-3.1-flash-lite", kind: "verifier" },
+  ]);
 });
