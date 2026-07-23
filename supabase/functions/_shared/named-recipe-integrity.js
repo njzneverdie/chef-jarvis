@@ -356,15 +356,13 @@ export function recipeRestrictionRejectionReason(plan, profile) {
  * response is rejected. Never sanitizes individual ingredients.
  */
 export function mealPlanResponseAllergenGate(body, profile) {
-  // Only bodies without any plan key (errors, clarifications) pass through;
-  // a present plan key with a malformed value — including null — fails closed.
-  if (
-    !body ||
-    typeof body !== "object" ||
-    !Object.prototype.hasOwnProperty.call(body, "plan")
-  ) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return body;
   }
+  const hasPlan = Object.prototype.hasOwnProperty.call(body, "plan");
+  const hasRecipes = Object.prototype.hasOwnProperty.call(body, "recipes");
+  if (!hasPlan && !hasRecipes) return body;
+
   const isStringArray = (value) =>
     Array.isArray(value) && value.every((item) => typeof item === "string");
   if (
@@ -375,33 +373,73 @@ export function mealPlanResponseAllergenGate(body, profile) {
   ) {
     throw new Error("Meal plan response safety profile is unavailable.");
   }
-  if (
-    !body.plan ||
-    typeof body.plan !== "object" ||
-    Array.isArray(body.plan) ||
-    !Array.isArray(body.plan.ingredients) ||
-    !body.plan.ingredients.every((ingredient) =>
-      ingredient &&
-      typeof ingredient === "object" &&
-      !Array.isArray(ingredient) &&
-      typeof ingredient.name === "string" &&
-      typeof ingredient.usda_query === "string"
-    )
-  ) {
-    throw new Error("Meal plan response failed allergen egress validation.");
-  }
+
   const medicalDietaryPreferences = profile.dietary_preferences.filter((value) => {
     const normalized = normalizeRestrictionText(value);
     return [
       "gluten", "wheat", "lactose", "麩質", "麸质", "小麥", "小麦", "乳糖",
     ].some((term) => hasIngredientTerm(normalized, term));
   });
-  const reason = recipeRestrictionRejectionReason(body.plan, {
-    allergies: profile.allergies,
-    dietary_preferences: medicalDietaryPreferences,
-  });
-  if (reason) {
+
+  const validatePlan = (plan) => {
+    if (
+      !plan ||
+      typeof plan !== "object" ||
+      Array.isArray(plan) ||
+      !Array.isArray(plan.ingredients) ||
+      !plan.ingredients.every((ingredient) =>
+        ingredient &&
+        typeof ingredient === "object" &&
+        !Array.isArray(ingredient) &&
+        typeof ingredient.name === "string" &&
+        typeof ingredient.usda_query === "string"
+      )
+    ) {
+      throw new Error("Meal plan response failed allergen egress validation.");
+    }
+    const reason = recipeRestrictionRejectionReason(plan, {
+      allergies: profile.allergies,
+      dietary_preferences: medicalDietaryPreferences,
+    });
+    if (reason) {
+      throw new Error("Meal plan response failed allergen egress validation.");
+    }
+  };
+
+  if (hasPlan) {
+    if (hasRecipes) {
+      throw new Error("Meal plan response failed allergen egress validation.");
+    }
+    validatePlan(body.plan);
+    return body;
+  }
+
+  if (
+    body.request_type !== "menu" ||
+    !Array.isArray(body.recipes) ||
+    !body.recipes.length
+  ) {
     throw new Error("Meal plan response failed allergen egress validation.");
+  }
+  for (const item of body.recipes) {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      Array.isArray(item) ||
+      typeof item.requested_dish !== "string"
+    ) {
+      throw new Error("Meal plan response failed allergen egress validation.");
+    }
+    if (item.status === "ready") {
+      validatePlan(item.plan);
+      continue;
+    }
+    if (
+      !["clarification_required", "unavailable"].includes(item.status) ||
+      Object.prototype.hasOwnProperty.call(item, "plan")
+    ) {
+      throw new Error("Meal plan response failed allergen egress validation.");
+    }
   }
   return body;
 }
