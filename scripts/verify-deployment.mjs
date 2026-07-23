@@ -18,7 +18,7 @@ const edgeFunctions = [
   "chef-delete-account",
 ];
 const versionHeader = "x-chef-jarvis-function-version";
-const requiredMealPlanVersion = "2026-07-23.named-recipe.21";
+const requiredMealPlanVersion = "2026-07-23.multi-dish-menu.22";
 
 const sha256 = (value) =>
   createHash("sha256").update(value).digest("hex");
@@ -66,7 +66,7 @@ async function verifyEdgeFunction(name) {
   const expected = await localFunctionVersion(name);
   if (name === "chef-meal-plan" && expected !== requiredMealPlanVersion) {
     throw new Error(
-      `${name} must be the named-recipe release ${requiredMealPlanVersion}, not ${expected}`,
+      `${name} must be the multi-dish release ${requiredMealPlanVersion}, not ${expected}`,
     );
   }
   const response = await fetchChecked(`${functionsUrl}/${name}`, {

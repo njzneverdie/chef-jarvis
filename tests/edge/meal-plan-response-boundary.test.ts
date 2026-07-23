@@ -280,6 +280,27 @@ Deno.test("menu response boundary rejects an unsafe ready plan", () => {
   assert(rejected, "unsafe menu plan must fail before serialization");
 });
 
+Deno.test("explicit menus return independent unavailable items without consuming quota when AI is unconfigured", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  resetScenario();
+  Deno.env.delete("GEMINI_API_KEY");
+  const { status, body } = await requestPlan("肉燥飯、波隆那千層麵");
+  assertEquals(status, 503);
+  assertEquals(body.request_type, "menu");
+  assertEquals(body.original_request, "肉燥飯、波隆那千層麵");
+  assertEquals(body.recipes.length, 2);
+  assertEquals(
+    body.recipes.map((item: Record<string, unknown>) => ({
+      dish: item.requested_dish,
+      status: item.status,
+    })),
+    [
+      { dish: "肉燥飯", status: "unavailable" },
+      { dish: "波隆那千層麵", status: "unavailable" },
+    ],
+  );
+  assertEquals(state.consumeCalls, 0);
+});
+
 Deno.test("unconfigured fallback returns a labeled plan without consuming quota", { sanitizeOps: false, sanitizeResources: false }, async () => {
   resetScenario();
   Deno.env.delete("GEMINI_API_KEY");

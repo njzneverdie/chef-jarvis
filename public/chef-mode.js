@@ -5,6 +5,7 @@ let activeRecipeInstanceId = null;
 let currentPlan = null;
 let currentPlanRecipeId = null;
 let currentPlanInstanceId = null;
+let menuPlanResults = [];
 let nextPlanInstanceId = 0;
 let cookingStepIndex = 0;
 let chefEquipmentAdaptations = [];
@@ -498,6 +499,7 @@ function resetChefModeState() {
   currentPlan = null;
   currentPlanRecipeId = null;
   currentPlanInstanceId = null;
+  menuPlanResults = [];
   cookingStepIndex = 0;
   timers = [];
   recipeTimersInitialized = false;
@@ -2169,6 +2171,146 @@ async function renderUsdaReference(
   }
 }
 
+function prepareGeneratedPlan(rawPlan, request, fallback = false) {
+  const plan = {
+    ...(rawPlan && typeof rawPlan === "object" ? rawPlan : {}),
+    userRequest: request,
+    fallback: Boolean(fallback || rawPlan?.fallback),
+    is_saved: false,
+    saved_recipe_id: null,
+  };
+  if (plan.source_persistence !== "session_only") {
+    plan.persistence_notice =
+      "This plan stays in this browser session until you select Cook later.";
+  }
+  return plan;
+}
+
+function renderMenuPlanCards(result) {
+  document.querySelector("#menu-plan-results")?.remove();
+  const form = document.querySelector("#meal-form");
+  if (!form) return;
+  menuPlanResults = Array.isArray(result?.recipes)
+    ? result.recipes.slice(0, 6)
+    : [];
+  const readyCount = menuPlanResults.filter(
+    (item) => item.status === "ready",
+  ).length;
+  const panel = document.createElement("section");
+  panel.id = "menu-plan-results";
+  panel.className = "menu-plan-results";
+  panel.setAttribute("aria-live", "polite");
+  panel.innerHTML = `
+    <div class="menu-plan-heading">
+      <div>
+        <p class="eyebrow">YOUR MENU</p>
+        <h2>${esc(window.I18n.translate("Your recipes are ready."))}</h2>
+        <p>${esc(
+          window.I18n.code === "zh-TW"
+            ? `${readyCount} / ${menuPlanResults.length} 道食譜已完成；每一道都可獨立開啟或重試。`
+            : `${readyCount} of ${menuPlanResults.length} recipes are ready. Open or retry each dish independently.`,
+        )}</p>
+      </div>
+    </div>
+    <div class="menu-plan-grid">
+      ${menuPlanResults
+        .map((item, index) => {
+          const dish = String(item.requested_dish || "Requested dish");
+          if (item.status === "ready" && item.plan) {
+            const plan = item.plan;
+            return `<article class="menu-plan-card ready" data-menu-card="${index}">
+              <span class="menu-plan-status">${esc(window.I18n.translate("Recipe ready"))}</span>
+              <h3>${esc(plan.title || dish)}</h3>
+              <p>${esc(plan.summary || dish)}</p>
+              <div class="menu-plan-facts"><span>◷ ${displayNumber(plan.minutes, 30)} min</span><span>${displayNumber(plan.servings, 2)} servings</span></div>
+              <div class="menu-plan-actions">
+                <button class="dark" type="button" data-menu-open="${index}">${esc(window.I18n.translate("Open recipe"))}</button>
+                <button class="cream" type="button" data-menu-cook="${index}">${esc(window.I18n.translate("Start cooking"))}</button>
+                <button class="link" type="button" data-menu-shopping="${index}">${esc(window.I18n.translate("Review shopping"))}</button>
+              </div>
+            </article>`;
+          }
+          if (item.status === "clarification_required") {
+            const candidates = Array.isArray(item.candidates)
+              ? item.candidates.slice(0, 3)
+              : [];
+            return `<article class="menu-plan-card clarification" data-menu-card="${index}">
+              <span class="menu-plan-status">${esc(window.I18n.translate("Needs clarification"))}</span>
+              <h3>${esc(dish)}</h3>
+              <p>${esc(item.message || window.I18n.translate("Add ingredients or cooking details so Jarvis can identify this custom dish."))}</p>
+              <div class="menu-plan-actions">${candidates
+                .map(
+                  (candidate) =>
+                    `<button class="cream" type="button" data-menu-candidate="${index}" data-menu-candidate-value="${esc(candidate)}">${esc(candidate)}</button>`,
+                )
+                .join("")}<button class="link" type="button" data-menu-retry="${index}">${esc(window.I18n.translate("Edit and retry"))}</button></div>
+            </article>`;
+          }
+          return `<article class="menu-plan-card unavailable" data-menu-card="${index}">
+            <span class="menu-plan-status">${esc(window.I18n.translate("Recipe unavailable"))}</span>
+            <h3>${esc(dish)}</h3>
+            <p>${esc(item.message || window.I18n.translate("This recipe could not be completed right now."))}</p>
+            <button class="cream" type="button" data-menu-retry="${index}">${esc(window.I18n.translate("Try this dish again"))}</button>
+          </article>`;
+        })
+        .join("")}
+    </div>`;
+  form.insertAdjacentElement("afterend", panel);
+
+  const openPlan = (index, action = "open") => {
+    const item = menuPlanResults[index];
+    if (item?.status !== "ready" || !item.plan) return;
+    renderPlan(item.plan);
+    show("plan");
+    if (action === "cook") {
+      setTimeout(() => document.querySelector("#start-guided-cook")?.click(), 0);
+    }
+    if (action === "shopping") {
+      setTimeout(
+        () =>
+          document
+            .querySelector("#plan .shopping-checklist")
+            ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        0,
+      );
+    }
+  };
+  panel.querySelectorAll("[data-menu-open]").forEach(
+    (button) =>
+      (button.onclick = () => openPlan(Number(button.dataset.menuOpen))),
+  );
+  panel.querySelectorAll("[data-menu-cook]").forEach(
+    (button) =>
+      (button.onclick = () =>
+        openPlan(Number(button.dataset.menuCook), "cook")),
+  );
+  panel.querySelectorAll("[data-menu-shopping]").forEach(
+    (button) =>
+      (button.onclick = () =>
+        openPlan(Number(button.dataset.menuShopping), "shopping")),
+  );
+  const retryDish = (dish) => {
+    const input = document.querySelector("#meal-input");
+    if (!input) return;
+    input.value = dish;
+    input.focus();
+    form.requestSubmit();
+  };
+  panel.querySelectorAll("[data-menu-retry]").forEach(
+    (button) =>
+      (button.onclick = () => {
+        const item = menuPlanResults[Number(button.dataset.menuRetry)];
+        retryDish(String(item?.requested_dish || ""));
+      }),
+  );
+  panel.querySelectorAll("[data-menu-candidate]").forEach(
+    (button) =>
+      (button.onclick = () =>
+        retryDish(String(button.dataset.menuCandidateValue || ""))),
+  );
+  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
 async function generatePlan(request) {
   const generationEpoch = chefStateEpoch;
   const {
@@ -2207,6 +2349,34 @@ async function generatePlan(request) {
     }
     const data = await response.json().catch(() => ({}));
     assertGenerationContext(ownerUserId, generationEpoch);
+    if (data.request_type === "menu" && Array.isArray(data.recipes)) {
+      const recipes = data.recipes.slice(0, 6).map((item) => {
+        const requestedDish = String(item?.requested_dish || "").slice(0, 160);
+        if (item?.status !== "ready" || !item.plan) {
+          return {
+            ...item,
+            requested_dish: requestedDish,
+          };
+        }
+        return {
+          ...item,
+          requested_dish: requestedDish,
+          plan: prepareGeneratedPlan(
+            item.plan,
+            requestedDish,
+            Boolean(item.fallback || item.plan?.fallback),
+          ),
+        };
+      });
+      return {
+        kind: "menu",
+        ownerUserId,
+        generationEpoch,
+        originalRequest: data.original_request || request,
+        recipes,
+        meta: data.meta || {},
+      };
+    }
     if (data.clarification_required) {
       return {
         kind: "clarification",
@@ -2233,18 +2403,12 @@ async function generatePlan(request) {
       };
       throw error;
     }
-    const plan = {
-      ...data.plan,
-      userRequest: request,
-      fallback: Boolean(data.fallback || data.plan?.fallback),
-    };
+    const plan = prepareGeneratedPlan(
+      data.plan,
+      request,
+      Boolean(data.fallback || data.plan?.fallback),
+    );
     assertGenerationContext(ownerUserId, generationEpoch);
-    plan.is_saved = false;
-    plan.saved_recipe_id = null;
-    if (plan.source_persistence !== "session_only") {
-      plan.persistence_notice =
-        "This plan stays in this browser session until you select Cook later.";
-    }
     return {
       kind: "plan",
       ownerUserId,

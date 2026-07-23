@@ -71,6 +71,17 @@
     "Add ingredients or cooking details so Jarvis can identify this custom dish.":
       "請補充可辨識的食材、料理風格或作法，讓 Jarvis 辨識這道自訂料理。",
     "Try again": "再試一次",
+    "Your recipes are ready.": "你的多道食譜已準備好。",
+    "Recipe ready": "食譜已完成",
+    "Open recipe": "開啟食譜",
+    "Start cooking": "開始烹飪",
+    "Review shopping": "查看購物清單",
+    "Needs clarification": "需要補充資訊",
+    "Edit and retry": "編輯後重試",
+    "Recipe unavailable": "暫時無法取得食譜",
+    "This recipe could not be completed right now.":
+      "這道食譜目前無法完成。",
+    "Try this dish again": "再次嘗試這道菜",
     Generate: "產生食譜",
     "High-protein dinner for 2": "兩人份高蛋白晚餐",
     "Use my pantry": "優先使用我的庫存",

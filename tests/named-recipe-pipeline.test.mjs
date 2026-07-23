@@ -1132,9 +1132,10 @@ test("chef-meal-plan routes every JSON return through one request-scoped allerge
     "only OPTIONS may bypass the JSON response gate",
   );
 
+  const unconfiguredStart = handler.indexOf("if (!apiKey)");
   const unconfigured = handler.slice(
-    handler.indexOf("if (!apiKey)"),
-    handler.indexOf("quotaRequestId = requestId"),
+    unconfiguredStart,
+    handler.indexOf("quotaRequestId = requestId", unconfiguredStart),
   );
   assert.match(unconfigured, /const response = safeRespond\(\{[\s\S]*?plan,/);
   assert.match(unconfigured, /outcome: "fallback_unconfigured"/);
@@ -1413,4 +1414,39 @@ test("the Edge generation prompt wires profile, pantry, and history through one 
   assert.doesNotMatch(edge, /Server-verified profile:\s*\$\{JSON\.stringify\(planningProfile\)\}/);
   assert.doesNotMatch(edge, /Server-verified pantry:\s*\$\{JSON\.stringify\(pantry\)\}/);
   assert.doesNotMatch(edge, /recent_meals[^\n]*\$\{JSON\.stringify\(recentMeals\)\}/);
+});
+
+test("the Edge function routes explicit menus through one reusable item generator", async () => {
+  const edge = await readFile(
+    new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(edge, /parseMenuRequest\(meal\)/);
+  assert.match(edge, /generateMenuItems\(/);
+  assert.match(edge, /async function generateNamedRecipeItem\(/);
+  assert.match(edge, /concurrency:\s*3/);
+  const handler = edge.slice(edge.indexOf("Deno.serve"));
+  assert.ok(handler.indexOf("parseMenuRequest(meal)") >= 0);
+});
+
+test("menu item generation returns data and final serialization stays request-scoped", async () => {
+  const edge = await readFile(
+    new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url),
+    "utf8",
+  );
+  const workerStart = edge.indexOf("async function generateNamedRecipeItem(");
+  const handlerStart = edge.indexOf("Deno.serve");
+  assert.ok(workerStart >= 0);
+  assert.ok(handlerStart > workerStart);
+  const worker = edge.slice(workerStart, handlerStart);
+  assert.doesNotMatch(worker, /\bsafeRespond\(/);
+  assert.doesNotMatch(worker, /\brespond\(/);
+  assert.match(worker, /status:\s*"ready"/);
+  assert.match(worker, /status:\s*"clarification_required"/);
+  assert.match(worker, /status:\s*"unavailable"/);
+  const handler = edge.slice(handlerStart);
+  assert.match(
+    handler,
+    /buildMenuResponse\([\s\S]*safeRespond\(menuBody/,
+  );
 });

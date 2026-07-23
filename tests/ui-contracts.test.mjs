@@ -37,6 +37,33 @@ test("named recipe clarification does not render or persist a plan", async () =>
   );
 });
 
+test("multi-dish responses render independent recipe cards, including partial failures", async () => {
+  const [app, chefMode] = await Promise.all([
+    readFile(new URL("app.js", publicUrl), "utf8"),
+    readFile(new URL("chef-mode.js", publicUrl), "utf8"),
+  ]);
+  const generate = functionSource(chefMode, "async function generatePlan");
+  const renderMenu = functionSource(
+    chefMode,
+    "function renderMenuPlanCards",
+  );
+  assert.match(generate, /data\.request_type === "menu"/);
+  assert.ok(
+    generate.indexOf('data.request_type === "menu"') <
+      generate.indexOf("if (!response.ok)"),
+    "a 503 all-unavailable menu still needs its per-dish cards",
+  );
+  assert.match(generate, /kind: "menu"/);
+  assert.match(renderMenu, /item\.status === "ready"/);
+  assert.match(renderMenu, /item\.status === "clarification_required"/);
+  assert.match(renderMenu, /data-menu-open/);
+  assert.match(renderMenu, /data-menu-cook/);
+  assert.match(renderMenu, /data-menu-shopping/);
+  assert.match(renderMenu, /data-menu-retry/);
+  assert.match(app, /result\.kind === "menu"/);
+  assert.match(app, /renderMenuPlanCards\(result\)/);
+});
+
 test("external recipes show provenance and obey persistence policy", async () => {
   const chefMode = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
   assert.match(chefMode, /recipe-source-note/);
@@ -166,7 +193,7 @@ test("the install experience uses the cache-refreshed app icon family", async ()
     readFile(new URL("manifest.webmanifest", publicUrl), "utf8"),
     readFile(new URL("sw.js", publicUrl), "utf8"),
   ]);
-  const version = "20260723-custom-allergies-1";
+  const version = "20260723-multi-dish-menu-1";
   const expected = [
     ["chef-jarvis-app-icon-v2-192.png", 192, "any"],
     ["chef-jarvis-app-icon-v2-1024.png", 1024, "any"],
