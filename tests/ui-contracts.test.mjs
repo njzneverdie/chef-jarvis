@@ -60,6 +60,15 @@ test("multi-dish responses render independent recipe cards, including partial fa
   assert.match(renderMenu, /data-menu-cook/);
   assert.match(renderMenu, /data-menu-shopping/);
   assert.match(renderMenu, /data-menu-retry/);
+  assert.match(
+    renderMenu,
+    /displayNumber\(finiteNumber\(plan\.minutes, 30\)\)/,
+  );
+  assert.match(
+    renderMenu,
+    /displayNumber\(finiteNumber\(plan\.servings, 2\)\)/,
+  );
+  assert.doesNotMatch(renderMenu, /displayNumber\(plan\.(?:minutes|servings),/);
   assert.match(app, /result\.kind === "menu"/);
   assert.match(app, /renderMenuPlanCards\(result\)/);
 });
@@ -193,7 +202,7 @@ test("the install experience uses the cache-refreshed app icon family", async ()
     readFile(new URL("manifest.webmanifest", publicUrl), "utf8"),
     readFile(new URL("sw.js", publicUrl), "utf8"),
   ]);
-  const version = "20260723-multi-dish-menu-1";
+  const version = "20260723-multi-dish-menu-2";
   const expected = [
     ["chef-jarvis-app-icon-v2-192.png", 192, "any"],
     ["chef-jarvis-app-icon-v2-1024.png", 1024, "any"],

@@ -2222,7 +2222,7 @@ function renderMenuPlanCards(result) {
               <span class="menu-plan-status">${esc(window.I18n.translate("Recipe ready"))}</span>
               <h3>${esc(plan.title || dish)}</h3>
               <p>${esc(plan.summary || dish)}</p>
-              <div class="menu-plan-facts"><span>◷ ${displayNumber(plan.minutes, 30)} min</span><span>${displayNumber(plan.servings, 2)} servings</span></div>
+              <div class="menu-plan-facts"><span>◷ ${displayNumber(finiteNumber(plan.minutes, 30))} min</span><span>${displayNumber(finiteNumber(plan.servings, 2))} servings</span></div>
               <div class="menu-plan-actions">
                 <button class="dark" type="button" data-menu-open="${index}">${esc(window.I18n.translate("Open recipe"))}</button>
                 <button class="cream" type="button" data-menu-cook="${index}">${esc(window.I18n.translate("Start cooking"))}</button>
