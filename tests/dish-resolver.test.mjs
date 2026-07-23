@@ -6,7 +6,6 @@ import {
   dishSearchTerms,
   normalizeDishResolution,
 } from "../supabase/functions/_shared/dish-resolver.js";
-import { parseMenuRequest } from "../supabase/functions/_shared/menu-request.js";
 import {
   namedDishCoreIdentityRejectionReason,
   namedDishRejectionReason,
@@ -16,15 +15,6 @@ test("classifies recognizable dish names separately from broad requests", () => 
   assert.equal(classifyMealRequest("肉燥飯"), "named_dish");
   assert.equal(classifyMealRequest("Beef Bourguignon"), "named_dish");
   assert.equal(classifyMealRequest("推薦一份高蛋白晚餐"), "broad_request");
-});
-
-test("routes a full menu into independent single-dish resolutions", () => {
-  const menu = parseMenuRequest("宮保雞丁、排骨蛋炒飯、炒高麗菜");
-  assert.equal(menu.kind, "menu");
-  assert.deepEqual(
-    menu.dishes.map((dish) => baselineDishResolution(dish).canonicalName),
-    ["宮保雞丁", "排骨蛋炒飯", "炒高麗菜"],
-  );
 });
 
 test("keeps explicit dish names named when recommendation or nutrition modifiers are present", () => {

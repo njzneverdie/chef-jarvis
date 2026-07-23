@@ -589,15 +589,10 @@ function renderHome() {
     try {
       document.querySelector("#dish-clarification")?.remove();
       document.querySelector("#dish-generation-error")?.remove();
-      document.querySelector("#menu-plan-results")?.remove();
       const result = await generatePlan(input);
       assertGenerationContext(result.ownerUserId, result.generationEpoch);
       if (result.kind === "clarification") {
         renderDishClarification(result);
-        return;
-      }
-      if (result.kind === "menu") {
-        renderMenuPlanCards(result);
         return;
       }
       renderPlan(result.plan);

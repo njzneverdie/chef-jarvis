@@ -805,97 +805,6 @@ test("the egress gate preserves explicit allergen-free ingredients", () => {
   );
 });
 
-test("the egress gate validates every ready menu recipe", () => {
-  const gate = namedRecipeIntegrity.mealPlanResponseAllergenGate;
-  const body = {
-    request_type: "menu",
-    recipes: [
-      {
-        requested_dish: "白飯",
-        status: "ready",
-        plan: {
-          ingredients: [{ name: "白飯", usda_query: "cooked white rice" }],
-        },
-      },
-      {
-        requested_dish: "未知料理",
-        status: "clarification_required",
-        candidates: [],
-      },
-      {
-        requested_dish: "失敗料理",
-        status: "unavailable",
-        code: "named_recipe_unavailable",
-        message: "Retry.",
-      },
-    ],
-  };
-  assert.equal(gate(body, gateProfile(["peanut"])), body);
-});
-
-test("the egress gate rejects an allergen in any ready menu recipe", () => {
-  assert.throws(
-    () =>
-      namedRecipeIntegrity.mealPlanResponseAllergenGate(
-        {
-          request_type: "menu",
-          recipes: [
-            {
-              requested_dish: "花生麵",
-              status: "ready",
-              plan: {
-                ingredients: [{
-                  name: "花生醬",
-                  usda_query: "peanut butter",
-                }],
-              },
-            },
-          ],
-        },
-        gateProfile(["peanut"]),
-      ),
-    /allergen egress/i,
-  );
-});
-
-test("non-ready menu items cannot smuggle a plan", () => {
-  for (const status of ["clarification_required", "unavailable"]) {
-    assert.throws(
-      () =>
-        namedRecipeIntegrity.mealPlanResponseAllergenGate(
-          {
-            request_type: "menu",
-            recipes: [{
-              requested_dish: "dish",
-              status,
-              plan: { ingredients: [] },
-            }],
-          },
-          gateProfile([]),
-        ),
-      /allergen egress/i,
-      status,
-    );
-  }
-});
-
-test("malformed ready menu items fail closed", () => {
-  for (const recipes of [
-    [],
-    [{ requested_dish: "dish", status: "ready" }],
-    [{ requested_dish: "dish", status: "unexpected" }],
-  ]) {
-    assert.throws(
-      () =>
-        namedRecipeIntegrity.mealPlanResponseAllergenGate(
-          { request_type: "menu", recipes },
-          gateProfile([]),
-        ),
-      /allergen egress/i,
-    );
-  }
-});
-
 test("rejects a title-matching plan with none of a named dish's core identity", () => {
   const resolution = {
     requestType: "named_dish",
@@ -1132,10 +1041,9 @@ test("chef-meal-plan routes every JSON return through one request-scoped allerge
     "only OPTIONS may bypass the JSON response gate",
   );
 
-  const unconfiguredStart = handler.indexOf("if (!apiKey)");
   const unconfigured = handler.slice(
-    unconfiguredStart,
-    handler.indexOf("quotaRequestId = requestId", unconfiguredStart),
+    handler.indexOf("if (!apiKey)"),
+    handler.indexOf("quotaRequestId = requestId"),
   );
   assert.match(unconfigured, /const response = safeRespond\(\{[\s\S]*?plan,/);
   assert.match(unconfigured, /outcome: "fallback_unconfigured"/);
@@ -1414,39 +1322,4 @@ test("the Edge generation prompt wires profile, pantry, and history through one 
   assert.doesNotMatch(edge, /Server-verified profile:\s*\$\{JSON\.stringify\(planningProfile\)\}/);
   assert.doesNotMatch(edge, /Server-verified pantry:\s*\$\{JSON\.stringify\(pantry\)\}/);
   assert.doesNotMatch(edge, /recent_meals[^\n]*\$\{JSON\.stringify\(recentMeals\)\}/);
-});
-
-test("the Edge function routes explicit menus through one reusable item generator", async () => {
-  const edge = await readFile(
-    new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url),
-    "utf8",
-  );
-  assert.match(edge, /parseMenuRequest\(meal\)/);
-  assert.match(edge, /generateMenuItems\(/);
-  assert.match(edge, /async function generateNamedRecipeItem\(/);
-  assert.match(edge, /concurrency:\s*3/);
-  const handler = edge.slice(edge.indexOf("Deno.serve"));
-  assert.ok(handler.indexOf("parseMenuRequest(meal)") >= 0);
-});
-
-test("menu item generation returns data and final serialization stays request-scoped", async () => {
-  const edge = await readFile(
-    new URL("../supabase/functions/chef-meal-plan/index.ts", import.meta.url),
-    "utf8",
-  );
-  const workerStart = edge.indexOf("async function generateNamedRecipeItem(");
-  const handlerStart = edge.indexOf("Deno.serve");
-  assert.ok(workerStart >= 0);
-  assert.ok(handlerStart > workerStart);
-  const worker = edge.slice(workerStart, handlerStart);
-  assert.doesNotMatch(worker, /\bsafeRespond\(/);
-  assert.doesNotMatch(worker, /\brespond\(/);
-  assert.match(worker, /status:\s*"ready"/);
-  assert.match(worker, /status:\s*"clarification_required"/);
-  assert.match(worker, /status:\s*"unavailable"/);
-  const handler = edge.slice(handlerStart);
-  assert.match(
-    handler,
-    /buildMenuResponse\([\s\S]*safeRespond\(menuBody/,
-  );
 });

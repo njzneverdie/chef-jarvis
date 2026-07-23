@@ -4,7 +4,6 @@
 // Gemini) is served by a URL-routing fetch stub. Run with:
 //   npx deno-bin test --no-lock -A tests/edge/
 import { assert, assertEquals, assertMatch } from "jsr:@std/assert@1";
-import { mealPlanResponseAllergenGate } from "../../supabase/functions/_shared/named-recipe-integrity.js";
 
 const SUPABASE_URL = "http://supabase-stub.invalid";
 Deno.env.set("SUPABASE_URL", SUPABASE_URL);
@@ -226,80 +225,6 @@ function resetScenario(overrides: Partial<StubState> = {}) {
 
 const BROAD_MEAL = "a healthy dinner";
 let fallbackAllergen = "";
-
-Deno.test("menu response boundary checks every ready plan", () => {
-  const body = {
-    request_type: "menu",
-    recipes: [
-      {
-        requested_dish: "Rice",
-        status: "ready",
-        plan: {
-          ingredients: [{ name: "Rice", usda_query: "cooked white rice" }],
-        },
-      },
-      {
-        requested_dish: "Retry dish",
-        status: "unavailable",
-        code: "named_recipe_unavailable",
-        message: "Retry.",
-      },
-    ],
-  };
-  assertEquals(
-    mealPlanResponseAllergenGate(body, {
-      allergies: ["peanut"],
-      dietary_preferences: [],
-    }),
-    body,
-  );
-});
-
-Deno.test("menu response boundary rejects an unsafe ready plan", () => {
-  let rejected = false;
-  try {
-    mealPlanResponseAllergenGate(
-      {
-        request_type: "menu",
-        recipes: [{
-          requested_dish: "Peanut noodles",
-          status: "ready",
-          plan: {
-            ingredients: [{
-              name: "Peanut butter",
-              usda_query: "peanut butter",
-            }],
-          },
-        }],
-      },
-      { allergies: ["peanut"], dietary_preferences: [] },
-    );
-  } catch {
-    rejected = true;
-  }
-  assert(rejected, "unsafe menu plan must fail before serialization");
-});
-
-Deno.test("explicit menus return independent unavailable items without consuming quota when AI is unconfigured", { sanitizeOps: false, sanitizeResources: false }, async () => {
-  resetScenario();
-  Deno.env.delete("GEMINI_API_KEY");
-  const { status, body } = await requestPlan("肉燥飯、波隆那千層麵");
-  assertEquals(status, 503);
-  assertEquals(body.request_type, "menu");
-  assertEquals(body.original_request, "肉燥飯、波隆那千層麵");
-  assertEquals(body.recipes.length, 2);
-  assertEquals(
-    body.recipes.map((item: Record<string, unknown>) => ({
-      dish: item.requested_dish,
-      status: item.status,
-    })),
-    [
-      { dish: "肉燥飯", status: "unavailable" },
-      { dish: "波隆那千層麵", status: "unavailable" },
-    ],
-  );
-  assertEquals(state.consumeCalls, 0);
-});
 
 Deno.test("unconfigured fallback returns a labeled plan without consuming quota", { sanitizeOps: false, sanitizeResources: false }, async () => {
   resetScenario();
