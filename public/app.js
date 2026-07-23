@@ -683,7 +683,7 @@ async function renderPantry() {
       ? data
           .map(
             (item) =>
-              `<article class="card pantry-item"><p class="eyebrow">${esc(item.storage_zone)}</p><h3>${esc(item.name)}</h3><p>${finiteNumber(item.quantity, "")} ${esc(item.unit || "")} · ${item.expires_on ? `Best by ${esc(item.expires_on)}` : "No expiry set"}</p></article>`,
+              `<article class="card pantry-item"><p class="eyebrow">${esc(item.storage_zone)}</p><h3>${esc(item.name)}</h3><p>${finiteNumber(item.quantity, "")} ${esc(item.unit || "")} · ${item.expires_on ? `Best by ${esc(item.expires_on)}` : "No expiry set"}</p><button type="button" class="pantry-remove" data-remove-id="${esc(item.id)}" aria-label="Remove ingredient" title="Remove ingredient">Remove</button></article>`,
           )
           .join("")
       : '<article class="card pantry-item"><h3>Your pantry is empty.</h3><p>Add what you have. Jarvis reads this list before creating every meal.</p></article>';
@@ -692,6 +692,24 @@ async function renderPantry() {
     return;
   }
   markViewRendered("pantry");
+
+  list.querySelectorAll("[data-remove-id]").forEach((button) => {
+    button.onclick = async () => {
+      button.disabled = true;
+      const { error: removeError } = await sb
+        .from("pantry_items")
+        .delete()
+        .eq("id", button.dataset.removeId)
+        .eq("user_id", user.id);
+      if (removeError) {
+        toast(removeError.message);
+        button.disabled = false;
+        return;
+      }
+      toast("Removed from your pantry ✓");
+      renderPantry();
+    };
+  });
 
   document.querySelector("#pantry-form").onsubmit = async (event) => {
     event.preventDefault();

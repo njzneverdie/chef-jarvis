@@ -96,6 +96,9 @@
       "加入現有食材，Jarvis 每次規劃餐點前都會讀取這份清單。",
     "No expiry set": "未設定效期",
     "Added to your pantry ✓": "已加入庫存 ✓",
+    "Removed from your pantry ✓": "已從庫存移除 ✓",
+    "Remove ingredient": "移除食材",
+    Remove: "移除",
     "Cooking that learns": "越用越懂",
     "Jarvis uses your nutrition targets, health goal, allergies, pantry and food preferences before suggesting a meal or swap.":
       "Jarvis 會先考量營養目標、健康目標、過敏原、庫存與飲食偏好，再建議餐點或替換食材。",

@@ -166,7 +166,7 @@ test("the install experience uses the cache-refreshed app icon family", async ()
     readFile(new URL("manifest.webmanifest", publicUrl), "utf8"),
     readFile(new URL("sw.js", publicUrl), "utf8"),
   ]);
-  const version = "20260723-single-dish-1";
+  const version = "20260723-pantry-remove-1";
   const expected = [
     ["chef-jarvis-app-icon-v2-192.png", 192, "any"],
     ["chef-jarvis-app-icon-v2-1024.png", 1024, "any"],
@@ -264,6 +264,19 @@ test("async form and shopping handlers retain their DOM targets before await", a
   assert.match(chefMode, /const checkbox = event\.currentTarget;[\s\S]*checkbox\.dataset\.listItem/);
   assert.match(chefMode, /button\.onclick = async \(\) => \{[\s\S]*button\.dataset\.stockList/);
   assert.match(chefMode, /button\.onclick = async \(\) => \{[\s\S]*button\.dataset\.deleteList/);
+});
+
+test("pantry items can be removed and the delete is scoped to the owner", async () => {
+  const app = await readFile(new URL("app.js", publicUrl), "utf8");
+  const render = functionSource(app, "async function renderPantry");
+  assert.match(render, /data-remove-id="\$\{esc\(item\.id\)\}"/);
+  assert.match(
+    render,
+    /\.from\("pantry_items"\)\s*\.delete\(\)\s*\.eq\("id", button\.dataset\.removeId\)\s*\.eq\("user_id", user\.id\)/,
+    "pantry delete must be scoped by row id and owner",
+  );
+  assert.match(render, /toast\("Removed from your pantry ✓"\)/);
+  assert.match(render, /renderPantry\(\)/);
 });
 
 test("empty saved recipes clear cache and app icons revalidate online", async () => {

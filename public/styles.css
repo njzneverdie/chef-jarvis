@@ -805,15 +805,41 @@ h1 em {
 }
 .pantry-item {
   padding: 20px;
+  position: relative;
 }
 .pantry-item h3 {
   font: 22px var(--serif);
   margin: 7px 0;
+  padding-right: 64px;
 }
 .pantry-item p {
   font-size: 11px;
   color: var(--muted);
   margin: 0;
+}
+.pantry-remove {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.14));
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.pantry-remove:hover {
+  color: #b23c2b;
+  border-color: rgba(178, 60, 43, 0.5);
+  background: #fff2ee;
+}
+.pantry-remove:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .add-row {
   display: flex;
