@@ -156,3 +156,122 @@
     grid-template-columns: 1fr;
   }
 }
+
+.recipe-ingredient-board {
+  margin: 18px 0;
+  padding: clamp(20px, 3vw, 32px);
+  border-radius: 25px;
+  background: #fbf5ec;
+  box-shadow: 0 16px 42px #594b3517;
+}
+.recipe-ingredient-board .shopping-head {
+  align-items: center;
+}
+.ingredient-title-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.recipe-ingredient-board .shopping-head h2 {
+  color: #243c30;
+  font: 32px var(--serif);
+}
+#ingredient-selection-count {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+.ingredient-card-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.recipe-ingredient-board .ingredient-card-grid label {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 85px 1fr;
+  gap: 8px;
+  min-height: 158px;
+  padding: 15px 11px 12px;
+  border-color: #e4dcd0;
+  border-radius: 15px;
+  background: #f2e9de;
+  text-align: center;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    opacity 160ms ease;
+}
+.recipe-ingredient-board .ingredient-card-grid label:hover {
+  transform: translateY(-2px);
+  border-color: #9caf95;
+}
+.recipe-ingredient-board .ingredient-card-grid label:not(.selected) {
+  opacity: 0.48;
+  background: #eee8e0;
+}
+.recipe-ingredient-board .ingredient-card-grid .shopping-box {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  z-index: 1;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: #fffdf9;
+}
+.recipe-ingredient-board
+  .ingredient-card-grid
+  input:checked
+  + .shopping-box {
+  background: var(--green);
+}
+.ingredient-visual {
+  display: grid;
+  grid-row: 1;
+  place-items: center;
+  filter: drop-shadow(0 8px 8px #4b3b2520);
+  font-size: 50px;
+  line-height: 1;
+}
+.ingredient-copy {
+  display: grid;
+  grid-row: 2;
+  align-content: start;
+  gap: 5px;
+}
+.recipe-ingredient-board .ingredient-copy b {
+  min-width: 0;
+  color: #35312d;
+  font-size: 10px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.recipe-ingredient-board .ingredient-copy small {
+  color: #70695f;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+}
+.recipe-ingredient-board .shopping-status {
+  margin-bottom: 0 !important;
+  text-align: right;
+}
+@media (max-width: 1100px) {
+  .ingredient-card-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 850px) {
+  .recipe-ingredient-board .shopping-head {
+    display: grid;
+  }
+  .ingredient-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .recipe-ingredient-board .ingredient-card-grid label {
+    min-height: 150px;
+  }
+}

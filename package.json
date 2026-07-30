@@ -6,10 +6,17 @@
     "serve": "npx serve public",
     "check": "node --check public/app.js && node --check public/chef-mode.js && node --check public/sw.js && node scripts/sync-pwa-assets.mjs --check",
     "pwa:version": "node scripts/sync-pwa-assets.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:edge": "npx --yes deno-bin test --no-lock -A tests/edge/",
+    "test:e2e": "node ./node_modules/@playwright/test/cli.js test",
+    "verify:deployment": "node scripts/verify-deployment.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "serve": "14.2.6"
+  }
 }

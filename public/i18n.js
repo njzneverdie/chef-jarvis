@@ -24,6 +24,11 @@
     "New to Chef Jarvis? Create an account": "第一次使用？建立帳號",
     "Your body and food preferences are private to your account.":
       "身體資料與飲食偏好只會保存在你的帳號中。",
+    "Privacy & retention": "隱私與資料保留",
+    "Representative dish image": "相似料理示意照片",
+    "Curated dish image": "精選料理照片",
+    "You’re offline. Current cooking progress stays on this device; planning, sync, and nutrition references need a connection.":
+      "你目前離線。這台裝置仍會保留目前的烹飪進度；食譜規劃、資料同步與營養資料查詢需要網路連線。",
     "Please wait…": "請稍候…",
     "Account created. Open the confirmation email, then return here to sign in.":
       "帳號已建立，請開啟驗證信，完成後再回來登入。",
@@ -49,6 +54,10 @@
     Cook: "烹飪",
     Profile: "個人資料",
     "Sign out": "登出",
+    "Saved cooking progress will remain available when you sign in again.":
+      "已儲存的烹飪進度會在你再次登入時保留。",
+    "This unsaved cooking progress will be lost when you sign out.":
+      "這份尚未儲存的烹飪進度會在你登出時遺失。",
     "Switch language": "切換語言",
     "Complete your profile": "請完成個人資料",
     "YOUR KITCHEN, MADE EASIER": "讓你的廚房更輕鬆",
@@ -57,6 +66,11 @@
     "Tell Jarvis what you want to make. It will keep your pantry, preferences, allergies, and nutrition target in view.":
       "告訴 Jarvis 你想做什麼，它會同時考量庫存、偏好、過敏原與營養目標。",
     "Tell Jarvis what you want to cook…": "告訴 Jarvis 你想做什麼料理…",
+    "Which dish did you mean?": "你想做的是哪一道菜？",
+    "Choose a dish so Jarvis does not guess.": "請選擇一道料理，讓 Jarvis 不會自行猜測。",
+    "Add ingredients or cooking details so Jarvis can identify this custom dish.":
+      "請補充可辨識的食材、料理風格或作法，讓 Jarvis 辨識這道自訂料理。",
+    "Try again": "再試一次",
     Generate: "產生食譜",
     "High-protein dinner for 2": "兩人份高蛋白晚餐",
     "Use my pantry": "優先使用我的庫存",
@@ -82,12 +96,49 @@
       "加入現有食材，Jarvis 每次規劃餐點前都會讀取這份清單。",
     "No expiry set": "未設定效期",
     "Added to your pantry ✓": "已加入庫存 ✓",
+    "Removed from your pantry ✓": "已從庫存移除 ✓",
+    "Remove ingredient": "移除食材",
+    Remove: "移除",
     "Cooking that learns": "越用越懂",
     "Jarvis uses your nutrition targets, health goal, allergies, pantry and food preferences before suggesting a meal or swap.":
       "Jarvis 會先考量營養目標、健康目標、過敏原、庫存與飲食偏好，再建議餐點或替換食材。",
     "Personal goal": "個人目標",
     "Edit my profile": "編輯個人資料",
     "Saved meal ideas": "已儲存的餐點靈感",
+    "Download my data": "下載我的資料",
+    "Preparing export…": "正在準備資料匯出…",
+    "Your Chef Jarvis data export is ready ✓":
+      "Chef Jarvis 資料匯出已準備完成 ✓",
+    "Your data could not be exported right now.":
+      "目前無法匯出你的資料，請稍後再試。",
+    "PERMANENT ACCOUNT DELETION": "永久刪除帳號",
+    "Delete your Chef Jarvis account?": "要刪除 Chef Jarvis 帳號嗎？",
+    "This permanently deletes your account, profile, pantry, saved recipes, shopping lists, meal plans, cooking sessions, nutrition logs, and feedback. This cannot be undone.":
+      "這會永久刪除你的帳號、個人資料、庫存、已儲存食譜、購物清單、餐期、烹飪紀錄、營養紀錄與意見回饋，而且無法復原。",
+    "Download your data first if you want to keep a copy.":
+      "如需保留副本，請先下載你的資料。",
+    "Type DELETE to confirm": "輸入 DELETE 以確認",
+    "Delete my account permanently": "永久刪除我的帳號",
+    "Deleting account…": "正在刪除帳號…",
+    "Type DELETE exactly to continue.": "請完整輸入 DELETE 才能繼續。",
+    "Your sign-in session has expired. Sign in again.":
+      "登入工作階段已過期，請重新登入。",
+    "Account deletion failed.": "帳號刪除失敗。",
+    "Account deletion failed. Please try again.":
+      "帳號刪除失敗，請再試一次。",
+    "Your Chef Jarvis account and data were permanently deleted.":
+      "你的 Chef Jarvis 帳號與資料已永久刪除。",
+    "DANGER ZONE": "危險操作",
+    "Delete account and data.": "刪除帳號與資料。",
+    "Permanent deletion removes your sign-in and all linked Chef Jarvis product data.":
+      "永久刪除會移除登入帳號與所有連結的 Chef Jarvis 產品資料。",
+    "Read privacy & retention": "閱讀隱私與資料保留政策",
+    "Delete my account": "刪除我的帳號",
+    "INGREDIENT SWAPS": "食材替換",
+    "No fully verified swap is available for this plan.":
+      "這份食譜目前沒有通過完整驗證的替換方案。",
+    "Jarvis removed an incomplete replacement instead of leaving the grocery list and cooking steps inconsistent. Generate another plan if you need a substitution.":
+      "Jarvis 已移除不完整的替換方案，避免購物清單與料理步驟互相矛盾。若你需要替換食材，請重新產生食譜。",
     "YOUR KITCHEN SETUP": "你的廚房設備",
     "Devices Jarvis can use.": "Jarvis 可使用的設備。",
     "Equipment selections control the alternatives Chef Mode may offer.":
@@ -146,6 +197,8 @@
     "Gluten-free": "無麩質",
     "Nut allergy": "堅果過敏",
     "Shellfish allergy": "甲殼類過敏",
+    "Other allergies (comma separated)": "其他過敏原（以逗號分隔）",
+    "e.g. egg, sesame, kiwi": "例如：雞蛋、芝麻、奇異果",
     "Foods you dislike (comma separated)": "不喜歡的食物（以逗號分隔）",
     "e.g. cilantro, mushrooms": "例如：香菜、蘑菇",
     "KITCHEN SETUP": "廚房設備",
@@ -156,7 +209,24 @@
     "Let’s make something": "一起做一道",
     "great.": "好料理。",
     "＋ New meal": "＋ 新餐點",
+    "RECIPE NEEDS REVIEW": "食譜需要檢查",
+    "This legacy recipe is missing exact ingredient measurements.":
+      "這份舊食譜缺少精確的食材份量。",
+    "For safe cooking and reliable pantry updates, generate a new measured version before continuing.":
+      "為了安全烹飪並正確更新庫存，請先重新產生有完整份量的版本。",
+    "Regenerate precise recipe →": "重新產生精確食譜 →",
+    "Generate a fully measured recipe before saving this list.":
+      "請先產生有完整份量的食譜，再儲存這份清單。",
+    "This older list is missing exact quantities or units. It cannot be added to the pantry.":
+      "這份舊清單缺少精確數量或單位，因此無法加入庫存。",
+    "One or more scheduled recipes are missing exact ingredients or cooking steps. Regenerate those recipes before building a weekly list.":
+      "一份或多份已排定食譜缺少精確食材或烹飪步驟。請先重新產生這些食譜，再建立本週購物清單。",
+    "Regenerate those recipes before building a weekly list.":
+      "請先重新產生這些食譜，再建立本週購物清單。",
     "Pantry and profile applied": "已套用庫存與個人資料",
+    "Made for your profile": "依你的需求設計",
+    "Pantry, nutrition and preferences applied":
+      "已套用庫存、營養目標與偏好",
     "Tell Jarvis what you would like to cook.": "告訴 Jarvis 你想做什麼料理。",
     "Created for your preferences; substitutions and nutrition reflect your profile.":
       "已依照你的偏好建立，替換食材與營養資訊也會套用個人資料。",
@@ -173,7 +243,19 @@
     "Adjust it after changing quantities or swaps.":
       "更改份量或替換食材後請重新評估。",
     "Start guided cooking →": "開始引導烹飪 →",
+    "Review ingredients ↓": "查看食材 ↓",
     "Saved to your recipes": "已儲存到食譜",
+    "Source recipe": "來源食譜",
+    "Adapted from": "改編自",
+    "Generated by Chef Jarvis": "由 Chef Jarvis 產生",
+    "This sourced recipe is available in this session and was not stored.":
+      "這份來源食譜僅限本次工作階段使用，未儲存。",
+    "Cook later is unavailable because this source cannot be saved.":
+      "此來源無法儲存，因此不能選擇稍後再煮。",
+    "Until you select Cook later, this plan stays only in this browser session and is lost on refresh.":
+      "在你選擇「稍後再煮」之前，這份食譜只會保留在目前瀏覽器工作階段，重新整理後就會消失。",
+    "A complete recipe for \"{dish}\" is unavailable right now. Please try again.":
+      "目前無法取得「{dish}」的完整食譜，請稍後再試。",
     "Cook later ✓": "稍後再煮 ✓",
     "Saved for later ✓": "已留待稍後烹煮 ✓",
     "Find this meal under Recent plans whenever you are ready to cook.":
@@ -181,6 +263,8 @@
     "WHAT TO PREPARE": "需要準備",
     "Ingredients for this meal": "這道料理的食材",
     "HOW JARVIS WILL GUIDE YOU": "JARVIS 如何引導",
+    "Scan the full flow now, then start Chef Mode for hands-free guidance and recipe-based timers.":
+      "先快速瀏覽完整流程，再進入主廚模式使用免手操作引導與食譜計時器。",
     "SHOP ONCE, COOK MORE": "一次採買，多餐運用",
     "Ideas using your remaining ingredients.": "運用剩餘食材的料理靈感。",
     "Save for week →": "儲存到本週 →",
@@ -200,6 +284,10 @@
     "These swaps use the equipment saved in your profile.":
       "這些替代做法會使用你資料中已儲存的設備。",
     "SMART GROCERY LIST": "智慧購物清單",
+    INGREDIENTS: "食材",
+    "Everything you need": "這道料理需要的食材",
+    "Select what you need to buy. Every card keeps the exact quantity, unit, and preparation visible.":
+      "勾選需要購買的食材；每張卡片都會顯示精確份量、單位與處理方式。",
     "What do you need to buy?": "還需要買什麼？",
     "Select the ingredients you still need. Exact quantities stay visible while you shop.":
       "勾選仍需購買的食材，採買時會持續顯示精確份量。",
@@ -251,6 +339,8 @@
       "操作時可以讓計時器持續運作，重新整理後進度也會保留。",
     "Only real cooking and waiting times become recipe countdowns. Your progress survives a refresh.":
       "只有真正的烹煮與等待時間才會建立食譜倒數；重新整理後進度仍會保留。",
+    "This Chef Mode progress is available only in this tab and is lost on refresh.":
+      "這份主廚模式進度只會保留在目前分頁；重新整理後就會消失。",
     "← Previous": "← 上一步",
     "↻ Repeat": "↻ 重複朗讀",
     "Complete step →": "完成這一步 →",
@@ -269,6 +359,7 @@
       "這份食譜沒有需要計時的加熱或等待步驟；只有需要時才自行新增計時器。",
     Finished: "已完成",
     "Recipe countdown": "食譜倒數",
+    "Run these countdowns in recipe order.": "請依食譜順序逐一啟動倒數。",
     "Your guided meal": "你的引導料理",
     "Prepare and measure every ingredient before turning on the heat.":
       "開火前先備妥並量好每一項食材。",
@@ -512,6 +603,16 @@
     "Restoring…": "正在復原…",
     "Replace the current cooking session?": "要取代目前的烹飪進度嗎？",
     "Start new recipe": "開始新食譜",
+    "This page could not be loaded. Please try again.":
+      "此頁目前無法載入，請再試一次。",
+    "Your profile could not be loaded.": "目前無法載入你的個人資料。",
+    "Retry →": "重試 →",
+    "Could not load your weekly plan.": "目前無法載入一週餐期。",
+    "This replacement does not include safe cooking-step updates. Generate a fresh plan before applying it.":
+      "這個替換沒有完整、安全的料理步驟更新，請先重新產生食譜再套用。",
+    "Ingredient quantities, grocery items, cooking steps, and recipe timers were updated together ✓":
+      "食材份量、購物清單、料理步驟與倒數計時已同步更新 ✓",
+    "This swap could not be applied.": "目前無法套用這個食材替換。",
   };
 
   const regexTranslations = [
@@ -555,6 +656,7 @@
     [/^(\d+(?:\.\d+)?)g$/, "$1 克"],
     [/^(\d+) items selected$/, "已選擇 $1 項食材"],
     [/^(\d+) item selected$/, "已選擇 $1 項食材"],
+    [/^\((\d+)\/(\d+) selected\)$/, "（已選 $1 / $2）"],
     [/^(\d+) clear cooking steps$/, "$1 個清楚的料理步驟"],
     [/^Shopping · (.+)$/, "購物 · $1"],
     [
@@ -565,7 +667,12 @@
     [/^(\d+(?:\.\d+)?) portions?$/, "$1 份"],
     [/^STEP (\d+) \/ (\d+)$/, "步驟 $1 / $2"],
     [/^Step (\d+) · Recipe countdown$/, "步驟 $1 · 食譜倒數"],
+    [/^(\d+) of (\d+) · Start timer$/, "第 $1 / $2 個 · 開始倒數"],
+    [/^(\d+) of (\d+) · Pause timer$/, "第 $1 / $2 個 · 暫停倒數"],
+    [/^(\d+) of (\d+) · Restart timer$/, "第 $1 / $2 個 · 重新開始倒數"],
     [/^(\d+) min · (\d+) servings$/, "$1 分鐘 · $2 人份"],
+    [/^◷ (.+) min$/, "◷ $1 分鐘"],
+    [/^◌ (.+) servings$/, "◌ $1 人份"],
     [/^◷ (.+) min · ◌ (.+) servings$/, "◷ $1 分鐘 · ◌ $2 人份"],
     [/^Whole recipe \((.+) servings\)\.$/, "整份食譜（$1 人份）。"],
     [
@@ -588,7 +695,6 @@
       /^You are still cooking “(.+)”\. Starting another recipe will reset its step and timers\.$/,
       "你仍在烹煮「$1」。開始另一份食譜會重置目前的步驟與計時器。",
     ],
-    [/^No (.+)$/, "不含 $1"],
   ];
 
   let language = localStorage.getItem(storageKey) === "zh-TW" ? "zh-TW" : "en";
