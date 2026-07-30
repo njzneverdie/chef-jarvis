@@ -1,4 +1,4 @@
-const APP_VERSION = "20260723-pantry-remove-1";
+const APP_VERSION = "20260730-cooking-session-restore-1";
 const SUPABASE_INTEGRITY =
   "sha384-Fntl9b+IRzm2GKZK0c129fQFknWsn8pyxDejLO4wwds1LF9DSob2K2QXlfw8EIXn";
 const SUPABASE_BUNDLE = "/vendor/supabase-2.110.5.min.js";

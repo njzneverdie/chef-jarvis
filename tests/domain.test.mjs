@@ -25,7 +25,28 @@ const {
   safeExternalUrl,
   curatedRecipeImage,
   recipeIntegrityReport,
+  reconcileCookingRecipeReference,
 } = globalThis.ChefDomain;
+
+test("cloud cooking restore does not revive a deleted saved recipe reference", () => {
+  const restored = reconcileCookingRecipeReference(
+    {
+      activeRecipe: {
+        title: "Deleted recipe snapshot",
+        saved_recipe_id: "deleted-recipe-id",
+      },
+      activeRecipeId: "deleted-recipe-id",
+      cookingStepIndex: 2,
+    },
+    null,
+  );
+
+  assert.equal(restored.activeRecipeId, null);
+  assert.equal(restored.activeRecipe.saved_recipe_id, null);
+  assert.equal(restored.activeRecipe.cooking_session_persisted, true);
+  assert.equal(restored.activeRecipe.title, "Deleted recipe snapshot");
+  assert.equal(restored.cookingStepIndex, 2);
+});
 
 test("custom nutrition targets reject missing and non-finite values", () => {
   assert.throws(

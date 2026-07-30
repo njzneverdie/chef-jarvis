@@ -166,7 +166,8 @@ test("the install experience uses the cache-refreshed app icon family", async ()
     readFile(new URL("manifest.webmanifest", publicUrl), "utf8"),
     readFile(new URL("sw.js", publicUrl), "utf8"),
   ]);
-  const version = "20260723-pantry-remove-1";
+  const version = index.match(/\?v=([^"']+)/)?.[1];
+  assert.ok(version);
   const expected = [
     ["chef-jarvis-app-icon-v2-192.png", 192, "any"],
     ["chef-jarvis-app-icon-v2-1024.png", 1024, "any"],

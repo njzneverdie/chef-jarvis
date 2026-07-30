@@ -666,6 +666,21 @@
     }
   }
 
+  function reconcileCookingRecipeReference(snapshot = {}, recipeId = null) {
+    const authoritativeRecipeId = recipeId || null;
+    return {
+      ...snapshot,
+      activeRecipe: snapshot.activeRecipe
+        ? {
+            ...snapshot.activeRecipe,
+            saved_recipe_id: authoritativeRecipeId,
+            cooking_session_persisted: true,
+          }
+        : snapshot.activeRecipe,
+      activeRecipeId: authoritativeRecipeId,
+    };
+  }
+
   const curatedGrainBowlImage = Object.freeze({
     url: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/BuddhaBowlLot.jpg/1280px-BuddhaBowlLot.jpg",
     description_url:
@@ -723,6 +738,7 @@
     compareNutritionEstimates,
     localDateKey,
     safeExternalUrl,
+    reconcileCookingRecipeReference,
     curatedRecipeImage,
   });
 })(globalThis);

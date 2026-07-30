@@ -62,7 +62,8 @@ function isSessionOnlyRecipe(recipe) {
 function isEphemeralRecipe(recipe) {
   return (
     isSessionOnlyRecipe(recipe) ||
-    !(recipe?.saved_recipe_id || recipe?.id)
+    (!recipe?.cooking_session_persisted &&
+      !(recipe?.saved_recipe_id || recipe?.id))
   );
 }
 
@@ -443,16 +444,20 @@ async function restoreCookingStateFromCloud() {
     cookingSessionId = data.id;
     cookingSessionOwnerId = ownerId;
     assertCookingRestoreContext(ownerId, syncEpoch, cookingRevision);
+    const restoredSnapshot =
+      window.ChefDomain.reconcileCookingRecipeReference(
+        {
+          activeRecipe: remote.activeRecipe,
+          cookingStepIndex: Math.max(0, Number(data.current_step) || 0),
+          timers: Array.isArray(data.timers) ? data.timers : [],
+          recipeTimersInitialized: Boolean(remote.recipeTimersInitialized),
+          savedAt: finiteNumber(remote.savedAt, Date.now()),
+        },
+        data.recipe_id,
+      );
     localStorage.setItem(
       key,
-      JSON.stringify({
-        activeRecipe: remote.activeRecipe,
-        activeRecipeId: data.recipe_id || remote.activeRecipe.saved_recipe_id || null,
-        cookingStepIndex: Math.max(0, Number(data.current_step) || 0),
-        timers: Array.isArray(data.timers) ? data.timers : [],
-        recipeTimersInitialized: Boolean(remote.recipeTimersInitialized),
-        savedAt: finiteNumber(remote.savedAt, Date.now()),
-      }),
+      JSON.stringify(restoredSnapshot),
     );
     assertCookingRestoreContext(ownerId, syncEpoch, cookingRevision);
     restoreCookingState();
