@@ -412,6 +412,18 @@ test("Chinese ingredients use readable units and hide no-op preparation text", (
   assert.equal(ingredientDetails(ingredient), "2 湯匙");
 });
 
+test("unit labels localize every stored unit enum for display only", () => {
+  const units = ["g", "kg", "ml", "L", "tsp", "tbsp", "cup", "piece", "clove", "slice", "can", "pack"];
+  const zh = units.map((unit) => globalThis.ChefDomain.unitLabel(unit, "zh-TW", 2));
+  assert.deepEqual(zh, ["克", "公斤", "毫升", "公升", "茶匙", "湯匙", "杯", "個", "瓣", "片", "罐", "包"]);
+  assert.equal(globalThis.ChefDomain.unitLabel("piece", "en", 1), "piece");
+  assert.equal(globalThis.ChefDomain.unitLabel("piece", "en", 2), "pieces");
+  assert.equal(globalThis.ChefDomain.unitLabel("g", "en", 200), "g");
+  assert.equal(normalizeIngredient({ name: "雞胸肉", quantity: 200, unit: "g" }).amount, "200 克");
+  assert.equal(globalThis.ChefDomain.normalizeGroceryItem({ name: "雞胸肉", amount: "200 克" }).unit, "g");
+  assert.equal(globalThis.ChefDomain.normalizeGroceryItem({ name: "醬油", amount: "1 大匙" }).unit, "tbsp");
+});
+
 test("recipe titles stay consistent after ingredient substitution", () => {
   assert.equal(
     recipeTitleAfterSubstitution(
@@ -543,4 +555,34 @@ test("large USDA and recipe-estimate differences are flagged for review", () => 
   assert.equal(comparison.needs_review, true);
   assert.equal(comparison.low_confidence_matches, 1);
   assert.equal(comparison.kcal_difference_percent, 118);
+});
+
+test('incomplete USDA nutrients never become complete zero-calorie coverage',()=>{
+ const result=calculateUsdaMealNutrition([{name:'Chicken',quantity:100,unit:'g'}],[{ingredient:'Chicken',found:true,per100g:{kcal:null,protein_g:22.5,carbs_g:0,fat_g:1.9}}]);
+ assert.equal(result.kcal,null);assert.equal(result.carbs_g,0);assert.equal(result.coverage_percent,0);assert.equal(result.complete,false);assert.equal(result.nutrient_coverage_percent.kcal,0);assert.equal(result.nutrient_coverage_percent.carbs_g,100);
+});
+test('a USDA match without a convertible quantity provides no usable meal totals',()=>{
+ const result=calculateUsdaMealNutrition([{name:'Rice',quantity:1,unit:'pack'}],[{ingredient:'Rice',found:true,per100g:{kcal:130,protein_g:2,carbs_g:28,fat_g:0}}]);
+ assert.equal(result.matched_ingredients,0);assert.equal(result.kcal,null);assert.equal(result.complete,false);
+});
+
+test("selection-only planning works with defaults and preserves selected constraints", async () => {
+  const { buildMealPlanningRequest, mealPlanningGroups } = globalThis.ChefDomain;
+  const { isBroadMealRequest } = await import("../supabase/functions/_shared/recipe-variety.js");
+  for (const language of ["en", "zh-TW"]) {
+    const defaultRequest = buildMealPlanningRequest({}, language);
+    assert.equal(isBroadMealRequest(defaultRequest), true);
+    assert.ok(defaultRequest.length <= 500);
+    for (const group of mealPlanningGroups) {
+      for (const [value, en, zh] of group.options) {
+        const request = buildMealPlanningRequest({ [group.key]: value }, language);
+        assert.equal(isBroadMealRequest(request), true);
+        assert.ok(request.length <= 500);
+        if (!["servings", "time"].includes(group.key)) assert.ok(request.includes(language === "zh-TW" ? zh : en.toLowerCase()) || request.includes(en));
+      }
+    }
+  }
+  assert.match(buildMealPlanningRequest({ servings: "4", time: "15", priority: "pantry" }), /exactly 4 servings.*at most 15 minutes.*Use my pantry/);
+  assert.throws(() => buildMealPlanningRequest({ servings: "0" }), /Invalid/);
+  assert.throws(() => buildMealPlanningRequest({ priority: "ignore allergies" }), /Invalid/);
 });

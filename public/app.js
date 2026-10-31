@@ -76,7 +76,9 @@ new MutationObserver((mutations) => {
 queueMicrotask(() => associateFieldLabels(document));
 
 function languageToggleMarkup() {
-  return `<button class="language-toggle" id="language-toggle" type="button" aria-label="Switch language">文/A · ${window.I18n.toggleLabel()}</button>`;
+  const visibleLabel = `文/A · ${window.I18n.toggleLabel()}`;
+  const actionLabel = window.I18n.translate("Switch language");
+  return `<button class="language-toggle" id="language-toggle" type="button" aria-label="${visibleLabel} — ${actionLabel}">${visibleLabel}</button>`;
 }
 
 function connectionStatusMarkup() {
@@ -206,6 +208,17 @@ function nutrition() {
     : "Complete your profile";
 }
 
+function accountServiceErrorMessage(error) {
+  const message = String(error?.message || error || "").trim();
+  if (
+    error instanceof TypeError ||
+    /failed to fetch|networkerror|network request failed/i.test(message)
+  ) {
+    return "Chef Jarvis cannot reach the account service right now. Please try again later.";
+  }
+  return message || "Chef Jarvis could not complete that account request. Please try again.";
+}
+
 function authScreen(signup = false) {
   authSignup = signup;
   app.className = "";
@@ -225,7 +238,7 @@ function authScreen(signup = false) {
           <p>${signup ? "Create an account, confirm the email we send you, then enter your private cooking profile." : "Sign in to your saved meals, pantry and nutrition plan."}</p>
           <div class="field"><label>Email</label><input type="email" name="email" autocomplete="email" placeholder="you@example.com"></div>
           <div class="field"><label>Password</label><input type="password" name="password" autocomplete="${signup ? "new-password" : "current-password"}" placeholder="${signup ? "At least 8 characters" : "Your password"}"></div>
-          <p class="error hidden" id="auth-error"></p>
+          <p class="error hidden" id="auth-error" role="status" aria-live="polite" aria-atomic="true"></p>
           <button type="submit" class="auth-submit">${signup ? "Create account & send confirmation →" : "Sign in →"}</button>
           ${signup ? "" : '<button type="button" class="auth-toggle" id="forgot-password">Forgot your password?</button>'}
           <button type="button" class="auth-toggle" id="auth-toggle">${signup ? "Already have an account? Sign in" : "New to Chef Jarvis? Create an account"}</button>
@@ -263,16 +276,21 @@ function authScreen(signup = false) {
 
     button.textContent = "Please wait…";
     button.disabled = true;
-    const result = signup
-      ? await sb.auth.signUp({
-          email,
-          password,
-          options: { emailRedirectTo: window.location.origin },
-        })
-      : await sb.auth.signInWithPassword({ email, password });
+    let result;
+    try {
+      result = signup
+        ? await sb.auth.signUp({
+            email,
+            password,
+            options: { emailRedirectTo: window.location.origin },
+          })
+        : await sb.auth.signInWithPassword({ email, password });
+    } catch (error) {
+      result = { error };
+    }
 
     if (result.error) {
-      errorElement.textContent = result.error.message;
+      errorElement.textContent = accountServiceErrorMessage(result.error);
       errorElement.classList.remove("hidden");
       button.textContent = signup
         ? "Create account & send confirmation →"
@@ -306,11 +324,16 @@ async function requestPasswordReset() {
     errorElement.classList.remove("hidden");
     return;
   }
-  const { error } = await sb.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin,
-  });
+  let error;
+  try {
+    ({ error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    }));
+  } catch (requestError) {
+    error = requestError;
+  }
   errorElement.textContent = error
-    ? error.message
+    ? accountServiceErrorMessage(error)
     : "Password reset email sent. Open the link in that email to continue.";
   errorElement.classList.remove("hidden");
 }
@@ -324,7 +347,7 @@ function showPasswordUpdate() {
       <p class="eyebrow">SECURE YOUR ACCOUNT</p>
       <h2>Choose a new password.</h2>
       <div class="field"><label>New password</label><input name="password" type="password" minlength="8" autocomplete="new-password" required></div>
-      <p class="error hidden" id="password-update-error"></p>
+      <p class="error hidden" id="password-update-error" role="status" aria-live="polite" aria-atomic="true"></p>
       <div class="form-actions"><button type="button" class="cream" id="cancel-password-update">Cancel</button><button class="dark">Update password →</button></div>
     </form>`;
   document.body.append(modal);
@@ -455,15 +478,27 @@ function show(id) {
 
 function renderHome() {
   markViewRendered("home");
+  const plannerZh = window.I18n.code === "zh-TW";
+  const plannerChoices = { ...window.ChefDomain.defaultMealPlanningChoices };
+  // A dish chosen from a clarification (or retried) is one-shot: the main
+  // "Decide my meal" button must go back to the tap-built request afterwards.
+  let lastTypedRequest = "";
+  const plannerGroups = window.ChefDomain.mealPlanningGroups;
+  const plannerGroupMarkup = group => `<fieldset><legend>${esc(plannerZh ? group.zh : group.en)}</legend><div class="planner-choices">${group.options.map(([value, en, zh]) => `<label><input type="radio" name="${group.key}" value="${value}" ${plannerChoices[group.key] === value ? "checked" : ""}><span>${esc(plannerZh ? zh : en)}</span></label>`).join("")}</div></fieldset>`;
   document.querySelector("#home").innerHTML = `
     <div class="hero">
       <div class="hero-copy">
         <p class="eyebrow">YOUR KITCHEN, MADE EASIER</p>
         <h1>Good cooking,<br><em>made personal.</em></h1>
-        <p class="lede">Tell Jarvis what you want to make. It will keep your pantry, preferences, allergies, and nutrition target in view.</p>
-        <form class="ask" id="meal-form"><span>✦</span><input id="meal-input" required maxlength="500" placeholder="Tell Jarvis what you want to cook…"><button aria-label="Generate">→</button></form>
+        <p class="lede">${plannerZh ? "不用想菜名、不用打字。Jarvis 會依你的飲食設定幫你決定。" : "No dish in mind? Let Jarvis decide, using your pantry and food profile."}</p>
+        <form class="meal-choice-form" id="meal-form">
+          <input type="hidden" id="meal-input">
+          <button type="submit" class="dark" aria-label="Generate">${plannerZh ? "幫我決定這一餐" : "Decide my meal"}</button>
+          ${plannerGroups.filter(group => !group.optional).map(plannerGroupMarkup).join("")}
+          <details><summary>${plannerZh ? "其他條件：餐別、偏好與風味（可不選）" : "Optional: meal, priorities & cuisine"}</summary>${plannerGroups.filter(group => group.optional).map(plannerGroupMarkup).join("")}</details>
+          <p>${plannerZh ? "預設推薦 1 人份晚餐，30 分鐘內完成；過敏原與器材自動套用個人設定。" : "Default: dinner for one, within 30 minutes. Saved allergies and equipment apply automatically."}</p>
+        </form>
         <p class="generation-status" id="generation-status" role="status" aria-live="polite" hidden></p>
-        <div class="chips"><button data-prompt-en="High-protein dinner for two" data-prompt-zh="兩人份高蛋白晚餐">High-protein dinner for 2</button><button data-prompt-en="Use my pantry ingredients first" data-prompt-zh="優先使用我的庫存食材">Use my pantry</button><button data-prompt-en="30-minute meal prep" data-prompt-zh="30 分鐘備餐">30-minute meal prep</button></div>
       </div>
       <article class="tonight"><div><small>YOUR DAILY TARGET</small><h2>${esc(nutrition())}</h2><p>${esc((profile?.body_composition_goal || "personalized").replace("_", " "))} plan · pantry and preferences applied</p><button class="cream" data-go="plan">Plan a meal →</button></div></article>
     </div>
@@ -481,15 +516,12 @@ function renderHome() {
   document
     .querySelectorAll("[data-go]")
     .forEach((element) => (element.onclick = () => show(element.dataset.go)));
-  document.querySelectorAll("[data-prompt-en]").forEach(
-    (element) =>
-      (element.onclick = () => {
-        document.querySelector("#meal-input").value =
-          window.I18n.code === "zh-TW"
-            ? element.dataset.promptZh
-            : element.dataset.promptEn;
-      }),
-  );
+  document.querySelector("#meal-form").onchange = event => {
+    if (event.target.matches('input[type="radio"]')) {
+      plannerChoices[event.target.name] = event.target.value;
+      document.querySelector("#meal-input").value = "";
+    }
+  };
   function renderDishClarification(result) {
     document.querySelector("#dish-clarification")?.remove();
     const form = document.querySelector("#meal-form");
@@ -553,15 +585,21 @@ function renderHome() {
     retry.type = "button";
     retry.className = "dish-candidate";
     retry.textContent = window.I18n.translate("Try again");
-    retry.onclick = () => form.requestSubmit();
+    retry.onclick = () => {
+      document.querySelector("#meal-input").value = lastTypedRequest;
+      form.requestSubmit();
+    };
     panel.append(message, retry);
     form.insertAdjacentElement("afterend", panel);
   }
 
   document.querySelector("#meal-form").onsubmit = async (event) => {
     event.preventDefault();
-    const input = document.querySelector("#meal-input").value.trim();
-    const button = event.currentTarget.querySelector("button");
+    const typedInput = document.querySelector("#meal-input");
+    lastTypedRequest = typedInput.value.trim();
+    typedInput.value = "";
+    const input = lastTypedRequest || window.ChefDomain.buildMealPlanningRequest(plannerChoices, window.I18n.code);
+    const button = event.currentTarget.querySelector('button[type="submit"]');
     const status = document.querySelector("#generation-status");
     const zh = window.I18n.code === "zh-TW";
     const statusTimers = [];
@@ -589,7 +627,7 @@ function renderHome() {
     try {
       document.querySelector("#dish-clarification")?.remove();
       document.querySelector("#dish-generation-error")?.remove();
-      const result = await generatePlan(input);
+      const result = await generatePlan(input, { servings: Number(plannerChoices.servings), max_minutes: plannerChoices.time === "any" ? null : Number(plannerChoices.time) });
       assertGenerationContext(result.ownerUserId, result.generationEpoch);
       if (result.kind === "clarification") {
         renderDishClarification(result);
@@ -604,7 +642,7 @@ function renderHome() {
     } finally {
       statusTimers.forEach(clearTimeout);
       status.hidden = true;
-      button.textContent = "→";
+      button.textContent = zh ? "幫我決定這一餐" : "Decide my meal";
       button.classList.remove("busy");
       button.disabled = false;
     }
@@ -683,7 +721,7 @@ async function renderPantry() {
       ? data
           .map(
             (item) =>
-              `<article class="card pantry-item"><p class="eyebrow">${esc(item.storage_zone)}</p><h3>${esc(item.name)}</h3><p>${finiteNumber(item.quantity, "")} ${esc(item.unit || "")} · ${item.expires_on ? `Best by ${esc(item.expires_on)}` : "No expiry set"}</p><button type="button" class="pantry-remove" data-remove-id="${esc(item.id)}" aria-label="Remove ingredient" title="Remove ingredient">Remove</button></article>`,
+              `<article class="card pantry-item"><p class="eyebrow">${esc(item.storage_zone)}</p><h3>${esc(item.name)}</h3><p>${finiteNumber(item.quantity, "")} ${esc(window.ChefDomain.unitLabel(item.unit, window.I18n.code, item.quantity))} · ${item.expires_on ? `Best by ${esc(item.expires_on)}` : "No expiry set"}</p><button type="button" class="pantry-remove" data-remove-id="${esc(item.id)}" aria-label="Remove ingredient" title="Remove ingredient">Remove</button></article>`,
           )
           .join("")
       : '<article class="card pantry-item"><h3>Your pantry is empty.</h3><p>Add what you have. Jarvis reads this list before creating every meal.</p></article>';
@@ -1107,7 +1145,21 @@ function onboarding(edit = false) {
   };
 }
 
-async function boot() {
+let profileBootRequest = null;
+
+function boot() {
+  const accountId = user?.id;
+  if (!accountId) return Promise.resolve(false);
+  if (profileBootRequest?.accountId === accountId) return profileBootRequest.promise;
+  const request = { accountId, promise: null };
+  request.promise = loadAppProfile().finally(() => {
+    if (profileBootRequest === request) profileBootRequest = null;
+  });
+  profileBootRequest = request;
+  return request.promise;
+}
+
+async function loadAppProfile() {
   const expectedUserId = user?.id;
   if (!expectedUserId) return false;
   const result = await sb

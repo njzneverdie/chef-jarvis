@@ -522,6 +522,8 @@ function cleanVerifierTerm(value) {
 }
 
 const repairablePatterns = [
+  /^Recipe must make exactly \d+ servings\.$/,
+  /^Recipe total preparation and cooking time must be at most \d+ minutes\.$/,
   /^steps\[\d+\]\.instruction must state an exact duration/,
   /^steps\[\d+\]\.instruction must use one exact duration/,
   /^ingredients\[\d+\]\.(?:quantity|unit|preparation|category) /,

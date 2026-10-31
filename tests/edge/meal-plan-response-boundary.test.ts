@@ -14,7 +14,9 @@ Deno.env.delete("THEMEALDB_API_KEY");
 
 type StubState = {
   allergies: string[];
-  geminiMode: "fail" | "recipe" | "named_verifier_fallback";
+  geminiMode: "fail" | "recipe" | "named_verifier_fallback" | "variety_repeat";
+  recentTitles: string[];
+  geminiPrompts: string[];
   geminiRecipe: Record<string, unknown> | null;
   geminiCalls: Array<{ model: string; kind: string }>;
   consumeCalls: number;
@@ -24,12 +26,15 @@ type StubState = {
 const state: StubState = {
   allergies: [],
   geminiMode: "fail",
+  recentTitles: [],
+  geminiPrompts: [],
   geminiRecipe: null,
   geminiCalls: [],
   consumeCalls: 0,
   refundCalls: 0,
 };
 
+const thinkingLevels: unknown[] = [];
 const completions: Record<string, unknown>[] = [];
 const originalLog = console.log;
 console.log = (...args: unknown[]) => {
@@ -87,10 +92,12 @@ function stubSupabase(url: URL, init?: RequestInit): Response {
   }
   if (
     path.startsWith("/rest/v1/pantry_items") ||
-    path.startsWith("/rest/v1/recipe_feedback") ||
-    path.startsWith("/rest/v1/recipes")
+    path.startsWith("/rest/v1/recipe_feedback")
   ) {
     return json([]);
+  }
+  if (path.startsWith("/rest/v1/recipes")) {
+    return json(state.recentTitles.map((title) => ({ title, recipe: {} })));
   }
   return json({ message: `unexpected supabase path ${path}` }, 500);
 }
@@ -100,6 +107,7 @@ function stubGemini(url: URL, init?: RequestInit): Response {
   const requestBody = typeof init?.body === "string"
     ? JSON.parse(init.body) as {
       contents?: Array<{ parts?: Array<{ text?: string }> }>;
+      generationConfig?: {thinkingConfig?:{thinkingLevel?:string}};
     }
     : {};
   const prompt = requestBody.contents?.[0]?.parts?.[0]?.text || "";
@@ -109,6 +117,8 @@ function stubGemini(url: URL, init?: RequestInit): Response {
     ? "verifier"
     : "generation";
   state.geminiCalls.push({ model, kind });
+  state.geminiPrompts.push(prompt);
+  thinkingLevels.push(requestBody.generationConfig?.thinkingConfig?.thinkingLevel);
   if (state.geminiMode === "named_verifier_fallback") {
     if (kind === "resolver") {
       return json({
@@ -159,6 +169,14 @@ function stubGemini(url: URL, init?: RequestInit): Response {
       });
     }
   }
+  if (state.geminiMode === "variety_repeat" && state.geminiRecipe) {
+    const recipe = state.geminiCalls.length === 1
+      ? { ...state.geminiRecipe, title: state.recentTitles[0] }
+      : state.geminiRecipe;
+    return json({
+      candidates: [{ content: { parts: [{ text: JSON.stringify(recipe) }] } }],
+    });
+  }
   if (state.geminiMode === "recipe" && state.geminiRecipe) {
     return json({
       candidates: [{
@@ -200,14 +218,14 @@ globalThis.fetch = ((input: Request | URL | string, init?: RequestInit) => {
 await import("../../supabase/functions/chef-meal-plan/index.ts");
 const ENDPOINT = "http://127.0.0.1:8000/";
 
-async function requestPlan(meal: string) {
+async function requestPlan(meal: string, constraints?: unknown) {
   const response = await realFetch(ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: "Bearer stub-user-token",
     },
-    body: JSON.stringify({ request: meal, language: "en" }),
+    body: JSON.stringify({ request: meal, language: "en", constraints }),
   });
   return { status: response.status, body: await response.json() };
 }
@@ -217,6 +235,9 @@ function resetScenario(overrides: Partial<StubState> = {}) {
   state.geminiMode = "fail";
   state.geminiRecipe = null;
   state.geminiCalls = [];
+  state.geminiPrompts = [];
+  state.recentTitles = [];
+  thinkingLevels.length=0;
   state.consumeCalls = 0;
   state.refundCalls = 0;
   Object.assign(state, overrides);
@@ -277,6 +298,8 @@ Deno.test("an unsafe metered response refunds quota and never logs completion", 
   assertEquals(state.refundCalls, 1, "the reserved quota must be refunded");
   assertEquals(completions.length, 0, "an unsafe response must not log completion");
 });
+
+let successRecipe: Record<string, unknown> | null = null;
 
 Deno.test("ai success returns a validated plan and keeps the quota consumed", { sanitizeOps: false, sanitizeResources: false }, async () => {
   resetScenario({
@@ -355,6 +378,26 @@ Deno.test("ai success returns a validated plan and keeps the quota consumed", { 
   assertEquals(state.refundCalls, 0, "a successful metered plan keeps its quota");
   assertEquals(completions.length, 1);
   assertEquals(completions[0].outcome, "ai_generated");
+  successRecipe = state.geminiRecipe;
+});
+
+Deno.test("a recent-repeat rejection retries the fast model with the rejected title before escalating", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  assert(successRecipe, "previous scenario must capture a valid recipe");
+  resetScenario({
+    geminiMode: "variety_repeat",
+    geminiRecipe: successRecipe,
+    recentTitles: ["Lemon Herb Turkey Skillet"],
+  });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const { status, body } = await requestPlan(BROAD_MEAL);
+  assertEquals(status, 200);
+  assertEquals(body.plan.title, "Ginger Salmon Rice Bowl");
+  assertEquals(state.geminiCalls.map((call) => call.model), [
+    "gemini-3.1-flash-lite",
+    "gemini-3.1-flash-lite",
+  ]);
+  assertMatch(state.geminiPrompts[1], /rejected as a recent repeat[\s\S]*Lemon Herb Turkey Skillet/);
+  assertMatch(state.geminiPrompts[0], /Output language is mandatory/);
 });
 
 Deno.test("a named recipe falls back to the working generation model when the preferred identity verifier is unavailable", { sanitizeOps: false, sanitizeResources: false }, async () => {
@@ -421,6 +464,8 @@ Deno.test("a named recipe falls back to the working generation model when the pr
 
   assertEquals(status, 200);
   assertEquals(body.plan?.title, "香草燉豆腐");
+  assert(thinkingLevels.length>0);
+  assert(thinkingLevels.every(level=>level==="minimal"),"all timed Gemini requests must use explicit low-latency thinking");
   assertEquals(state.refundCalls, 0);
   assertEquals(completions.length, 1);
   assertEquals(state.geminiCalls, [
@@ -429,4 +474,31 @@ Deno.test("a named recipe falls back to the working generation model when the pr
     { model: "gemini-3.5-flash", kind: "verifier" },
     { model: "gemini-3.1-flash-lite", kind: "verifier" },
   ]);
+});
+
+Deno.test("selected constraints reject invalid input and return a compatible measured fallback", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  resetScenario();
+  const invalid = await requestPlan("Recommend a healthy dinner", { servings: 0, max_minutes: 15 });
+  assertEquals(invalid.status, 400);
+  assertEquals(state.consumeCalls, 0);
+  Deno.env.delete("GEMINI_API_KEY");
+  const result = await requestPlan("Recommend a healthy dinner", { servings: 1, max_minutes: 15 });
+  assertEquals(result.status, 200);
+  assertEquals(result.body.plan.servings, 1);
+  assert(result.body.plan.minutes <= 15);
+  assertEquals(result.body.plan.fallback, true);
+  assertEquals(result.body.plan.ingredients[0].quantity, 150);
+});
+
+Deno.test("models-failed selection returns a matching fallback and refunds AI quota", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  resetScenario({ geminiMode: "fail" });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const result = await requestPlan("Recommend a healthy dinner", { servings: 4, max_minutes: 15 });
+  assertEquals(result.status, 200);
+  assertEquals(result.body.plan.servings, 4);
+  assert(result.body.plan.minutes <= 15);
+  assertEquals(result.body.plan.fallback, true);
+  assertEquals(result.body.plan.ingredients[0].quantity, 600);
+  assertEquals(state.consumeCalls, 1);
+  assertEquals(state.refundCalls, 1);
 });

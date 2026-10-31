@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "Chef Jarvis",
+    "slug": "chef-jarvis",
+    "version": "1.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
+    "scheme": "chefjarvis",
+    "icon": "./assets/icon.png",
+    "ios": {
+      "bundleIdentifier": "com.njzneverdie.chefjarvis",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      "./plugins/with-local-notifications.cjs",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
+      "expo-notifications",
+      "./plugins/with-spaces-safe-bundle.cjs",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "enableSceneSupport": true
+          }
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Chef Jarvis uses the microphone only when you choose voice cooking commands.",
+          "speechRecognitionPermission": "Chef Jarvis recognizes your cooking commands. Speech may be processed by Apple."
+        }
+      ],
+      "./plugins/with-standalone-run.cjs"
+    ],
+    "assetBundlePatterns": [
+      "**/*"
+    ]
+  }
+}

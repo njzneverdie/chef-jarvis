@@ -1,6 +1,7 @@
+import {energyKcal,nutrientValue} from "../_shared/usda-nutrients.js";
 import { createClient } from "npm:@supabase/supabase-js@2.110.5";
 
-const FUNCTION_VERSION = "2026-07-18.1";
+const FUNCTION_VERSION = "2026-10-31.usda-energy.1";
 const defaultOrigins = [
   "https://chef-jarvis.pages.dev",
   "http://localhost:3000",
@@ -39,26 +40,8 @@ const respond = (
     status,
     headers: { ...corsHeaders(request), ...extraHeaders },
   });
-const value = (nutrients: any[], names: string[]) => {
-  const item = nutrients.find((nutrient) =>
-    names.includes(String(nutrient.nutrientName)),
-  );
-  return typeof item?.value === "number"
-    ? Math.round(item.value * 10) / 10
-    : null;
-};
-const kcal = (nutrients: any[]) => {
-  const item =
-    nutrients.find((nutrient) => String(nutrient.nutrientNumber) === "208") ||
-    nutrients.find(
-      (nutrient) =>
-        String(nutrient.nutrientName) === "Energy" &&
-        String(nutrient.unitName).toLowerCase() === "kcal",
-    );
-  return typeof item?.value === "number"
-    ? Math.round(item.value * 10) / 10
-    : null;
-};
+const value = nutrientValue;
+const kcal = energyKcal;
 
 const SEARCH_STOP_WORDS = new Set([
   "and",
@@ -123,8 +106,10 @@ const matchScore = (query: string, food: any) => {
     ) && (protein == null || protein < 5)
       ? 45
       : 0;
+  const rankScore=coverage * 100 + phraseBonus + typeBonus + nutrientBonus + rawBonus - processingPenalty - proteinSanityPenalty;
   return {
     coverage,
+    rankScore,
     score: Math.max(
       0,
       Math.min(
@@ -145,7 +130,7 @@ const matchScore = (query: string, food: any) => {
 const bestFoodMatch = (query: string, foods: any[]) => {
   const ranked = (Array.isArray(foods) ? foods : [])
     .map((food) => ({ food, ...matchScore(query, food) }))
-    .sort((left, right) => right.score - left.score);
+    .sort((left, right) => right.rankScore - left.rankScore);
   const best = ranked[0];
   return best && best.coverage >= 0.5 ? best : null;
 };

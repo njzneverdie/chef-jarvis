@@ -1,10 +1,12 @@
 import { readFile, writeFile } from "node:fs/promises";
 
 const indexPath = new URL("../public/index.html", import.meta.url);
+const privacyPath = new URL("../public/privacy.html", import.meta.url);
 const bootPath = new URL("../public/boot.js", import.meta.url);
 const workerPath = new URL("../public/sw.js", import.meta.url);
 const manifestPath = new URL("../public/manifest.webmanifest", import.meta.url);
 let index = await readFile(indexPath, "utf8");
+let privacy = await readFile(privacyPath, "utf8");
 let boot = await readFile(bootPath, "utf8");
 let worker = await readFile(workerPath, "utf8");
 let manifest = await readFile(manifestPath, "utf8");
@@ -18,6 +20,7 @@ if (!version) throw new Error("No asset version was found.");
 
 if (requestedVersion && requestedVersion !== "--check") {
   index = index.replace(/\?v=[^"']+/g, `?v=${version}`);
+  privacy = privacy.replace(/\?v=[^"']+/g, `?v=${version}`);
   boot = boot.replace(
     /const APP_VERSION = "[^"]+";/,
     `const APP_VERSION = "${version}";`,
@@ -31,15 +34,22 @@ if (requestedVersion && requestedVersion !== "--check") {
   manifest = manifest.replace(/\?v=[^"']+/g, `?v=${version}`);
   await Promise.all([
     writeFile(indexPath, index),
+    writeFile(privacyPath, privacy),
     writeFile(bootPath, boot),
     writeFile(workerPath, worker),
     writeFile(manifestPath, manifest),
   ]);
 }
 
-const assets = [...index.matchAll(/["'](\/[^"']+\?v=[^"']+)["']/g)].map(
-  ([, asset]) => asset,
-);
+const assets = [
+  ...new Set(
+    [index, privacy].flatMap((document) =>
+      [...document.matchAll(/["'](\/[^"']+\?v=[^"']+)["']/g)].map(
+        ([, asset]) => asset,
+      ),
+    ),
+  ),
+];
 if (!worker.includes(`const CACHE = "chef-jarvis-${version}";`))
   throw new Error("Service worker cache version is out of sync.");
 if (!boot.includes(`const APP_VERSION = "${version}";`))

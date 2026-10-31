@@ -477,7 +477,7 @@ test("growing user collections have bounded initial queries", async () => {
 
 test("profile load failures do not open onboarding or overwrite saved data", async () => {
   const app = await readFile(new URL("app.js", publicUrl), "utf8");
-  const boot = app.slice(app.indexOf("async function boot()"), app.indexOf("async function startApp()"));
+  const boot = app.slice(app.indexOf("async function loadAppProfile()"), app.indexOf("async function startApp()"));
   assert.match(boot, /if \(result\.error\)[\s\S]*return false/);
   assert.match(boot, /if \(!profile\?\.onboarding_completed\) onboarding\(\)/);
   assert.ok(boot.indexOf("return false") < boot.indexOf("onboarding()"));
@@ -681,7 +681,7 @@ test("session-only voice tips stay in memory while normal recipes remain per-use
 
 test("account switches clear the old shell before profile boot and boot rejects stale results", async () => {
   const app = await readFile(new URL("app.js", publicUrl), "utf8");
-  const boot = functionSource(app, "async function boot");
+  const boot = functionSource(app, "async function loadAppProfile");
   const authChange = functionSource(app, "sb.auth.onAuthStateChange");
   assert.match(boot, /const expectedUserId =/);
   assert.match(boot, /if \(!isCurrentAppUser\(expectedUserId\)\) return false/);
@@ -808,7 +808,7 @@ test("onboarding saves, reloads, edits, and dedupes custom allergies", async () 
   ]);
   const onboarding = app.slice(
     app.indexOf("function onboarding("),
-    app.indexOf("async function boot()"),
+    app.indexOf("async function loadAppProfile()"),
   );
   assert.match(onboarding, /name="custom_allergies"/);
   assert.match(
@@ -832,4 +832,16 @@ test("onboarding saves, reloads, edits, and dedupes custom allergies", async () 
     "the saved payload must use the merged, deduped allergy list",
   );
   assert.match(i18n, /"Other allergies \(comma separated\)"/);
+});
+
+test("restoring a saved partial USDA reference preserves original nutrition", async () => {
+  const source = await readFile(new URL("chef-mode.js", publicUrl), "utf8");
+  await import("../public/domain.js");
+  const domain = globalThis.ChefDomain;
+  const restore = new Function("window", `return ${functionSource(source, "function planFromSavedRow")};`)({ ChefDomain: domain });
+  const row = { title: "Rice", recipe: { kcal: 500, protein_g: 30 }, nutrition: { estimate: { kcal: 500, protein_g: 30 }, usda: { kcal: 120, protein_g: 4, complete: false, coverage_percent: 50 } } };
+  assert.equal(restore(row).kcal, 500);
+  assert.equal(restore(row).protein_g, 30);
+  row.nutrition.usda = { kcal: 480, protein_g: 28, carbs_g: 50, fat_g: 12, complete: true, coverage_percent: 100 };
+  assert.equal(restore(row).kcal, 480);
 });

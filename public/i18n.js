@@ -36,6 +36,10 @@
       "請先輸入電子郵件，再要求重設連結。",
     "Password reset email sent. Open the link in that email to continue.":
       "密碼重設信已寄出，請開啟信件中的連結繼續。",
+    "Chef Jarvis cannot reach the account service right now. Please try again later.":
+      "Chef Jarvis 目前無法連線至帳號服務，請稍後再試。",
+    "Chef Jarvis could not complete that account request. Please try again.":
+      "Chef Jarvis 目前無法完成帳號操作，請再試一次。",
     "Your password has been updated ✓": "密碼已更新 ✓",
     "Use at least 8 characters.": "請使用至少 8 個字元。",
     "you@example.com": "you@example.com",
@@ -133,6 +137,26 @@
     "Permanent deletion removes your sign-in and all linked Chef Jarvis product data.":
       "永久刪除會移除登入帳號與所有連結的 Chef Jarvis 產品資料。",
     "Read privacy & retention": "閱讀隱私與資料保留政策",
+    "PRIVACY & DATA RETENTION": "隱私與資料保留",
+    "Your data,": "你的資料，",
+    "your choice.": "由你決定。",
+    "Last updated: July 18, 2026": "最後更新：2026 年 7 月 18 日",
+    "What Chef Jarvis stores": "Chef Jarvis 會儲存哪些資料",
+    "Chef Jarvis stores the account and product data needed to personalize recipes and preserve your work. This can include your cooking profile, nutrition targets, dietary preferences and allergies, pantry, recipes, shopping lists, meal plans, cooking sessions, nutrition logs, and recipe feedback.":
+      "Chef Jarvis 會儲存個人化食譜與保留使用成果所需的帳號及產品資料，可能包括料理資料、營養目標、飲食偏好與過敏原、庫存、食譜、購物清單、餐點計畫、烹飪工作階段、營養紀錄及食譜意見回饋。",
+    "Retention and deletion": "資料保留與刪除",
+    "Your product data is retained until you delete your account. Choosing":
+      "產品資料會保留到你刪除帳號為止。在個人資料頁選擇",
+    "in Profile permanently deletes your account and linked Chef Jarvis product data. This cannot be undone.":
+      "會永久刪除帳號及所有連結的 Chef Jarvis 產品資料，而且無法復原。",
+    "Short-lived request records used for rate limiting age out automatically and are also deleted with the account. JSON exports are controlled by you after download; Chef Jarvis cannot remove copies from your device or other services.":
+      "用於流量限制的短期請求紀錄會自動到期，也會隨帳號一併刪除。JSON 匯出檔下載後由你自行管理；Chef Jarvis 無法刪除儲存在你的裝置或其他服務中的副本。",
+    "External services": "外部服務",
+    "Supabase provides authentication and storage. Google Gemini may receive your meal request and relevant food-profile context when you generate a plan. USDA FoodData Central may receive ingredient search terms for nutrition references. Wikimedia Commons may receive ordinary image requests when a recipe photo is shown.":
+      "Supabase 提供身分驗證與資料儲存。產生餐點計畫時，Google Gemini 可能會收到你的餐點需求及相關飲食資料；USDA FoodData Central 可能會收到用於查詢營養參考值的食材關鍵字；顯示食譜照片時，Wikimedia Commons 可能會收到一般圖片請求。",
+    "Your choices": "你的選擇",
+    "You can download a JSON export from Profile before deletion. Do not put secrets or unrelated sensitive personal information in a meal request.":
+      "刪除帳號前，你可以從個人資料頁下載 JSON 匯出檔。請勿在餐點需求中輸入密碼、金鑰或與料理無關的敏感個人資訊。",
     "Delete my account": "刪除我的帳號",
     "INGREDIENT SWAPS": "食材替換",
     "No fully verified swap is available for this plan.":
@@ -701,7 +725,7 @@
 
   function translate(value) {
     if (language !== "zh-TW") return value;
-    const clean = String(value).trim();
+    const clean = String(value).trim().replace(/\s+/g, " ");
     if (!clean) return value;
     let translated = translations[clean];
     if (!translated) {
@@ -743,14 +767,24 @@
     });
   }
 
+  const isPrivacyPage = /^\/privacy(?:\.html)?\/?$/.test(location.pathname);
+
+  function localizedTitle() {
+    if (isPrivacyPage) {
+      return language === "zh-TW"
+        ? "Chef Jarvis — 隱私與資料保留"
+        : "Chef Jarvis — Privacy and data retention";
+    }
+    return language === "zh-TW"
+      ? "Chef Jarvis — 你的個人 AI 廚房助手"
+      : "Chef Jarvis — Your personal AI sous-chef";
+  }
+
   function setLanguage(next) {
     language = next === "zh-TW" ? "zh-TW" : "en";
     localStorage.setItem(storageKey, language);
     document.documentElement.lang = language;
-    document.title =
-      language === "zh-TW"
-        ? "Chef Jarvis — 你的個人 AI 廚房助手"
-        : "Chef Jarvis — Your personal AI sous-chef";
+    document.title = localizedTitle();
     document.dispatchEvent(
       new CustomEvent("chef-language-change", { detail: { language } }),
     );
@@ -761,10 +795,7 @@
   }
 
   document.documentElement.lang = language;
-  document.title =
-    language === "zh-TW"
-      ? "Chef Jarvis — 你的個人 AI 廚房助手"
-      : "Chef Jarvis — Your personal AI sous-chef";
+  document.title = localizedTitle();
   new MutationObserver((mutations) => {
     if (language !== "zh-TW") return;
     mutations.forEach((mutation) =>

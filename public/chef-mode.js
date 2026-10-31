@@ -604,6 +604,7 @@ function recipeFor(query = "High-protein tomato chicken pasta") {
 }
 
 function displayNumber(value, suffix = "") {
+  if(value == null)return "—";
   const number = finiteNumber(value);
   return number == null ? "—" : `${Math.round(number * 10) / 10}${suffix}`;
 }
@@ -617,41 +618,7 @@ function displayDate(value) {
 }
 
 function displayShoppingUnit(value, quantity) {
-  const unit = String(value || "");
-  if (window.I18n.code !== "zh-TW") {
-    if (Number(quantity) === 1) return unit;
-    return (
-      {
-        cup: "cups",
-        piece: "pieces",
-        clove: "cloves",
-        slice: "slices",
-        can: "cans",
-        pack: "packs",
-        portion: "portions",
-      }[unit] || unit
-    );
-  }
-  return (
-    {
-      tsp: "茶匙",
-      tbsp: "湯匙",
-      cup: "杯",
-      cups: "杯",
-      piece: "個",
-      pieces: "個",
-      portion: "份",
-      portions: "份",
-      clove: "瓣",
-      cloves: "瓣",
-      slice: "片",
-      slices: "片",
-      can: "罐",
-      cans: "罐",
-      pack: "包",
-      packs: "包",
-    }[unit] || unit
-  );
+  return window.ChefDomain.unitLabel(value, window.I18n.code, quantity);
 }
 
 function hasCookingProgress() {
@@ -1157,15 +1124,16 @@ function planFromSavedRow(row) {
   const recipe = row.recipe || {};
   const estimate = row.nutrition?.estimate || row.nutrition || {};
   const usda = row.nutrition?.usda || recipe.usda_nutrition || null;
+  const verifiedUsda = window.ChefDomain.hasCompleteUsdaNutrition(usda) ? usda : null;
   return {
     ...recipe,
     title: row.title,
     minutes: row.minutes ?? recipe.minutes,
     servings: row.servings ?? recipe.servings ?? 2,
-    kcal: usda?.kcal ?? estimate.kcal ?? recipe.kcal,
-    protein_g: usda?.protein_g ?? estimate.protein_g ?? recipe.protein_g,
-    carbs_g: usda?.carbs_g ?? estimate.carbs_g ?? recipe.carbs_g,
-    fat_g: usda?.fat_g ?? estimate.fat_g ?? recipe.fat_g,
+    kcal: verifiedUsda?.kcal ?? estimate.kcal ?? recipe.kcal,
+    protein_g: verifiedUsda?.protein_g ?? estimate.protein_g ?? recipe.protein_g,
+    carbs_g: verifiedUsda?.carbs_g ?? estimate.carbs_g ?? recipe.carbs_g,
+    fat_g: verifiedUsda?.fat_g ?? estimate.fat_g ?? recipe.fat_g,
     usda_nutrition: usda,
     userRequest: recipe.userRequest || row.title,
     saved_recipe_id: row.id,
@@ -2047,6 +2015,7 @@ async function startRecipeFromShoppingList(list) {
 }
 
 function usdaNutritionMarkup(recipe, total, foods = []) {
+  const perServing=value=>value==null?null:value/Math.max(1,finiteNumber(recipe.servings,1));
   const servings = Math.max(1, finiteNumber(recipe.servings, 1));
   const proteinTarget = finiteNumber(profile?.protein_g, 0);
   const proteinPercent = proteinTarget
@@ -2068,7 +2037,7 @@ function usdaNutritionMarkup(recipe, total, foods = []) {
   const qualityWarning = total.needs_review
     ? `<div class="usda-quality-warning" role="alert"><b>${zh ? "這份營養數字需要人工確認" : "These nutrition figures need review"}</b><span>${zh ? `USDA 與 AI 估算差距較大${total.low_confidence_matches ? `，另有 ${total.low_confidence_matches} 項名稱配對信心較低` : ""}。請展開下方配對，確認 USDA 食品是否與實際食材相同。` : `USDA differs materially from the recipe estimate${total.low_confidence_matches ? ` and ${total.low_confidence_matches} name match${total.low_confidence_matches === 1 ? " is" : "es are"} lower confidence` : ""}. Open the matches below and confirm the reference foods.`}</span></div>`
     : "";
-  return `<p class="eyebrow">USDA FOODDATA CENTRAL · WHOLE MEAL</p><h2>USDA-backed meal nutrition.</h2><p>${coverageText}</p>${qualityWarning}<div class="usda-total"><div><b>${displayNumber(total.kcal)}</b><span>${zh ? "大卡 · 整份食譜" : "kcal · whole recipe"}</span><small>${displayNumber(total.kcal / servings)} ${zh ? "每人份" : "per serving"}</small></div><div><b>${displayNumber(total.protein_g, "g")}</b><span>${zh ? "蛋白質 · 整份食譜" : "protein · whole recipe"}</span><small>${displayNumber(total.protein_g / servings, "g")} ${zh ? `每人份 · 每日目標的 ${proteinPercent}%` : `per serving · ${proteinPercent}% of daily target`}</small></div><div><b>${displayNumber(total.carbs_g, "g")}</b><span>${zh ? "碳水化合物" : "carbs"}</span><small>${displayNumber(total.carbs_g / servings, "g")} ${zh ? "每人份" : "per serving"}</small></div><div><b>${displayNumber(total.fat_g, "g")}</b><span>${zh ? "脂肪" : "fat"}</span><small>${displayNumber(total.fat_g / servings, "g")} ${zh ? "每人份" : "per serving"}</small></div></div>${matches}`;
+  return `<p class="eyebrow">USDA FOODDATA CENTRAL · WHOLE MEAL</p><h2>USDA-backed meal nutrition.</h2><p>${coverageText}${total.complete === true ? "" : (zh ? " 資料不完整，餐點記錄會保留 AI 估算。" : " Incomplete reference; meal logs retain the AI estimate.")}</p>${qualityWarning}<div class="usda-total"><div><b>${displayNumber(total.kcal)}</b><span>${zh ? "大卡 · 整份食譜" : "kcal · whole recipe"}</span><small>${displayNumber(perServing(total.kcal))} ${zh ? "每人份" : "per serving"}</small></div><div><b>${displayNumber(total.protein_g, "g")}</b><span>${zh ? "蛋白質 · 整份食譜" : "protein · whole recipe"}</span><small>${displayNumber(perServing(total.protein_g), "g")} ${zh ? `每人份 · 每日目標的 ${proteinPercent}%` : `per serving · ${proteinPercent}% of daily target`}</small></div><div><b>${displayNumber(total.carbs_g, "g")}</b><span>${zh ? "碳水化合物" : "carbs"}</span><small>${displayNumber(perServing(total.carbs_g), "g")} ${zh ? "每人份" : "per serving"}</small></div><div><b>${displayNumber(total.fat_g, "g")}</b><span>${zh ? "脂肪" : "fat"}</span><small>${displayNumber(perServing(total.fat_g), "g")} ${zh ? "每人份" : "per serving"}</small></div></div>${matches}`;
 }
 
 async function renderUsdaReference(
@@ -2174,7 +2143,7 @@ async function renderUsdaReference(
   }
 }
 
-async function generatePlan(request) {
+async function generatePlan(request, constraints) {
   const generationEpoch = chefStateEpoch;
   const {
     data: { session },
@@ -2195,7 +2164,7 @@ async function generatePlan(request) {
           apikey: SUPABASE_KEY,
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ request, language: window.I18n.code }),
+        body: JSON.stringify({ request, language: window.I18n.code, constraints }),
         signal: controller.signal,
       });
       assertGenerationContext(ownerUserId, generationEpoch);
@@ -2371,7 +2340,8 @@ async function persistGeneratedPlan(
 
 function recipeNutritionPerServing(recipe) {
   const servings = Math.max(1, finiteNumber(recipe.servings, 1));
-  const total = recipe.usda_nutrition || {
+  const verified = window.ChefDomain.hasCompleteUsdaNutrition(recipe.usda_nutrition);
+  const total = verified ? recipe.usda_nutrition : {
     kcal: finiteNumber(recipe.kcal, 0),
     protein_g: finiteNumber(recipe.protein_g, 0),
     carbs_g: finiteNumber(recipe.carbs_g, 0),
@@ -2384,10 +2354,10 @@ function recipeNutritionPerServing(recipe) {
     protein_g: finiteNumber(total.protein_g, 0) / servings,
     carbs_g: finiteNumber(total.carbs_g, 0) / servings,
     fat_g: finiteNumber(total.fat_g, 0) / servings,
-    nutrition_source: recipe.usda_nutrition
+    nutrition_source: verified
       ? "usda_fooddata_central"
       : "recipe_estimate",
-    usda_coverage: recipe.usda_nutrition?.coverage_percent ?? null,
+    usda_coverage: verified ? recipe.usda_nutrition.coverage_percent : null,
   };
 }
 

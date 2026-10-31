@@ -42,3 +42,8 @@ request.
 You can download a machine-readable JSON export before deletion. You can also
 delete individual saved recipes, shopping lists, pantry items, and other
 content through the product where those controls are available.
+
+
+## iOS voice and local storage (October 30, 2026)
+
+Voice commands are optional. With permission, Apple speech recognition may process audio. Chef Jarvis retains no audio recording and sends no audio to its backend. iOS Settings controls microphone/speech permission. Sessions use Keychain; eligible cooking progress and language use local app storage; alerts use local notifications. Source-only recipes stay in memory. Sign-out clears local cooking progress and alarms. Exported data is controlled by the user and selected share destination.

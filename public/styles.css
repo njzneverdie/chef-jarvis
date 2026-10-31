@@ -27,7 +27,7 @@
   --sage: #dce7d8;
   --ink: #29231f;
   --muted: #746e66;
-  --caramel: #c77c44;
+  --caramel: #a95722;
   --line: #e4dacd;
   --serif: "DM Serif Display", Georgia, serif;
   --sans: Manrope, Arial, sans-serif;
@@ -371,6 +371,12 @@ h1 em {
   border-color: #ffffff4d;
   background: #17392de6;
   color: #fff;
+}
+.privacy-language-toggle {
+  position: absolute;
+  z-index: 30;
+  top: 20px;
+  right: 22px;
 }
 .avatar {
   width: 36px;
@@ -1057,6 +1063,9 @@ h1 em {
   text-underline-offset: 3px;
 }
 @media (max-width: 850px) {
+  #app > .language-toggle {
+    position: absolute;
+  }
   .auth {
     grid-template-columns: 1fr;
   }
@@ -1070,13 +1079,39 @@ h1 em {
     padding: 24px;
   }
   .side {
+    z-index: 50;
+    inset: auto 0 0;
+    width: 100%;
+    height: auto;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    box-shadow: 0 -10px 30px #17392d26;
+  }
+  .side .brand,
+  .side-foot,
+  .nav-label {
     display: none;
+  }
+  .nav {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .nav-group {
+    display: contents;
+  }
+  .nav button {
+    padding: 8px 4px;
+    overflow: hidden;
+    font-size: 10px;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .content {
     margin: 0;
     width: 100%;
     max-width: 100vw;
-    padding: 0 20px 75px;
+    padding: 0 20px 116px;
   }
   .hero,
   .planner,
@@ -1120,3 +1155,19 @@ h1 em {
     width: 100%;
   }
 }
+
+/* Selection-first meal planning. Native radios retain keyboard/AT semantics. */
+.meal-choice-form {display:grid; gap:16px; margin-top:22px;}
+.meal-choice-form fieldset {border:0; padding:0; margin:0; min-width:0;}
+.meal-choice-form legend {font-weight:700; margin-bottom:10px; font-size:14px;}
+.meal-choice-form details {border-top:1px solid var(--line, #e4dacd); padding-top:14px;}
+.meal-choice-form details[open] fieldset {margin-top:16px;}
+.meal-choice-form summary {cursor:pointer; font-size:14px;}
+.meal-choice-form p {font-size:13px; line-height:1.6; color:#746e66; margin:0;}
+.planner-choices {display:flex; flex-wrap:wrap; gap:8px;}
+.planner-choices label {position:relative; cursor:pointer;}
+.planner-choices input {position:absolute; opacity:0; width:1px; height:1px;}
+.planner-choices span {display:flex; align-items:center; min-height:44px; padding:10px 14px; border:1px solid #c9cec3; border-radius:8px; background:#fffaf3; color:#17392d; font-size:14px;}
+.planner-choices input:checked + span {background:#17392d; color:#fffaf3; border-color:#17392d;}
+.planner-choices input:checked + span::before {content:"✓ "; margin-right:5px;}
+.planner-choices input:focus-visible + span {outline:3px solid #c77c44; outline-offset:3px;}

@@ -180,6 +180,38 @@
     });
   }
 
+  const zhUnitLabels = Object.freeze({
+    g: "克",
+    kg: "公斤",
+    ml: "毫升",
+    L: "公升",
+    tsp: "茶匙",
+    tbsp: "湯匙",
+    cup: "杯",
+    piece: "個",
+    clove: "瓣",
+    slice: "片",
+    can: "罐",
+    pack: "包",
+    portion: "份",
+  });
+  const enPluralUnitLabels = Object.freeze({
+    cup: "cups",
+    piece: "pieces",
+    clove: "cloves",
+    slice: "slices",
+    can: "cans",
+    pack: "packs",
+    portion: "portions",
+  });
+
+  // Display-only label for a stored unit enum; stored data keeps the enum.
+  function unitLabel(unit, language = "en", quantity = null) {
+    const value = String(unit || "").trim();
+    if (language === "zh-TW") return zhUnitLabels[value] || value;
+    return Number(quantity) === 1 ? value : enPluralUnitLabels[value] || value;
+  }
+
   function normalizeIngredient(item = {}) {
     const name = String(item.name || "Ingredient").trim() || "Ingredient";
     const rawQuantity = item.quantity;
@@ -189,28 +221,7 @@
     const unit = String(item.unit || "").trim();
     const preparation = String(item.preparation || "").trim();
     const usesChinese = /[\u3400-\u9fff]/.test(`${name}${preparation}`);
-    const displayUnit = usesChinese
-      ? {
-          tsp: "茶匙",
-          tbsp: "湯匙",
-          cup: "杯",
-          piece: "個",
-          clove: "瓣",
-          slice: "片",
-          can: "罐",
-          pack: "包",
-        }[unit] || unit
-      : quantity === 1
-        ? unit
-        : {
-            cup: "cups",
-            piece: "pieces",
-            clove: "cloves",
-            slice: "slices",
-            can: "cans",
-            pack: "packs",
-            portion: "portions",
-          }[unit] || unit;
+    const displayUnit = unitLabel(unit, usesChinese ? "zh-TW" : "en", quantity);
     const amount =
       quantity != null && displayUnit
         ? `${quantity.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${displayUnit}`
@@ -287,8 +298,15 @@
           cans: "can",
           packs: "pack",
           portions: "portion",
+          克: "g",
+          公克: "g",
+          公斤: "kg",
+          毫升: "ml",
+          公升: "L",
           茶匙: "tsp",
+          小匙: "tsp",
           湯匙: "tbsp",
+          大匙: "tbsp",
           汤匙: "tbsp",
           杯: "cup",
           個: "piece",
@@ -588,36 +606,48 @@
     );
     const totals = { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
     let matched = 0;
+    let completeMatches = 0;
+    const nutrientMatches = { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
     let estimatedConversions = 0;
     normalized.forEach((item) => {
       const food = matches.get(item.name.trim().toLocaleLowerCase());
       const weight = ingredientWeightInGrams(item);
       if (!food || !weight) return;
+      const validKeys=Object.keys(totals).filter(key=>typeof food.per100g[key] === "number" && Number.isFinite(food.per100g[key]) && food.per100g[key]>=0);
+      if(!validKeys.length)return;
       matched += 1;
+      if(validKeys.length===4)completeMatches += 1;
       if (weight.estimated) estimatedConversions += 1;
       const multiplier = weight.grams / 100;
-      Object.keys(totals).forEach((key) => {
-        const nutrient = Number(food.per100g[key]);
-        if (Number.isFinite(nutrient)) totals[key] += nutrient * multiplier;
+      validKeys.forEach((key) => {
+        nutrientMatches[key] += 1;
+        totals[key] += food.per100g[key] * multiplier;
       });
     });
     Object.keys(totals).forEach((key) => {
-      totals[key] = Math.round(totals[key] * 10) / 10;
+      totals[key] = nutrientMatches[key] ? Math.round(totals[key] * 10) / 10 : null;
     });
     return {
       ...totals,
       matched_ingredients: matched,
+      complete: normalized.length>0 && completeMatches===normalized.length,
+      nutrient_coverage_percent: Object.fromEntries(Object.keys(nutrientMatches).map(key=>[key,normalized.length?Math.round(nutrientMatches[key]/normalized.length*100):0])),
       total_ingredients: normalized.length,
       coverage_percent: normalized.length
-        ? Math.round((matched / normalized.length) * 100)
+        ? Math.round((completeMatches / normalized.length) * 100)
         : 0,
       estimated_conversions: estimatedConversions,
       source: "USDA FoodData Central",
     };
   }
 
+  function hasCompleteUsdaNutrition(total) {
+    return total?.complete===true && total.coverage_percent===100 && ["kcal","protein_g","carbs_g","fat_g"].every(key=>typeof total[key]==="number"&&Number.isFinite(total[key])&&total[key]>=0);
+  }
+
   function compareNutritionEstimates(usda, estimate, foods = []) {
     const differencePercent = (verified, expected) => {
+      if(verified==null||expected==null)return null;
       const reference = Number(expected);
       const measured = Number(verified);
       if (!Number.isFinite(reference) || reference <= 0 || !Number.isFinite(measured))
@@ -716,7 +746,35 @@
       : null;
   }
 
+  // One vocabulary drives both native and web planning. Values are allowlisted;
+  // no user-authored prompt is needed to request a personalized recommendation.
+  const mealPlanningGroups = [
+    { key: "servings", en: "How many servings?", zh: "準備幾人份？", options: [["1", "1", "1 人份"], ["2", "2", "2 人份"], ["3", "3", "3 人份"], ["4", "4", "4 人份"], ["6", "6", "6 人份"]] },
+    { key: "time", en: "Time available", zh: "想花多少時間？", options: [["15", "15 min", "15 分鐘"], ["30", "30 min", "30 分鐘"], ["45", "45 min", "45 分鐘"], ["any", "No limit", "不限時間"]] },
+    { key: "meal", en: "Meal", zh: "哪一餐？", optional: true, options: [["breakfast", "Breakfast", "早餐"], ["lunch", "Lunch", "午餐"], ["dinner", "Dinner", "晚餐"]] },
+    { key: "priority", en: "What matters today?", zh: "今天比較在意？", optional: true, options: [["any", "Jarvis decides", "交給 Jarvis"], ["pantry", "Use my pantry", "優先用庫存"], ["protein", "High protein", "高蛋白"], ["simple", "Easy cleanup", "簡單少洗鍋"]] },
+    { key: "cuisine", en: "Cuisine", zh: "想吃哪種風味？", optional: true, options: [["any", "Surprise me", "都可以"], ["taiwanese", "Taiwanese", "台式"], ["japanese", "Japanese", "日式"], ["western", "Western", "西式"], ["korean", "Korean", "韓式"]] },
+  ];
+  const defaultMealPlanningChoices = Object.freeze({ servings: "1", time: "30", meal: "dinner", priority: "any", cuisine: "any" });
+  function buildMealPlanningRequest(choices = {}, language = "en") {
+    const selected = Object.fromEntries(mealPlanningGroups.map(group => {
+      const value = choices[group.key] ?? defaultMealPlanningChoices[group.key];
+      const option = group.options.find(option => option[0] === value);
+      if (!option) throw new Error("Invalid meal planning choice: " + group.key);
+      return [group.key, option];
+    }));
+    const zh = language === "zh-TW";
+    const label = key => selected[key][zh ? 2 : 1];
+    const time = selected.time[0];
+    return zh
+      ? `請推薦一道適合我的${label("meal")}，由你決定菜色。準備 ${selected.servings[0]} 人份；${time === "any" ? "料理時間不限" : `總備料與烹調時間不超過 ${time} 分鐘`}。偏好：${label("priority")}；風味：${label("cuisine")}。遵守已儲存的過敏原、飲食限制、器材與營養目標；避開近期重複菜色。`
+      : `Recommend a personalized ${label("meal").toLowerCase()} meal idea; choose the dish for me. Make exactly ${selected.servings[0]} servings; ${time === "any" ? "no time limit" : `total preparation and cooking time at most ${time} minutes`}. Priority: ${label("priority")}; cuisine: ${label("cuisine")}. Follow my saved allergies, dietary restrictions, equipment and nutrition goals; avoid recent repeats.`;
+  }
+
   root.ChefDomain = Object.freeze({
+    mealPlanningGroups,
+    defaultMealPlanningChoices,
+    buildMealPlanningRequest,
     calculateTarget,
     tickTimers,
     normalizeRecipeSteps,
@@ -733,8 +791,10 @@
     mergeGroceryItems,
     scaleIngredientsForServings,
     groceryDisplayMeasurement,
+    unitLabel,
     ingredientWeightInGrams,
     calculateUsdaMealNutrition,
+    hasCompleteUsdaNutrition,
     compareNutritionEstimates,
     localDateKey,
     safeExternalUrl,
