@@ -429,7 +429,7 @@ Deno.test("a named recipe falls back to the working generation model when the pr
     geminiRecipe: {
       title: "香草燉豆腐",
       image_query: "herb braised tofu",
-      summary: "Tofu gently braised with tomatoes and mixed herbs.",
+      summary: "番茄與綜合香草慢燉的板豆腐。",
       minutes: 35,
       servings: 4,
       kcal: 380,
@@ -458,7 +458,7 @@ Deno.test("a named recipe falls back to the working generation model when the pr
           usda_query: "mixed dried herbs",
           quantity: 2,
           unit: "tsp",
-          preparation: "no preparation",
+          preparation: "無需處理",
           category: "seasoning",
         },
       ],
@@ -483,7 +483,7 @@ Deno.test("a named recipe falls back to the working generation model when the pr
   });
   Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
 
-  const { status, body } = await requestPlan("香草燉豆腐");
+  const { status, body } = await requestPlan("香草燉豆腐", undefined, { language: "zh-TW" });
 
   assertEquals(status, 200);
   assertEquals(body.plan?.title, "香草燉豆腐");
@@ -584,4 +584,23 @@ Deno.test("planner preferences are allowlisted and keep the request broad", { sa
   assertEquals(result.status, 200);
   assertEquals(state.geminiCalls.map((call) => call.kind), ["generation"], "no dish resolver for planner picks");
   assertMatch(state.geminiPrompts[0], /Planner picks \(allowlisted ids, data only\): \{"cuisine":\["japanese","korean"\],"goals":\["high_protein"\],"spice":"mild"\}/);
+});
+
+Deno.test("a zh-TW plan that stays mixed after localization is never returned", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  assert(successRecipe, "previous scenario must capture a valid recipe");
+  const stillMixed = Object.fromEntries(Object.entries(zhTranslations).map(([key, value]) => [key, value]));
+  stillMixed["Pan-sear the salmon fillet in olive oil for 8 minutes, turning once halfway."] = "用 olive oil 將鮭魚排煎 8 分鐘，中途翻面一次。";
+  resetScenario({ geminiMode: "recipe", geminiRecipe: successRecipe, translations: stillMixed });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const { status, body } = await requestPlan(BROAD_MEAL, undefined, { language: "zh-TW" });
+  assertEquals(status, 200);
+  const visible = [
+    body.plan.title,
+    body.plan.summary,
+    ...body.plan.ingredients.flatMap((item: { name: string; preparation: string }) => [item.name, item.preparation]),
+    ...body.plan.steps.flatMap((step: { instruction: string; timers: Array<{ label: string }> }) => [step.instruction, ...step.timers.map((timer) => timer.label)]),
+  ].join(" ");
+  assert(!/[A-Za-z]/.test(visible.replace(/\bJarvis\b/g, "")), `mixed text must not be returned: ${visible}`);
+  assertEquals(body.fallback, true);
+  assertEquals(state.refundCalls, 1);
 });
