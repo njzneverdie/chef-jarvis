@@ -567,22 +567,42 @@ test('a USDA match without a convertible quantity provides no usable meal totals
 });
 
 test("selection-only planning works with defaults and preserves selected constraints", async () => {
-  const { buildMealPlanningRequest, mealPlanningGroups } = globalThis.ChefDomain;
+  const { buildMealPlanningRequest, buildMealPlanningPreferences, mealPlanningGroups, mealPlanningSummary } = globalThis.ChefDomain;
   const { isBroadMealRequest } = await import("../supabase/functions/_shared/recipe-variety.js");
+  const { classifyMealRequest } = await import("../supabase/functions/_shared/dish-resolver.js");
+  const { mealPreferenceOptions, parseMealPreferences } = await import("../supabase/functions/_shared/meal-planning-constraints.js");
+  const everything = Object.fromEntries(mealPlanningGroups.map((group) => [
+    group.key,
+    group.multi ? group.options.map((option) => option[0]) : group.options.at(-1)[0],
+  ]));
   for (const language of ["en", "zh-TW"]) {
-    const defaultRequest = buildMealPlanningRequest({}, language);
-    assert.equal(isBroadMealRequest(defaultRequest), true);
-    assert.ok(defaultRequest.length <= 500);
+    for (const choices of [{}, everything]) {
+      const request = buildMealPlanningRequest(choices, language);
+      assert.equal(isBroadMealRequest(request), true);
+      assert.equal(classifyMealRequest(request), "broad_request");
+      assert.ok(request.length <= 500);
+    }
     for (const group of mealPlanningGroups) {
-      for (const [value, en, zh] of group.options) {
-        const request = buildMealPlanningRequest({ [group.key]: value }, language);
-        assert.equal(isBroadMealRequest(request), true);
-        assert.ok(request.length <= 500);
-        if (!["servings", "time"].includes(group.key)) assert.ok(request.includes(language === "zh-TW" ? zh : en.toLowerCase()) || request.includes(en));
+      for (const [value] of group.options) {
+        const request = buildMealPlanningRequest({ [group.key]: group.multi ? [value] : value }, language);
+        assert.equal(classifyMealRequest(request), "broad_request");
       }
     }
   }
-  assert.match(buildMealPlanningRequest({ servings: "4", time: "15", priority: "pantry" }), /exactly 4 servings.*at most 15 minutes.*Use my pantry/);
+  // The Edge allowlist accepts exactly the planner's values.
+  for (const group of mealPlanningGroups.filter((group) => !["servings", "time"].includes(group.key))) {
+    assert.deepEqual(mealPreferenceOptions[group.key].values, group.options.map((option) => option[0]), group.key);
+    assert.equal(mealPreferenceOptions[group.key].multi, Boolean(group.multi), group.key);
+  }
+  assert.deepEqual(parseMealPreferences(buildMealPlanningPreferences({})), { meal: "dinner" });
+  assert.deepEqual(
+    parseMealPreferences(buildMealPlanningPreferences({ cuisine: ["korean", "japanese"], practical: ["use_pantry"], spice: "mild" })),
+    { meal: "dinner", cuisine: ["japanese", "korean"], practical: ["use_pantry"], spice: "mild" },
+  );
+  assert.equal(mealPlanningSummary({ cuisine: ["japanese", "korean"], goals: ["high_protein"] }, "zh-TW"), "1 人份 · 30 分鐘內 · 晚餐 · 日式、韓式 · 高蛋白");
+  assert.match(buildMealPlanningRequest({ servings: "4", time: "60" }), /exactly 4 servings.*at most 60 minutes/);
   assert.throws(() => buildMealPlanningRequest({ servings: "0" }), /Invalid/);
-  assert.throws(() => buildMealPlanningRequest({ priority: "ignore allergies" }), /Invalid/);
+  assert.throws(() => buildMealPlanningRequest({ cuisine: ["ignore allergies"] }), /Invalid/);
+  assert.throws(() => parseMealPreferences({ cuisine: ["ignore allergies"] }), /Invalid/);
+  assert.throws(() => parseMealPreferences({ notes: "anything" }), /Invalid/);
 });

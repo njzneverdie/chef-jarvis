@@ -479,12 +479,16 @@ function show(id) {
 function renderHome() {
   markViewRendered("home");
   const plannerZh = window.I18n.code === "zh-TW";
-  const plannerChoices = { ...window.ChefDomain.defaultMealPlanningChoices };
+  const plannerDefaults = () => JSON.parse(JSON.stringify(window.ChefDomain.defaultMealPlanningChoices));
+  let plannerChoices = plannerDefaults();
   // A dish chosen from a clarification (or retried) is one-shot: the main
   // "Decide my meal" button must go back to the tap-built request afterwards.
   let lastTypedRequest = "";
   const plannerGroups = window.ChefDomain.mealPlanningGroups;
-  const plannerGroupMarkup = group => `<fieldset><legend>${esc(plannerZh ? group.zh : group.en)}</legend><div class="planner-choices">${group.options.map(([value, en, zh]) => `<label><input type="radio" name="${group.key}" value="${value}" ${plannerChoices[group.key] === value ? "checked" : ""}><span>${esc(plannerZh ? zh : en)}</span></label>`).join("")}</div></fieldset>`;
+  const plannerSelected = (group, value) => group.multi ? plannerChoices[group.key].includes(value) : plannerChoices[group.key] === value;
+  const plannerGroupMarkup = group => `<fieldset><legend>${esc(plannerZh ? group.zh : group.en)}${group.multi ? `<small>${plannerZh ? "（可複選）" : " (pick any)"}</small>` : ""}</legend><div class="planner-choices">${group.options.map(([value, en, zh]) => `<label><input type="${group.multi ? "checkbox" : "radio"}" name="${group.key}" value="${value}" ${plannerSelected(group, value) ? "checked" : ""}><span>${esc(plannerZh ? zh : en)}</span></label>`).join("")}</div></fieldset>`;
+  const plannerSectionMarkup = section => `<details class="planner-section"><summary>${esc(plannerZh ? section.zh : section.en)}</summary>${plannerGroups.filter(group => group.section === section.key).map(plannerGroupMarkup).join("")}</details>`;
+  const plannerSummaryText = () => window.ChefDomain.mealPlanningSummary(plannerChoices, window.I18n.code);
   document.querySelector("#home").innerHTML = `
     <div class="hero">
       <div class="hero-copy">
@@ -493,10 +497,13 @@ function renderHome() {
         <p class="lede">${plannerZh ? "不用想菜名、不用打字。Jarvis 會依你的飲食設定幫你決定。" : "No dish in mind? Let Jarvis decide, using your pantry and food profile."}</p>
         <form class="meal-choice-form" id="meal-form">
           <input type="hidden" id="meal-input">
+          <p class="planner-summary" id="planner-summary" aria-live="polite">${esc(plannerSummaryText())}</p>
           <button type="submit" class="dark" aria-label="Generate">${plannerZh ? "幫我決定這一餐" : "Decide my meal"}</button>
           ${plannerGroups.filter(group => !group.optional).map(plannerGroupMarkup).join("")}
-          <details><summary>${plannerZh ? "其他條件：餐別、偏好與風味（可不選）" : "Optional: meal, priorities & cuisine"}</summary>${plannerGroups.filter(group => group.optional).map(plannerGroupMarkup).join("")}</details>
-          <p>${plannerZh ? "預設推薦 1 人份晚餐，30 分鐘內完成；過敏原與器材自動套用個人設定。" : "Default: dinner for one, within 30 minutes. Saved allergies and equipment apply automatically."}</p>
+          <p class="planner-more">${plannerZh ? "更多條件（都可不選，可自由搭配）" : "More options (all optional, mix freely)"}</p>
+          ${window.ChefDomain.mealPlanningSections.filter(section => section.key !== "basics").map(plannerSectionMarkup).join("")}
+          <button type="button" class="link" id="planner-clear">${plannerZh ? "清除選擇" : "Clear choices"}</button>
+          <p>${plannerZh ? "預設推薦 1 人份晚餐，30 分鐘內完成；過敏原、飲食限制與器材自動套用個人設定，與選項衝突時以個人設定為準。" : "Default: dinner for one, within 30 minutes. Saved allergies, dietary restrictions and equipment always apply and win over any pick."}</p>
         </form>
         <p class="generation-status" id="generation-status" role="status" aria-live="polite" hidden></p>
       </div>
@@ -516,11 +523,25 @@ function renderHome() {
   document
     .querySelectorAll("[data-go]")
     .forEach((element) => (element.onclick = () => show(element.dataset.go)));
+  const syncPlannerSummary = () => {
+    document.querySelector("#planner-summary").textContent = plannerSummaryText();
+  };
   document.querySelector("#meal-form").onchange = event => {
     if (event.target.matches('input[type="radio"]')) {
       plannerChoices[event.target.name] = event.target.value;
-      document.querySelector("#meal-input").value = "";
-    }
+    } else if (event.target.matches('input[type="checkbox"]')) {
+      plannerChoices[event.target.name] = [...document.querySelectorAll(`#meal-form input[type="checkbox"][name="${event.target.name}"]:checked`)].map(input => input.value);
+    } else return;
+    document.querySelector("#meal-input").value = "";
+    syncPlannerSummary();
+  };
+  document.querySelector("#planner-clear").onclick = () => {
+    plannerChoices = plannerDefaults();
+    document.querySelectorAll("#meal-form input[type=radio], #meal-form input[type=checkbox]").forEach(input => {
+      const group = plannerGroups.find(item => item.key === input.name);
+      if (group) input.checked = plannerSelected(group, input.value);
+    });
+    syncPlannerSummary();
   };
   function renderDishClarification(result) {
     document.querySelector("#dish-clarification")?.remove();
@@ -627,7 +648,7 @@ function renderHome() {
     try {
       document.querySelector("#dish-clarification")?.remove();
       document.querySelector("#dish-generation-error")?.remove();
-      const result = await generatePlan(input, { servings: Number(plannerChoices.servings), max_minutes: plannerChoices.time === "any" ? null : Number(plannerChoices.time) });
+      const result = await generatePlan(input, { servings: Number(plannerChoices.servings), max_minutes: plannerChoices.time === "any" ? null : Number(plannerChoices.time) }, lastTypedRequest ? undefined : window.ChefDomain.buildMealPlanningPreferences(plannerChoices));
       assertGenerationContext(result.ownerUserId, result.generationEpoch);
       if (result.kind === "clarification") {
         renderDishClarification(result);

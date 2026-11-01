@@ -161,11 +161,11 @@ export function HomeScreen({ go }: { go: (tab: string) => void }) {
 export function PlanScreen({ go }: { go: (s: string) => void }) {
   const st = useStore(),
     t = useT();
-  const choices: Record<string, string> = st.planningChoices;
+  const choices: Record<string, string | string[]> = st.planningChoices;
   const setChoices = st.setPlanningChoices;
   const recipe: Recipe | null = st.plannedRecipe;
   const setRecipe = st.setPlannedRecipe;
-  const [showOptions, setShowOptions] = useState(false),
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({}),
     [clarification, setClarification] = useState<any>(null),
     [skipped, setSkipped] = useState<string[]>([]),
     [planning, setPlanning] = useState(false),
@@ -180,7 +180,11 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
     ];
     return () => timers.forEach(clearTimeout);
   }, [planning]);
-  async function generate(text: string, avoid: string[] = []) {
+  async function generate(
+    text: string,
+    avoid: string[] = [],
+    withPicks = true,
+  ) {
     if (!st.profile?.onboarding_completed)
       throw new Error(
         t("Complete your food profile first.", "請先完成飲食設定。"),
@@ -188,13 +192,16 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
     setClarification(null);
     setPlanning(true);
     try {
-      await requestPlan(text, avoid);
+      await requestPlan(text, avoid, withPicks);
     } finally {
       setPlanning(false);
     }
   }
-  async function requestPlan(text: string, avoid: string[]) {
+  async function requestPlan(text: string, avoid: string[], withPicks: boolean) {
     const result = await st.edge("chef-meal-plan", {
+      ...(withPicks
+        ? { preferences: domain.buildMealPlanningPreferences(choices) }
+        : {}),
       request: text.trim(),
       language: st.lang,
       constraints: {
@@ -221,6 +228,9 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
           "直接幫你選，也可以點幾個條件。不用想菜名、不用打字。",
         )}
       </Copy>
+      <Text style={s.fieldLabel} accessibilityLiveRegion="polite">
+        {domain.mealPlanningSummary(choices, st.lang)}
+      </Text>
       <Button
         disabled={st.busy}
         title={
@@ -274,58 +284,66 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
         />
       )}
       {domain.mealPlanningGroups
-        .filter((group: any) => !group.optional || showOptions)
+        .filter((group: any) => !group.optional)
         .map((group: any) => (
-          <View key={group.key} style={{ gap: 9 }}>
-            <Text style={s.fieldLabel}>
-              {st.lang === "zh-TW" ? group.zh : group.en}
-            </Text>
-            <View style={s.row}>
-              {group.options.map(([value, en, zh]: string[]) => {
-                const selected = choices[group.key] === value;
-                return (
-                  <Pressable
-                    key={value}
-                    accessibilityRole="radio"
-                    accessibilityLabel={st.lang === "zh-TW" ? zh : en}
-                    accessibilityState={{ selected, disabled: st.busy }}
-                    disabled={st.busy}
-                    onPress={() =>
-                      setChoices((previous: Record<string, string>) => ({
-                        ...previous,
-                        [group.key]: value,
-                      }))
-                    }
-                    style={[s.button, !selected && s.quiet]}
-                  >
-                    <Text
-                      style={[s.buttonText, !selected && { color: "#254C39" }]}
-                    >
-                      {selected ? "✓ " : ""}
-                      {st.lang === "zh-TW" ? zh : en}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
+          <ChoiceGroup
+            key={group.key}
+            group={group}
+            choices={choices}
+            setChoices={setChoices}
+            disabled={st.busy}
+            zh={st.lang === "zh-TW"}
+          />
         ))}
+      <Text style={s.fieldLabel}>
+        {t("More options (all optional, mix freely)", "更多條件（都可不選，可自由搭配）")}
+      </Text>
+      {domain.mealPlanningSections
+        .filter((section: any) => section.key !== "basics")
+        .map((section: any) => {
+          const open = Boolean(openSections[section.key]);
+          return (
+            <View key={section.key} style={{ gap: 9 }}>
+              <Button
+                quiet
+                title={`${open ? "▾" : "▸"} ${st.lang === "zh-TW" ? section.zh : section.en}`}
+                onPress={() =>
+                  setOpenSections((previous) => ({
+                    ...previous,
+                    [section.key]: !open,
+                  }))
+                }
+              />
+              {open &&
+                domain.mealPlanningGroups
+                  .filter((group: any) => group.section === section.key)
+                  .map((group: any) => (
+                    <ChoiceGroup
+                      key={group.key}
+                      group={group}
+                      choices={choices}
+                      setChoices={setChoices}
+                      disabled={st.busy}
+                      zh={st.lang === "zh-TW"}
+                    />
+                  ))}
+            </View>
+          );
+        })}
       <Button
         quiet
-        title={
-          showOptions
-            ? t("Fewer options", "收起其他條件")
-            : t(
-                "Optional: meal, priorities & cuisine",
-                "其他條件：餐別、偏好與風味（可不選）",
-              )
+        disabled={st.busy}
+        title={t("Clear choices", "清除選擇")}
+        onPress={() =>
+          setChoices({
+            ...JSON.parse(JSON.stringify(domain.defaultMealPlanningChoices)),
+          })
         }
-        onPress={() => setShowOptions((value) => !value)}
       />
       <Copy>
         {t(
-          "Saved allergies, dietary restrictions and equipment are applied automatically. Nutrition is an estimate; check ingredient labels.",
-          "過敏原、飲食限制與器材會自動套用個人設定。營養為估算，請確認食材標示。",
+          "Saved allergies, dietary restrictions and equipment always apply and win over any pick. Nutrition is an estimate; check ingredient labels.",
+          "過敏原、飲食限制與器材會自動套用個人設定，與選項衝突時以個人設定為準。營養為估算，請確認食材標示。",
         )}
       </Copy>
       {clarification && (
@@ -349,7 +367,7 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
                 title={name}
                 disabled={st.busy}
                 onPress={() => {
-                  st.run(() => generate(name));
+                  st.run(() => generate(name, [], false));
                 }}
               />
             );
@@ -367,6 +385,72 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
     </Page>
   );
 }
+function ChoiceGroup({
+  group,
+  choices,
+  setChoices,
+  disabled,
+  zh,
+}: {
+  group: any;
+  choices: Record<string, string | string[]>;
+  setChoices: (update: (previous: any) => any) => void;
+  disabled: boolean;
+  zh: boolean;
+}) {
+  const current = choices[group.key];
+  const isSelected = (value: string) =>
+    group.multi
+      ? Array.isArray(current) && current.includes(value)
+      : current === value;
+  return (
+    <View style={{ gap: 9 }}>
+      <Text style={s.fieldLabel}>
+        {zh ? group.zh : group.en}
+        {group.multi ? (zh ? "（可複選）" : " (pick any)") : ""}
+      </Text>
+      <View style={s.row}>
+        {group.options.map(([value, en, zhLabel]: string[]) => {
+          const selected = isSelected(value);
+          return (
+            <Pressable
+              key={value}
+              accessibilityRole={group.multi ? "checkbox" : "radio"}
+              accessibilityLabel={zh ? zhLabel : en}
+              accessibilityState={
+                group.multi
+                  ? { checked: selected, disabled }
+                  : { selected, disabled }
+              }
+              disabled={disabled}
+              onPress={() =>
+                setChoices((previous: Record<string, string | string[]>) => {
+                  if (!group.multi) return { ...previous, [group.key]: value };
+                  const list = Array.isArray(previous[group.key])
+                    ? (previous[group.key] as string[])
+                    : [];
+                  return {
+                    ...previous,
+                    [group.key]: list.includes(value)
+                      ? list.filter((item) => item !== value)
+                      : [...list, value],
+                  };
+                })
+              }
+              style={[s.button, !selected && s.quiet]}
+            >
+              <Text style={[s.buttonText, !selected && { color: "#254C39" }]}>
+                {selected ? "✓ " : ""}
+                {zh ? zhLabel : en}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 export function RecipeCard({
   recipe: r,
   onChange,
@@ -571,7 +655,9 @@ export function RecipeCard({
                 ? i
                 : `${i.quantity} ${domain.unitLabel(i.unit, st.lang, i.quantity)} · ${i.name}`}
             </Text>
-            {!!i.preparation && <Copy>{i.preparation}</Copy>}
+            {typeof i !== "string" && !!domain.ingredientPreparation(i) && (
+              <Copy>{domain.ingredientPreparation(i)}</Copy>
+            )}
           </View>
         ))}
       </Card>

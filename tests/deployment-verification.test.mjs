@@ -84,7 +84,7 @@ test("deployment verifier compares public hashes and Edge versions", async () =>
   assert.match(verifier, /x-chef-jarvis-function-version/i);
   assert.match(
     verifier,
-    /const requiredMealPlanVersion = "2026-11-01\.latency-language\.27"/,
+    /const requiredMealPlanVersion = "2026-11-01\.preferences-language\.28"/,
   );
   assert.match(
     verifier,
@@ -92,7 +92,7 @@ test("deployment verifier compares public hashes and Edge versions", async () =>
   );
   assert.match(
     mealPlan,
-    /const FUNCTION_VERSION = "2026-11-01\.latency-language\.27"/,
+    /const FUNCTION_VERSION = "2026-11-01\.preferences-language\.28"/,
   );
   assert.equal(
     JSON.parse(packageJson).scripts["verify:deployment"],

@@ -1165,6 +1165,11 @@ h1 em {
 .meal-choice-form summary {cursor:pointer; font-size:14px;}
 .meal-choice-form p {font-size:13px; line-height:1.6; color:#746e66; margin:0;}
 .planner-choices {display:flex; flex-wrap:wrap; gap:8px;}
+.planner-summary {font-weight:600; color:#17392d;}
+.planner-more {margin:14px 0 4px; font-weight:600;}
+.planner-section {border-top:1px solid #e4e1d8; padding:6px 0;}
+.planner-section summary {cursor:pointer; min-height:44px; display:flex; align-items:center; font-weight:600;}
+.planner-section legend small {font-weight:400; color:#5d6b63;}
 .planner-choices label {position:relative; cursor:pointer;}
 .planner-choices input {position:absolute; opacity:0; width:1px; height:1px;}
 .planner-choices span {display:flex; align-items:center; min-height:44px; padding:10px 14px; border:1px solid #c9cec3; border-radius:8px; background:#fffaf3; color:#17392d; font-size:14px;}

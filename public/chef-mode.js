@@ -2143,7 +2143,7 @@ async function renderUsdaReference(
   }
 }
 
-async function generatePlan(request, constraints) {
+async function generatePlan(request, constraints, preferences) {
   const generationEpoch = chefStateEpoch;
   const {
     data: { session },
@@ -2164,7 +2164,7 @@ async function generatePlan(request, constraints) {
           apikey: SUPABASE_KEY,
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ request, language: window.I18n.code, constraints }),
+        body: JSON.stringify({ request, language: window.I18n.code, constraints, preferences }),
         signal: controller.signal,
       });
       assertGenerationContext(ownerUserId, generationEpoch);

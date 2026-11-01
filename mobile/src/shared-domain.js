@@ -748,33 +748,95 @@
 
   // One vocabulary drives both native and web planning. Values are allowlisted;
   // no user-authored prompt is needed to request a personalized recommendation.
-  const mealPlanningGroups = [
-    { key: "servings", en: "How many servings?", zh: "準備幾人份？", options: [["1", "1", "1 人份"], ["2", "2", "2 人份"], ["3", "3", "3 人份"], ["4", "4", "4 人份"], ["6", "6", "6 人份"]] },
-    { key: "time", en: "Time available", zh: "想花多少時間？", options: [["15", "15 min", "15 分鐘"], ["30", "30 min", "30 分鐘"], ["45", "45 min", "45 分鐘"], ["any", "No limit", "不限時間"]] },
-    { key: "meal", en: "Meal", zh: "哪一餐？", optional: true, options: [["breakfast", "Breakfast", "早餐"], ["lunch", "Lunch", "午餐"], ["dinner", "Dinner", "晚餐"]] },
-    { key: "priority", en: "What matters today?", zh: "今天比較在意？", optional: true, options: [["any", "Jarvis decides", "交給 Jarvis"], ["pantry", "Use my pantry", "優先用庫存"], ["protein", "High protein", "高蛋白"], ["simple", "Easy cleanup", "簡單少洗鍋"]] },
-    { key: "cuisine", en: "Cuisine", zh: "想吃哪種風味？", optional: true, options: [["any", "Surprise me", "都可以"], ["taiwanese", "Taiwanese", "台式"], ["japanese", "Japanese", "日式"], ["western", "Western", "西式"], ["korean", "Korean", "韓式"]] },
+  // Single-select groups are mutually exclusive; multi-select groups combine
+  // freely and an empty selection means "no preference". Values are an
+  // allowlist shared with the chef-meal-plan Edge function.
+  const mealPlanningSections = [
+    { key: "basics", en: "Basics", zh: "基本" },
+    { key: "flavor", en: "Meal & cuisine", zh: "餐別與風味" },
+    { key: "nutrition", en: "Nutrition goals", zh: "營養目標" },
+    { key: "practical", en: "Practical needs", zh: "實用需求" },
+    { key: "ingredients", en: "Main ingredient & staple", zh: "主食材與主食" },
+    { key: "style", en: "Cooking style & taste", zh: "做法與口味" },
   ];
-  const defaultMealPlanningChoices = Object.freeze({ servings: "1", time: "30", meal: "dinner", priority: "any", cuisine: "any" });
-  function buildMealPlanningRequest(choices = {}, language = "en") {
-    const selected = Object.fromEntries(mealPlanningGroups.map(group => {
+  const mealPlanningGroups = [
+    { key: "servings", section: "basics", en: "How many servings?", zh: "準備幾人份？", options: [["1", "1", "1 人份"], ["2", "2", "2 人份"], ["3", "3", "3 人份"], ["4", "4", "4 人份"], ["6", "6", "6 人份"]] },
+    { key: "time", section: "basics", en: "Time available", zh: "想花多少時間？", options: [["15", "15 min", "15 分鐘"], ["30", "30 min", "30 分鐘"], ["45", "45 min", "45 分鐘"], ["60", "60 min", "60 分鐘"], ["any", "No limit", "不限時間"]] },
+    { key: "meal", section: "flavor", optional: true, en: "Meal", zh: "哪一餐？", options: [["breakfast", "Breakfast", "早餐"], ["lunch", "Lunch", "午餐"], ["dinner", "Dinner", "晚餐"], ["snack", "Snack", "點心"], ["late_night", "Late-night snack", "宵夜"]] },
+    { key: "cuisine", section: "flavor", optional: true, multi: true, en: "Cuisine", zh: "想吃哪種風味？", options: [["taiwanese", "Taiwanese", "台式"], ["chinese_home", "Chinese home-style", "中式家常"], ["sichuan_hunan", "Sichuan & Hunan", "川湘"], ["cantonese", "Cantonese & Hong Kong", "粵式港式"], ["japanese", "Japanese", "日式"], ["korean", "Korean", "韓式"], ["thai", "Thai", "泰式"], ["vietnamese", "Vietnamese", "越式"], ["southeast_asian", "Southeast Asian", "東南亞"], ["indian", "Indian", "印度"], ["italian", "Italian", "義式"], ["french", "French", "法式"], ["american", "American", "美式"], ["mexican", "Mexican", "墨西哥"], ["mediterranean", "Mediterranean", "地中海"], ["middle_eastern", "Middle Eastern", "中東"]] },
+    { key: "goals", section: "nutrition", optional: true, multi: true, en: "Nutrition goals", zh: "營養目標", options: [["high_protein", "High protein", "高蛋白"], ["low_carb", "Low carb", "低碳水"], ["low_fat", "Low fat", "低脂"], ["high_fiber", "High fiber", "高纖"], ["low_sodium", "Low sodium", "低鈉"], ["fat_loss", "Fat loss", "減脂"], ["muscle_gain", "Muscle gain", "增肌"], ["light", "Light", "清淡"]] },
+    { key: "practical", section: "practical", optional: true, multi: true, en: "Practical needs", zh: "實用需求", options: [["use_pantry", "Use my pantry", "消耗庫存"], ["expiring_first", "Expiring items first", "即期食材優先"], ["few_dishes", "Fewer dishes to wash", "少洗鍋"], ["one_pot", "One pot", "一鍋到底"], ["lunchbox", "Lunchbox-friendly", "可做便當"], ["freezer", "Freezer meal prep", "可冷凍備餐"], ["budget", "Budget-friendly", "省錢"], ["beginner", "Beginner-friendly", "新手友善"]] },
+    { key: "protein", section: "ingredients", optional: true, multi: true, en: "Main ingredient", zh: "主食材", options: [["chicken", "Chicken", "雞肉"], ["pork", "Pork", "豬肉"], ["beef", "Beef", "牛肉"], ["seafood", "Seafood", "海鮮"], ["fish", "Fish", "魚"], ["egg", "Eggs", "蛋"], ["tofu", "Tofu & soy", "豆腐豆製品"], ["plant", "Plant-based", "純素蔬食"]] },
+    { key: "staple", section: "ingredients", optional: true, en: "Staple", zh: "主食", options: [["any", "Any", "不限"], ["rice", "Rice", "飯"], ["noodles", "Noodles", "麵"], ["no_starch", "No starch", "無澱粉"]] },
+    { key: "method", section: "style", optional: true, multi: true, en: "Cooking method", zh: "料理方式", options: [["stir_fry", "Stir-fry", "快炒"], ["soup", "Soup", "湯品"], ["steam", "Steamed", "蒸"], ["oven", "Oven", "烤箱"], ["air_fryer", "Air fryer", "氣炸鍋"], ["braise", "Braised", "燉滷"], ["cold_dish", "Cold dish", "涼拌"], ["rice_cooker", "Rice cooker", "電鍋"]] },
+    { key: "spice", section: "style", optional: true, en: "Spice level", zh: "辣度", options: [["any", "Any", "不限"], ["none", "Not spicy", "不辣"], ["mild", "Mild", "小辣"], ["medium", "Medium", "中辣"], ["hot", "Hot", "大辣"]] },
+    { key: "mood", section: "style", optional: true, multi: true, en: "Mood", zh: "想要的感覺", options: [["warming", "Warming", "暖胃"], ["refreshing", "Refreshing", "清爽"], ["rice_friendly", "Great with rice", "下飯"], ["party", "For guests", "宴客"]] },
+  ];
+  const defaultMealPlanningChoices = Object.freeze({ servings: "1", time: "30", meal: "dinner", cuisine: [], goals: [], practical: [], protein: [], staple: "any", method: [], spice: "any", mood: [] });
+
+  function normalizeMealPlanningChoices(choices = {}) {
+    return Object.fromEntries(mealPlanningGroups.map(group => {
+      const allowed = group.options.map(option => option[0]);
       const value = choices[group.key] ?? defaultMealPlanningChoices[group.key];
-      const option = group.options.find(option => option[0] === value);
-      if (!option) throw new Error("Invalid meal planning choice: " + group.key);
-      return [group.key, option];
+      if (group.multi) {
+        const values = Array.isArray(value) ? value : [value].filter(item => item != null && item !== "");
+        if (values.some(item => !allowed.includes(item))) throw new Error("Invalid meal planning choice: " + group.key);
+        return [group.key, allowed.filter(item => values.includes(item))];
+      }
+      if (!allowed.includes(value)) throw new Error("Invalid meal planning choice: " + group.key);
+      return [group.key, value];
     }));
+  }
+
+  function mealPlanningPicks(choices = {}, language = "en") {
+    const selected = normalizeMealPlanningChoices(choices);
     const zh = language === "zh-TW";
-    const label = key => selected[key][zh ? 2 : 1];
-    const time = selected.time[0];
-    return zh
-      ? `請推薦一道適合我的${label("meal")}，由你決定菜色。準備 ${selected.servings[0]} 人份；${time === "any" ? "料理時間不限" : `總備料與烹調時間不超過 ${time} 分鐘`}。偏好：${label("priority")}；風味：${label("cuisine")}。遵守已儲存的過敏原、飲食限制、器材與營養目標；避開近期重複菜色。`
-      : `Recommend a personalized ${label("meal").toLowerCase()} meal idea; choose the dish for me. Make exactly ${selected.servings[0]} servings; ${time === "any" ? "no time limit" : `total preparation and cooking time at most ${time} minutes`}. Priority: ${label("priority")}; cuisine: ${label("cuisine")}. Follow my saved allergies, dietary restrictions, equipment and nutrition goals; avoid recent repeats.`;
+    return mealPlanningGroups.flatMap(group => {
+      if (group.key === "servings" || group.key === "time") return [];
+      const values = group.multi ? selected[group.key] : [selected[group.key]];
+      const labels = group.options
+        .filter(([value]) => values.includes(value) && value !== "any")
+        .map(option => option[zh ? 2 : 1]);
+      return labels.length ? [{ key: group.key, label: zh ? group.zh.replace(/[？?]$/, "") : group.en.replace(/\?$/, ""), values: labels }] : [];
+    });
+  }
+
+  // Structured picks for the Edge function (allowlisted ids, no free text).
+  function buildMealPlanningPreferences(choices = {}) {
+    const selected = normalizeMealPlanningChoices(choices);
+    return Object.fromEntries(mealPlanningGroups
+      .filter(group => group.key !== "servings" && group.key !== "time")
+      .map(group => [group.key, selected[group.key]]));
+  }
+
+  function mealPlanningSummary(choices = {}, language = "en") {
+    const selected = normalizeMealPlanningChoices(choices);
+    const zh = language === "zh-TW";
+    const time = selected.time === "any" ? (zh ? "不限時間" : "no time limit") : (zh ? `${selected.time} 分鐘內` : `≤ ${selected.time} min`);
+    const head = zh ? `${selected.servings} 人份 · ${time}` : `${selected.servings} ${selected.servings === "1" ? "serving" : "servings"} · ${time}`;
+    return [head, ...mealPlanningPicks(selected, language).map(pick => pick.values.join(zh ? "、" : ", "))].join(" · ");
+  }
+
+  function buildMealPlanningRequest(choices = {}, language = "en") {
+    const selected = normalizeMealPlanningChoices(choices);
+    const zh = language === "zh-TW";
+    const time = selected.time;
+    const core = zh
+      ? `請推薦一道適合我的餐點，由你決定菜色。準備 ${selected.servings} 人份；${time === "any" ? "料理時間不限" : `總備料與烹調時間不超過 ${time} 分鐘`}。遵守已儲存的過敏原、飲食限制、器材與營養目標（與選項衝突時以個人設定為準）；避開近期重複菜色。`
+      : `Recommend a personalized meal idea; choose the dish for me. Make exactly ${selected.servings} servings; ${time === "any" ? "no time limit" : `total preparation and cooking time at most ${time} minutes`}. Follow my saved allergies, dietary restrictions, equipment and nutrition goals (they win over any pick); avoid recent repeats.`;
+    // Picks travel only as structured preferences: free text built from them
+    // could read like a dish name and must never change the request type.
+    return core;
   }
 
   root.ChefDomain = Object.freeze({
+    mealPlanningSections,
     mealPlanningGroups,
     defaultMealPlanningChoices,
+    normalizeMealPlanningChoices,
     buildMealPlanningRequest,
+    buildMealPlanningPreferences,
+    mealPlanningSummary,
     calculateTarget,
     tickTimers,
     normalizeRecipeSteps,

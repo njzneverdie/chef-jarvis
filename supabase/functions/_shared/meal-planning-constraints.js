@@ -2,7 +2,7 @@ export function parseMealConstraints(value) {
   if (value == null) return null;
   if (typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid meal constraints");
   if (![1, 2, 3, 4, 6].includes(value.servings)) throw new Error("Invalid meal servings");
-  if (value.max_minutes !== null && ![15, 30, 45].includes(value.max_minutes)) throw new Error("Invalid meal time limit");
+  if (value.max_minutes !== null && ![15, 30, 45, 60].includes(value.max_minutes)) throw new Error("Invalid meal time limit");
   return { servings: value.servings, max_minutes: value.max_minutes };
 }
 export function mealConstraintRejectionReason(plan, constraints) {
@@ -35,4 +35,38 @@ export function withAvoidedTitles(recentMeals, avoidTitles) {
     fallback: false,
   }));
   return [...skipped, ...recent];
+}
+
+// Allowlist of selection-first picks; must match ChefDomain.mealPlanningGroups.
+export const mealPreferenceOptions = Object.freeze({
+  meal: { multi: false, values: ["breakfast", "lunch", "dinner", "snack", "late_night"] },
+  cuisine: { multi: true, values: ["taiwanese", "chinese_home", "sichuan_hunan", "cantonese", "japanese", "korean", "thai", "vietnamese", "southeast_asian", "indian", "italian", "french", "american", "mexican", "mediterranean", "middle_eastern"] },
+  goals: { multi: true, values: ["high_protein", "low_carb", "low_fat", "high_fiber", "low_sodium", "fat_loss", "muscle_gain", "light"] },
+  practical: { multi: true, values: ["use_pantry", "expiring_first", "few_dishes", "one_pot", "lunchbox", "freezer", "budget", "beginner"] },
+  protein: { multi: true, values: ["chicken", "pork", "beef", "seafood", "fish", "egg", "tofu", "plant"] },
+  staple: { multi: false, values: ["any", "rice", "noodles", "no_starch"] },
+  method: { multi: true, values: ["stir_fry", "soup", "steam", "oven", "air_fryer", "braise", "cold_dish", "rice_cooker"] },
+  spice: { multi: false, values: ["any", "none", "mild", "medium", "hot"] },
+  mood: { multi: true, values: ["warming", "refreshing", "rice_friendly", "party"] },
+});
+
+// Returns only allowlisted ids (never free text), dropping "no preference".
+export function parseMealPreferences(value) {
+  if (value == null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid meal preferences");
+  const parsed = {};
+  for (const [key, raw] of Object.entries(value)) {
+    const option = mealPreferenceOptions[key];
+    if (!option) throw new Error("Invalid meal preferences");
+    if (option.multi) {
+      if (!Array.isArray(raw) || raw.length > option.values.length || raw.some((item) => !option.values.includes(item)))
+        throw new Error("Invalid meal preferences");
+      const picks = option.values.filter((item) => raw.includes(item));
+      if (picks.length) parsed[key] = picks;
+    } else {
+      if (!option.values.includes(raw)) throw new Error("Invalid meal preferences");
+      if (raw !== "any") parsed[key] = raw;
+    }
+  }
+  return parsed;
 }
