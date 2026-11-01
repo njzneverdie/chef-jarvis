@@ -131,6 +131,32 @@ export function AuthScreen() {
     </Page>
   );
 }
+type T = (en: string, zh: string) => string;
+export const allergyOptions = (t: T): [string, string][] => [
+  ["Milk", t("Milk", "牛奶")],
+  ["Egg", t("Egg", "蛋")],
+  ["Peanut", t("Peanut", "花生")],
+  ["Tree nuts", t("Tree nuts", "堅果")],
+  ["Shellfish", t("Shellfish", "甲殼類")],
+  ["Fish", t("Fish", "魚")],
+  ["Soy", t("Soy", "大豆")],
+  ["Wheat", t("Wheat", "小麥")],
+  ["Sesame", t("Sesame", "芝麻")],
+];
+export const equipmentOptions = (t: T): [string, string][] => [
+  ["Stovetop", t("Stovetop", "爐具")],
+  ["Frying pan", t("Frying pan", "平底鍋")],
+  ["Wok", t("Wok", "炒鍋")],
+  ["Pot", t("Pot", "湯鍋")],
+  ["Oven", t("Oven", "烤箱")],
+  ["Microwave", t("Microwave", "微波爐")],
+  ["Air fryer", t("Air fryer", "氣炸鍋")],
+  ["Rice cooker", t("Rice cooker", "電鍋")],
+  ["Steamer", t("Steamer", "蒸籠")],
+];
+export const skillOptions = (t: T): [string, string][] =>
+  domain.cookingSkillOptions.map(([value, en, zh]: string[]) => [value, t(en, zh)]);
+
 export function ProfileScreen() {
   const st = useStore(),
     t = useT();
@@ -149,6 +175,7 @@ export function ProfileScreen() {
     [diet, setDiet] = useState((p.dietary_preferences || []).join(", ")),
     [dislikes, setDislikes] = useState((p.dislikes || []).join(", ")),
     [equipment, setEquipment] = useState((p.equipment || []).join(", ")),
+    [skill, setSkill] = useState<string>(st.cookingSkill || ""),
     [newPassword, setNewPassword] = useState(""),
     [deleteText, setDeleteText] = useState("");
   const update = (key: string, value: any) =>
@@ -209,8 +236,9 @@ export function ProfileScreen() {
       dietary_preferences: parts(diet),
       dislikes: parts(dislikes),
       equipment: parts(equipment),
+      ...(skill ? { cooking_skill: skill } : {}),
     };
-    await st.mutate("app_profiles", payload, "upsert");
+    await st.saveProfile(payload);
     Alert.alert(t("Profile saved", "設定已儲存"));
   }
   async function exportData() {
@@ -363,17 +391,7 @@ export function ProfileScreen() {
           label={t("Allergies", "過敏原")}
           value={allergies}
           onChange={setAllergies}
-          options={[
-            ["Milk", t("Milk", "牛奶")],
-            ["Egg", t("Egg", "蛋")],
-            ["Peanut", t("Peanut", "花生")],
-            ["Tree nuts", t("Tree nuts", "堅果")],
-            ["Shellfish", t("Shellfish", "甲殼類")],
-            ["Fish", t("Fish", "魚")],
-            ["Soy", t("Soy", "大豆")],
-            ["Wheat", t("Wheat", "小麥")],
-            ["Sesame", t("Sesame", "芝麻")],
-          ]}
+          options={allergyOptions(t)}
         />
         <MultiChoice
           label={t("Dietary needs", "飲食需求")}
@@ -404,16 +422,13 @@ export function ProfileScreen() {
           label={t("Equipment", "廚房器材")}
           value={equipment}
           onChange={setEquipment}
-          options={[
-            ["Stovetop", t("Stovetop", "爐具")],
-            ["Frying pan", t("Frying pan", "平底鍋")],
-            ["Wok", t("Wok", "炒鍋")],
-            ["Oven", t("Oven", "烤箱")],
-            ["Microwave", t("Microwave", "微波爐")],
-            ["Air fryer", t("Air fryer", "氣炸鍋")],
-            ["Rice cooker", t("Rice cooker", "電鍋")],
-            ["Steamer", t("Steamer", "蒸鍋")],
-          ]}
+          options={equipmentOptions(t)}
+        />
+        <Choice
+          label={t("Cooking skill", "料理經驗")}
+          value={skill}
+          options={skillOptions(t)}
+          onChange={setSkill}
         />
         <Button
           disabled={st.busy}
@@ -547,7 +562,7 @@ export function Choice({
   );
 }
 
-function MultiChoice({
+export function MultiChoice({
   label,
   value,
   options,

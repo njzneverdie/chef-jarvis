@@ -45,6 +45,9 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
       ...domain.defaultMealPlanningChoices,
     }),
     [lang, setLang] = useState<"en" | "zh-TW">("en"),
+    [localSkill, setLocalSkill] = useState<string | null>(null),
+    [onboardingSkipped, setOnboardingSkipped] = useState(false),
+    [profileLoadedFor, setProfileLoadedFor] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const owner = useRef<string | null>(null),
@@ -86,10 +89,30 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
     requireOK(p);
     results.forEach(requireOK);
     setProfile(p.data);
+    setProfileLoadedFor(id);
     setData(
       Object.fromEntries(tables.map((t, i) => [t, results[i].data || []])),
     );
   }
+  // Skill and onboarding skip are kept per user on the device; the profile
+  // column (once migrated) is the source of truth for skill.
+  useEffect(() => {
+    setLocalSkill(null);
+    setOnboardingSkipped(false);
+    if (!renderedOwner) return;
+    let alive = true;
+    AsyncStorage.multiGet([
+      `chef-skill:${renderedOwner}`,
+      `chef-onboarding-skipped:${renderedOwner}`,
+    ]).then(([[, skill], [, skipped]]) => {
+      if (!alive) return;
+      setLocalSkill(skill);
+      setOnboardingSkipped(skipped === "1");
+    });
+    return () => {
+      alive = false;
+    };
+  }, [renderedOwner]);
   useEffect(() => {
     let alive = true;
     AsyncStorage.getItem("chef-language").then((v) => {
@@ -408,7 +431,40 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
         saveRecipe,
         signOut,
         endCooking,
-        edge: (n: string, b: Row) => scoped(() => edge(n, b)),
+        edge: (n: string, b: Row) =>
+          scoped(() =>
+            edge(
+              n,
+              n === "chef-meal-plan" && (profile?.cooking_skill || localSkill)
+                ? { ...b, cooking_skill: profile?.cooking_skill || localSkill }
+                : b,
+            ),
+          ),
+        cookingSkill: profile?.cooking_skill || localSkill,
+        profileLoaded: Boolean(renderedOwner) && profileLoadedFor === renderedOwner,
+        onboardingSkipped,
+        skipOnboarding: () => {
+          setOnboardingSkipped(true);
+          if (renderedOwner)
+            void AsyncStorage.setItem(`chef-onboarding-skipped:${renderedOwner}`, "1");
+        },
+        // Saves profile fields; cooking_skill also lives on the device and is
+        // dropped from the row until the optional column is migrated.
+        saveProfile: async (payload: Row) => {
+          const skill = payload.cooking_skill;
+          if (skill && renderedOwner) {
+            setLocalSkill(skill);
+            await AsyncStorage.setItem(`chef-skill:${renderedOwner}`, skill);
+          }
+          try {
+            await mutate("app_profiles", payload, "upsert");
+          } catch (error: any) {
+            if (!("cooking_skill" in payload) || !/cooking_skill/.test(String(error?.message || "")))
+              throw error;
+            const { cooking_skill: _skill, ...rest } = payload;
+            await mutate("app_profiles", rest, "upsert");
+          }
+        },
         userId: session?.user.id,
       }}
     >

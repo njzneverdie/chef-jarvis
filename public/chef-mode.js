@@ -744,7 +744,7 @@ function stepVisual(step = {}, index = 0) {
   return ["🥄", "🧑‍🍳", "✨"][index % 3];
 }
 
-function renderRecipeStepCards(steps = []) {
+function renderRecipeStepCards(steps = [], ingredients = []) {
   return steps
     .map((step, index) => {
       const timers = Array.isArray(step.timers) ? step.timers : [];
@@ -753,10 +753,25 @@ function renderRecipeStepCards(steps = []) {
             .map((timer) => `⏱ ${formatTime(timer.duration_seconds)}`)
             .join(" · ")}</span>`
         : "";
-      return `<li><span class="step-number">${index + 1}</span><span class="step-visual" aria-hidden="true">${stepVisual(step, index)}</span><b>${esc(step.instruction)}</b>${timerMarkup}</li>`;
+      return `<li><span class="step-number">${index + 1}</span><span class="step-visual" aria-hidden="true">${stepVisual(step, index)}</span><b>${stepTextMarkup(step.instruction, ingredients)}</b>${timerMarkup}${step.doneness ? `<small class="step-hint">${esc(window.I18n.code === "zh-TW" ? `熟度判斷：${step.doneness}` : `Done when: ${step.doneness}`)}</small>` : ""}${step.rescue ? `<small class="step-hint">${esc(window.I18n.code === "zh-TW" ? `失敗怎麼救：${step.rescue}` : `If it goes wrong: ${step.rescue}`)}</small>` : ""}</li>`;
     })
     .join("");
 }
+
+// Cooking terms and spoon/cup measures become buttons that show a short
+// explanation (handled by one delegated click listener).
+function stepTextMarkup(text, ingredients = []) {
+  return window.ChefDomain.stepSegments(text, ingredients, window.I18n.code)
+    .map((segment) => segment.kind === "text"
+      ? esc(segment.text)
+      : `<button type="button" class="step-term" data-step-help="${esc(segment.help)}" title="${esc(segment.help)}">${esc(segment.text)}</button>`)
+    .join("");
+}
+
+document.addEventListener("click", (event) => {
+  const term = event.target.closest?.("[data-step-help]");
+  if (term) toast(`${term.textContent}${window.I18n.code === "zh-TW" ? "：" : ": "}${term.dataset.stepHelp}`);
+});
 
 function safeHttpsSourceUrl(value) {
   try {
@@ -882,9 +897,9 @@ function renderPlan(query) {
     <div class="title"><div><p class="eyebrow">PERSONAL MEAL PLANNER</p><h1>${isAi ? "Your meal is" : "Let’s make something"}<br><em>${isAi ? "ready." : "great."}</em></h1></div><button class="dark" id="new-meal">＋ New meal</button></div>
     ${integrityWarning}
     <div class="planner recipe-plan-layout">
-      <article class="recipe recipe-showcase card"><div class="recipe-body"><div class="recipe-personalized-note"><span>✦</span><div><b>Made for your profile</b><small>Pantry, nutrition and preferences applied</small></div></div><p class="eyebrow">CHEF JARVIS PLAN</p><h2 class="${recipe.title.length > 48 ? "long-title" : ""}">${esc(recipe.title)}</h2><p class="recipe-summary">${esc(recipe.summary)}</p>${sourceNote}<p class="recipe-request">${esc(isAi ? query.userRequest : query || "Tell Jarvis what you would like to cook.")}</p><div class="recipe-facts"><span>◷ ${displayNumber(recipe.minutes)} min</span><span>◌ ${displayNumber(recipe.servings)} servings</span></div><div class="macros"><div><b>${displayNumber(recipe.kcal)}</b><small>est. kcal · whole meal</small></div><div><b>${displayNumber(recipe.protein_g, "g")}</b><small>est. protein · whole meal</small></div><div><b>${displayNumber(recipe.carbs_g, "g")}</b><small>est. carbs · whole meal</small></div><div><b>${displayNumber(recipe.fat_g, "g")}</b><small>est. fat · whole meal</small></div></div><div class="recipe-primary-actions"><button class="cream" id="jump-to-ingredients">Review ingredients ↓</button><button class="dark" id="start-guided-cook" ${isAi ? integrityDisabled : "disabled"}>Start guided cooking →</button></div><p class="meal-estimate-note"><b>Meal estimate</b> · Whole recipe (${displayNumber(recipe.servings)} servings). Adjust it after changing quantities or swaps.</p></div>${recipeVisual}</article>
+      <article class="recipe recipe-showcase card"><div class="recipe-body"><div class="recipe-personalized-note"><span>✦</span><div><b>Made for your profile</b><small>Pantry, nutrition and preferences applied</small></div></div><p class="eyebrow">CHEF JARVIS PLAN</p><h2 class="${recipe.title.length > 48 ? "long-title" : ""}">${esc(recipe.title)}</h2><p class="recipe-summary">${esc(recipe.summary)}</p>${sourceNote}<p class="recipe-request">${esc(isAi ? query.userRequest : query || "Tell Jarvis what you would like to cook.")}</p><div class="recipe-facts"><span>◷ ${displayNumber(recipe.minutes)} min</span><span>◌ ${displayNumber(recipe.servings)} servings</span><span>${esc(window.ChefDomain.recipeBadgeText(recipe, window.I18n.code))}</span></div><div class="macros"><div><b>${displayNumber(recipe.kcal)}</b><small>est. kcal · whole meal</small></div><div><b>${displayNumber(recipe.protein_g, "g")}</b><small>est. protein · whole meal</small></div><div><b>${displayNumber(recipe.carbs_g, "g")}</b><small>est. carbs · whole meal</small></div><div><b>${displayNumber(recipe.fat_g, "g")}</b><small>est. fat · whole meal</small></div></div><div class="recipe-primary-actions"><button class="cream" id="jump-to-ingredients">Review ingredients ↓</button><button class="dark" id="start-guided-cook" ${isAi ? integrityDisabled : "disabled"}>Start guided cooking →</button></div><p class="meal-estimate-note"><b>Meal estimate</b> · Whole recipe (${displayNumber(recipe.servings)} servings). Adjust it after changing quantities or swaps.</p></div>${recipeVisual}</article>
     </div>
-    <div class="guided-preview"><article class="card step-guide"><div class="section-heading"><div><p class="eyebrow">HOW JARVIS WILL GUIDE YOU</p><h2>${recipe.steps.length} clear cooking steps</h2></div><p>Scan the full flow now, then start Chef Mode for hands-free guidance and recipe-based timers.</p></div><ol>${renderRecipeStepCards(recipe.steps)}</ol></article></div>
+    <div class="guided-preview"><article class="card step-guide"><div class="section-heading"><div><p class="eyebrow">HOW JARVIS WILL GUIDE YOU</p><h2>${recipe.steps.length} clear cooking steps</h2></div><p>Scan the full flow now, then start Chef Mode for hands-free guidance and recipe-based timers.</p></div><ol>${renderRecipeStepCards(recipe.steps, recipe.ingredients)}</ol></article></div>
     <article class="reuse card"><p class="eyebrow">SHOP ONCE, COOK MORE</p><h2>Ideas using your remaining ingredients.</h2><div class="swipe-list">${reuse
       .slice(0, 3)
       .map(
@@ -1012,7 +1027,7 @@ function renderPlan(query) {
         stepGuide.querySelector("h2").textContent =
           `${recipe.steps.length} clear cooking steps`;
         stepGuide.querySelector("ol").innerHTML =
-          renderRecipeStepCards(recipe.steps);
+          renderRecipeStepCards(recipe.steps, recipe.ingredients);
       }
 
       const cookingWarning = root.querySelector(".swap-cooking-warning");

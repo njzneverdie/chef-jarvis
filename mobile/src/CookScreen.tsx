@@ -16,6 +16,7 @@ import {
   useT,
 } from "./ui";
 import { domain, useStore } from "./store";
+import { StepText } from "./StepText";
 import { supabase, requireOK } from "./client";
 import {
   remainingSeconds,
@@ -112,7 +113,10 @@ export function CookScreen() {
     [servings, setServings] = useState("1"),
     [rating, setRating] = useState(""),
     [note, setNote] = useState(""),
-    [showFinish, setShowFinish] = useState(false);
+    [showFinish, setShowFinish] = useState(false),
+    [tags, setTags] = useState<string[]>([]),
+    [showTips, setShowTips] = useState(false),
+    [showRescue, setShowRescue] = useState(false);
   const announced = useRef(new Set<string>());
   const [showSteps, setShowSteps] = useState(false);
   useEffect(() => {
@@ -155,6 +159,58 @@ export function CookScreen() {
       </Page>
     );
   const step = c.recipe.steps[c.step];
+  // A new session starts with prepDone === false; restored older sessions
+  // have no flag and go straight to their step.
+  if (c.prepDone === false) {
+    const items = domain.prepChecklist(c.recipe, st.lang);
+    const checked: string[] = c.prepChecks || [];
+    const toggle = (id: string) =>
+      st.setCooking((current: any) =>
+        current?.startedAt !== c.startedAt
+          ? current
+          : {
+              ...current,
+              prepChecks: checked.includes(id)
+                ? checked.filter((item) => item !== id)
+                : [...checked, id],
+            },
+      );
+    const done = () =>
+      st.setCooking((current: any) =>
+        current?.startedAt !== c.startedAt ? current : { ...current, prepDone: true },
+      );
+    return (
+      <Page>
+        <Label>{c.recipe.title}</Label>
+        <Heading>{t("Before you start", "開煮前準備")}</Heading>
+        <Copy>
+          {t(
+            "Cut everything and get your tools out first, so nothing burns while you prep.",
+            "先切好食材、拿出器具，煮的時候就不會手忙腳亂。",
+          )}
+        </Copy>
+        <Card>
+          {items.map((item: any) => {
+            const isChecked = checked.includes(item.id);
+            return (
+              <Button
+                key={item.id}
+                quiet={!isChecked}
+                title={`${isChecked ? "✓" : "○"}  ${item.text}`}
+                onPress={() => toggle(item.id)}
+              />
+            );
+          })}
+        </Card>
+        <Button
+          disabled={items.some((item: any) => !checked.includes(item.id))}
+          title={t("Start cooking", "開始烹飪")}
+          onPress={done}
+        />
+        <Button quiet title={t("Skip (I am ready)", "略過（已準備好）")} onPress={done} />
+      </Page>
+    );
+  }
   const setTimers = (timers: Timer[]) => st.setCooking({ ...c, timers });
   async function startTimer(label: string, seconds: number, id: string) {
     let permission = await Notifications.getPermissionsAsync();
@@ -195,10 +251,11 @@ export function CookScreen() {
       throw new Error(
         t("Keep notes within 300 characters.", "心得最多 300 字。"),
       );
-    const { amount, rating: selectedRating } = validateMealCompletion(
+    const { amount, rating: starRating } = validateMealCompletion(
       servings,
       rating,
     );
+    const selectedRating = starRating ?? domain.feedbackRatingForTags(tags);
     if (c.recipe.source_persistence === "session_only") {
       await st.endCooking("completed");
       setShowFinish(false);
@@ -238,19 +295,23 @@ export function CookScreen() {
       },
       "upsert",
     );
-    if (selectedRating !== null)
-      await st.mutate(
-        "recipe_feedback",
-        {
-          id: c.feedbackId,
-          user_id: st.userId,
-          recipe_id: c.recipe.saved_recipe_id || null,
-          recipe_title: c.recipe.title,
-          rating: selectedRating,
-          note,
-        },
-        "upsert",
-      );
+    if (selectedRating !== null) {
+      const feedback = {
+        id: c.feedbackId,
+        user_id: st.userId,
+        recipe_id: c.recipe.saved_recipe_id || null,
+        recipe_title: c.recipe.title,
+        rating: selectedRating,
+        note,
+      };
+      try {
+        await st.mutate("recipe_feedback", { ...feedback, tags }, "upsert");
+      } catch (error: any) {
+        // Before the optional tags column exists, keep the rating and note.
+        if (!/tags/.test(String(error?.message || ""))) throw error;
+        await st.mutate("recipe_feedback", feedback, "upsert");
+      }
+    }
     await st.endCooking("completed");
     setShowFinish(false);
     Alert.alert(t("Meal logged. Enjoy!", "餐點已記錄，好好享用！"));
@@ -261,7 +322,10 @@ export function CookScreen() {
       <Copy>
         {t("Step", "步驟")} {c.step + 1} / {c.recipe.steps.length}
       </Copy>
-      <Heading>{step.instruction}</Heading>
+      <Heading>
+        <StepText text={step.instruction} ingredients={c.recipe.ingredients} lang={st.lang} />
+      </Heading>
+      <Copy>{t("Tap underlined words for help.", "點有底線的字可看說明。")}</Copy>
       <Button
         quiet
         title={t("Read this step aloud", "朗讀這個步驟")}
@@ -287,12 +351,47 @@ export function CookScreen() {
           />
         );
       })}
+      {!!(step.doneness || step.rescue) && (
+        <Button
+          quiet
+          title={showTips ? t("Hide tips", "收起提示") : t("How do I know it is done?", "怎樣算煮好？")}
+          onPress={() => setShowTips((value) => !value)}
+        />
+      )}
+      {showTips && !!step.doneness && (
+        <Copy>
+          {t("Done when: ", "熟度判斷：")}
+          {step.doneness}
+        </Copy>
+      )}
+      {showTips && !!step.rescue && (
+        <Copy>
+          {t("If it goes wrong: ", "失敗怎麼救：")}
+          {step.rescue}
+        </Copy>
+      )}
+      <Button
+        quiet
+        title={showRescue ? t("Hide quick fixes", "收起常見狀況") : t("Quick fixes: too salty, burnt…", "常見狀況怎麼救：太鹹、燒焦…")}
+        onPress={() => setShowRescue((value) => !value)}
+      />
+      {showRescue &&
+        domain.genericRescueTips(st.lang).map(([problem, fix]: string[]) => (
+          <Copy key={problem}>
+            {problem}
+            {t(": ", "：")}
+            {fix}
+          </Copy>
+        ))}
       <View style={s.row}>
         <Button
           quiet
           title={t("Previous", "上一步")}
           disabled={c.step === 0}
-          onPress={() => st.setCooking({ ...c, step: c.step - 1 })}
+          onPress={() => {
+            setShowTips(false);
+            st.setCooking({ ...c, step: c.step - 1 });
+          }}
         />
         <Button
           title={
@@ -303,7 +402,7 @@ export function CookScreen() {
           onPress={() =>
             c.step === c.recipe.steps.length - 1
               ? setShowFinish(true)
-              : st.setCooking({ ...c, step: c.step + 1 })
+              : (setShowTips(false), st.setCooking({ ...c, step: c.step + 1 }))
           }
         />
       </View>
@@ -529,6 +628,28 @@ export function CookScreen() {
                     setServings(String(Math.min(12, Number(servings) + 0.25)))
                   }
                 />
+              </View>
+              <Text style={s.fieldLabel}>
+                {t("How was it? (optional, pick any)", "這道菜如何？（可複選，可略過）")}
+              </Text>
+              <View style={s.row}>
+                {domain.feedbackTagOptions.map(([value, en, zh]: string[]) => {
+                  const selected = tags.includes(value);
+                  return (
+                    <Button
+                      key={value}
+                      quiet={!selected}
+                      title={`${selected ? "✓ " : ""}${t(en, zh)}`}
+                      onPress={() =>
+                        setTags((current) =>
+                          current.includes(value)
+                            ? current.filter((item) => item !== value)
+                            : [...current, value],
+                        )
+                      }
+                    />
+                  );
+                })}
               </View>
               <Choice
                 label={t("Feedback (optional)", "回饋（可略過）")}

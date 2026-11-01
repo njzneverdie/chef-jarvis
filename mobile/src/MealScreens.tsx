@@ -13,6 +13,7 @@ import {
   useT,
 } from "./ui";
 import { domain, useStore } from "./store";
+import { StepText } from "./StepText";
 import { supabase, requireOK } from "./client";
 import { randomUUID } from "expo-crypto";
 import {
@@ -552,6 +553,8 @@ export function RecipeCard({
           cloudId: randomUUID(),
           logId: randomUUID(),
           feedbackId: randomUUID(),
+          prepDone: false,
+          prepChecks: [],
         });
         go("Cook");
       });
@@ -633,6 +636,7 @@ export function RecipeCard({
         <Copy>
           {r.minutes} {t("min", "分鐘")} · {r.servings} {t("servings", "人份")}
         </Copy>
+        <Copy>{domain.recipeBadgeText(r, st.lang)}</Copy>
         {n ? (
           <>
             <Text style={s.number}>{number(n.kcal)} kcal</Text>
@@ -787,7 +791,13 @@ export function RecipeCard({
             <Label>
               {t("Step", "步驟")} {i + 1}
             </Label>
-            <Copy>{typeof step === "string" ? step : step.instruction}</Copy>
+            {typeof step === "string" ? (
+              <Copy>{step}</Copy>
+            ) : (
+              <Copy>
+                <StepText text={step.instruction} ingredients={r.ingredients} lang={st.lang} />
+              </Copy>
+            )}
           </View>
         ))}
       </Card>
@@ -839,6 +849,39 @@ export function RecipeCard({
     </>
   );
 }
+// "Dishes I can make": completed meals not last marked too hard.
+function CookedDishes({ onOpen }: { onOpen: (row: any) => void }) {
+  const st = useStore(),
+    t = useT();
+  const dishes = domain.cookedDishes(
+    st.data.nutrition_logs,
+    st.data.recipe_feedback,
+    st.data.recipes,
+  );
+  if (!dishes.length) return null;
+  return (
+    <Card>
+      <Text style={s.title}>{t("Dishes I can make", "我會做的菜")}</Text>
+      {dishes.slice(0, 12).map((dish: any) => (
+        <View key={dish.title} style={{ gap: 4 }}>
+          <Text style={s.fieldLabel}>{dish.title}</Text>
+          <Copy>
+            {t(`Cooked ${dish.count}×`, `做過 ${dish.count} 次`)}
+            {dish.last ? t(` · last ${dish.last}`, `・最近 ${dish.last}`) : ""}
+          </Copy>
+          {dish.recipe?.recipe && (
+            <Button
+              quiet
+              title={t("Open recipe", "開啟食譜")}
+              onPress={() => onOpen(dish.recipe)}
+            />
+          )}
+        </View>
+      ))}
+    </Card>
+  );
+}
+
 export function SavedScreen({ go }: { go: (s: string) => void }) {
   const st = useStore(),
     t = useT(),
@@ -863,6 +906,15 @@ export function SavedScreen({ go }: { go: (s: string) => void }) {
         </>
       ) : (
         <>
+          <CookedDishes
+            onOpen={(row: any) =>
+              setSelected({
+                ...row.recipe,
+                usda_nutrition: row.recipe.usda_nutrition || row.nutrition?.usda,
+                saved_recipe_id: row.id,
+              })
+            }
+          />
           {!(st.data.recipes || []).length && (
             <Empty
               text={t(
@@ -878,6 +930,9 @@ export function SavedScreen({ go }: { go: (s: string) => void }) {
                 {row.minutes} {t("min", "分鐘")} · {row.servings}{" "}
                 {t("servings", "份")}
               </Copy>
+              {!!row.recipe?.steps && (
+                <Copy>{domain.recipeBadgeText(row.recipe, st.lang)}</Copy>
+              )}
               <Button
                 quiet
                 title={t("Open recipe", "開啟食譜")}

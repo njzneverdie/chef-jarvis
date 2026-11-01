@@ -12,6 +12,7 @@ import {
   NutritionScreen,
 } from "./src/InventoryScreens";
 import { CookScreen, useCookingAlarms } from "./src/CookScreen";
+import { Onboarding } from "./src/Onboarding";
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -83,7 +84,13 @@ function Shell() {
         <AuthScreen />
       ) : (
         <View style={{ flex: 1 }}>
-          {views[tab] || views.Home}
+          {!st.profileLoaded ||
+          st.profile?.onboarding_completed ||
+          st.onboardingSkipped ? (
+            views[tab] || views.Home
+          ) : (
+            <Onboarding />
+          )}
           <View style={styles.nav}>
             {[
               ["Home", t("Home", "首頁")],

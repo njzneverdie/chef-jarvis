@@ -10,6 +10,9 @@ export function userFacingTextPaths(plan) {
   const stepPaths = (prefix, steps) =>
     list(steps).forEach((step, index) => {
       paths.push([...prefix, index, "instruction"]);
+      for (const key of ["doneness", "rescue"]) {
+        if (typeof step?.[key] === "string") paths.push([...prefix, index, key]);
+      }
       list(step?.timers).forEach((_timer, timerIndex) =>
         paths.push([...prefix, index, "timers", timerIndex, "label"])
       );
@@ -28,6 +31,7 @@ export function userFacingTextPaths(plan) {
       paths.push(["equipment_adaptations", index, key]);
     }
   });
+  list(plan?.equipment_needed).forEach((_item, index) => paths.push(["equipment_needed", index]));
   list(plan?.reuse_ideas).forEach((idea, index) => {
     paths.push(["reuse_ideas", index, "title"], ["reuse_ideas", index, "why"]);
     list(idea?.uses).forEach((_use, useIndex) => paths.push(["reuse_ideas", index, "uses", useIndex]));

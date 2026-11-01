@@ -157,7 +157,16 @@
           unmatchedDurations.splice(matchingDurationIndex, 1);
           return [{ label, kind, duration_seconds: duration }];
         });
-        return { instruction, timers };
+        const hint = (value, maximum) =>
+          typeof value === "string" && value.trim() && value.trim().length <= maximum ? value.trim() : "";
+        const doneness = hint(step.doneness, 80);
+        const rescue = hint(step.rescue, 120);
+        return {
+          instruction,
+          timers,
+          ...(doneness ? { doneness } : {}),
+          ...(rescue ? { rescue } : {}),
+        };
       })
       .filter(Boolean);
   }
@@ -666,6 +675,234 @@
     return null;
   }
 
+  // ---- Beginner help: glossary, measures, badges, prep, rescue, feedback ----
+  // [Chinese forms, English forms, Chinese explanation, English explanation]
+  const cookingGlossary = [
+    [["爆香"], ["until fragrant"], "用少量油以中小火炒蒜、薑、蔥等辛香料，炒到冒出香味。", "Cook aromatics such as garlic or ginger in a little oil until they smell fragrant."],
+    [["勾芡"], ["slurry"], "把太白粉加冷水調勻，倒進湯汁拌勻，讓湯汁變濃稠。", "Starch mixed with cold water, stirred into hot liquid to thicken it."],
+    [["收汁"], ["reduce", "reduced", "reducing"], "開大火讓湯汁蒸發變少、變濃，邊煮邊翻動避免燒焦。", "Boil uncovered so the liquid evaporates and thickens; stir so it does not burn."],
+    [["汆燙", "川燙", "焯"], ["blanch", "blanched", "blanching"], "把食材放進滾水短暫燙熟或去血水，撈起瀝乾。", "Briefly boil food, then lift it out and drain it."],
+    [["過油"], ["flash-fry", "flash-fried"], "把食材放進熱油快速炸一下就撈起，讓口感滑嫩或定型。", "Fry very briefly in hot oil, then lift out, to set the outside."],
+    [["醃"], ["marinate", "marinated", "marinating"], "先把食材和調味料拌勻放一段時間，讓味道滲入。", "Coat food in seasoning and let it rest so the flavor soaks in."],
+    [["煸"], ["dry-fry", "dry-fried"], "用中火把食材炒到出油、表面微乾微焦。", "Stir-fry over medium heat until the food releases its fat and browns slightly."],
+    [["燜"], ["cover and cook"], "蓋上鍋蓋用小火慢慢煮，讓食材在鍋內熱氣中熟透。", "Cook covered over low heat so steam finishes the food."],
+    [["燉"], ["braise", "braised", "braising"], "加入湯汁用小火長時間煮，讓食材軟爛入味。", "Cook slowly in liquid over low heat until tender."],
+    [["切丁"], ["dice", "diced", "dicing"], "切成大小一致的小方塊，約 1 公分。", "Cut into even small cubes, about 1 cm."],
+    [["切絲"], ["julienne", "julienned"], "切成像火柴棒粗細的細長條。", "Cut into thin matchstick strips."],
+    [["切片"], ["slice thinly", "thinly sliced"], "切成厚度一致的薄片。", "Cut into thin slices of even thickness."],
+    [["切末"], ["mince", "minced", "mincing"], "切到非常細碎。", "Chop very finely."],
+    [["滾刀塊"], ["roll cut"], "邊切邊轉動食材，切出不規則斜塊，適合紅蘿蔔、茄子。", "Cut on an angle while rolling the vegetable a quarter turn each time."],
+    [["拍蒜"], ["smash the garlic", "smashed garlic"], "用刀面把蒜瓣壓扁，比較好剝皮、香味也更容易出來。", "Press garlic flat with the side of a knife to peel it and release flavor."],
+    [["去腥"], ["remove the gamey smell"], "用薑、蔥或米酒去除肉類或海鮮的腥味。", "Use ginger, scallion or rice wine to tone down strong meat or seafood smells."],
+    [["中小火"], ["medium-low heat"], "火力介於中火與小火之間，火焰剛好在鍋底下方。", "Between medium and low; the flame sits just under the pan."],
+    [["大火"], ["high heat"], "火焰碰到鍋底並向外散開，用來快炒或煮滾。", "The flame spreads across the pan bottom; used to stir-fry or boil."],
+    [["中火"], ["medium heat"], "火焰剛好碰到鍋底，大部分烹調都用這個火力。", "The flame just touches the pan; used for most cooking."],
+    [["小火"], ["low heat"], "火焰離鍋底有一點距離，用來燉煮或避免燒焦。", "The flame stays below the pan; used to simmer or avoid burning."],
+    [["八分熟"], ["medium-rare"], "肉中心還帶一點粉紅色，比全熟少煮一點。", "Meat still slightly pink in the center, just short of fully done."],
+    [["煎至金黃"], ["sear", "seared", "searing"], "用熱鍋把表面煎出金黃色，先不要一直翻動。", "Brown the surface in a hot pan without moving it too often."],
+    [["小火慢煮"], ["simmer", "simmered", "simmering"], "保持鍋中小泡泡、不要大滾的狀態慢慢煮。", "Cook in liquid with small gentle bubbles, just below a boil."],
+    [["翻炒"], ["sauté", "sautéed", "saute", "sauteed", "stir-fry", "stir-fried"], "用鍋鏟不斷翻動，讓食材均勻受熱。", "Keep tossing the food in a hot pan so it cooks evenly."],
+    [["淋鍋邊"], ["deglaze", "deglazed"], "沿著熱鍋邊倒入液體，把鍋底焦香刮起來融入醬汁。", "Pour liquid into the hot pan and scrape up the browned bits."],
+  ];
+
+  function escapesRegExpText(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function cookingTermsIn(text, language = "en") {
+    const value = String(text || "");
+    const zh = language === "zh-TW";
+    const found = [];
+    for (const [zhTerms, enTerms, zhText, enText] of cookingGlossary) {
+      for (const term of zh ? zhTerms : enTerms) {
+        const pattern = zh
+          ? new RegExp(escapesRegExpText(term), "g")
+          : new RegExp(`(?<![\\p{L}-])${escapesRegExpText(term)}(?![\\p{L}])`, "giu");
+        for (const match of value.matchAll(pattern)) {
+          found.push({ start: match.index, end: match.index + match[0].length, text: match[0], explanation: zh ? zhText : enText });
+        }
+      }
+    }
+    return found;
+  }
+
+  const measureUnits = [
+    [/^(?:茶匙|小匙|tsp|teaspoons?)$/i, "tsp"],
+    [/^(?:湯匙|大匙|tbsp|tablespoons?)$/i, "tbsp"],
+    [/^(?:杯|cups?)$/i, "cup"],
+  ];
+
+  // Volume measures in a step ("2 湯匙醬油", "1 cup water") with the
+  // ingredient named right after them when it is in the recipe list.
+  function stepMeasuresIn(text, ingredients = []) {
+    const value = String(text || "");
+    const pattern = /(\d+(?:\.\d+)?)\s*(茶匙|小匙|湯匙|大匙|杯|tsp|tbsp|teaspoons?|tablespoons?|cups?)(?![A-Za-z])/gi;
+    const names = (Array.isArray(ingredients) ? ingredients : [])
+      .filter((item) => item && typeof item === "object" && item.name)
+      .sort((a, b) => String(b.name).length - String(a.name).length);
+    const found = [];
+    for (const match of value.matchAll(pattern)) {
+      const unit = measureUnits.find(([test]) => test.test(match[2]))?.[1];
+      if (!unit) continue;
+      const after = value.slice(match.index + match[0].length, match.index + match[0].length + 24).toLocaleLowerCase();
+      const ingredient = names.find((item) => after.replace(/^\s*(?:of\s+)?/, "").startsWith(String(item.name).toLocaleLowerCase())) || null;
+      found.push({ start: match.index, end: match.index + match[0].length, text: match[0], quantity: Number(match[1]), unit, ingredient });
+    }
+    return found;
+  }
+
+  function measureHelp(quantity, unit, language = "en", ingredient = null) {
+    const zh = language === "zh-TW";
+    const ml = convertQuantity(quantity, unit, "ml");
+    if (ml == null) return "";
+    const weight = ingredient ? ingredientWeightInGrams({ ...ingredient, quantity, unit }) : null;
+    const round = (value) => Math.round(value * 10) / 10;
+    const household = {
+      tsp: zh ? "沒有量匙時，約為一般小湯匙（咖啡匙）1 匙。" : "Without measuring spoons: about 1 small coffee spoon.",
+      tbsp: zh ? "沒有量匙時，約為一般喝湯的湯匙 1 匙。" : "Without measuring spoons: about 1 regular soup spoon.",
+      cup: zh ? "沒有量杯時，約為一般馬克杯的大半杯。" : "Without a measuring cup: about a mug filled most of the way.",
+    }[unit] || "";
+    const parts = [zh ? `約 ${round(ml)} 毫升` : `About ${round(ml)} ml`];
+    if (weight && !(weight.estimated && !ingredient))
+      parts.push(zh ? `${ingredient.name}約 ${round(weight.grams)} 克` : `${ingredient.name} about ${round(weight.grams)} g`);
+    return `${parts.join(zh ? "，" : ", ")}${zh ? "。" : ". "}${household}`.trim();
+  }
+
+  // Ordered, non-overlapping tappable spans for a step instruction.
+  function stepSegments(text, ingredients = [], language = "en") {
+    const value = String(text || "");
+    const spans = [
+      ...stepMeasuresIn(value, ingredients).map((item) => ({ ...item, kind: "measure", help: measureHelp(item.quantity, item.unit, language, item.ingredient) })),
+      ...cookingTermsIn(value, language).map((item) => ({ ...item, kind: "term", help: item.explanation })),
+    ].sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+    const segments = [];
+    let cursor = 0;
+    for (const span of spans) {
+      if (span.start < cursor || !span.help) continue;
+      if (span.start > cursor) segments.push({ kind: "text", text: value.slice(cursor, span.start) });
+      segments.push({ kind: span.kind, text: value.slice(span.start, span.end), help: span.help });
+      cursor = span.end;
+    }
+    if (cursor < value.length) segments.push({ kind: "text", text: value.slice(cursor) });
+    return segments;
+  }
+
+  // [id, Chinese name, English name, pattern]
+  const cookwareKinds = [
+    ["wok", "炒鍋", "wok", /炒鍋|\bwok\b/i],
+    ["pan", "平底鍋", "frying pan", /平底鍋|煎鍋|\b(?:frying pan|skillet|non-stick pan)\b/i],
+    ["pot", "湯鍋", "pot", /湯鍋|深鍋|\b(?:saucepan|stockpot|pot)\b/i],
+    ["rice_cooker", "電鍋", "rice cooker", /電鍋|電子鍋|\brice cooker\b/i],
+    ["oven", "烤箱", "oven", /烤箱|\boven\b/i],
+    ["air_fryer", "氣炸鍋", "air fryer", /氣炸鍋|\bair fryer\b/i],
+    ["steamer", "蒸籠", "steamer", /蒸籠|蒸鍋|\bsteamer\b/i],
+    ["microwave", "微波爐", "microwave", /微波|\bmicrowave\b/i],
+    ["sheet", "烤盤", "baking sheet", /烤盤|\bbaking (?:sheet|tray)\b/i],
+  ];
+
+  function recipeCookware(recipe) {
+    const text = (Array.isArray(recipe?.steps) ? recipe.steps : []).map((step) => step?.instruction || "").join(" ");
+    return cookwareKinds.filter(([, , , pattern]) => pattern.test(text)).map(([id, zh, en]) => ({ id, zh, en }));
+  }
+
+  // AI-provided badges when valid, otherwise derived from steps.
+  function recipeBadges(recipe = {}) {
+    const steps = Array.isArray(recipe.steps) ? recipe.steps : [];
+    const text = steps.map((step) => step?.instruction || "").join(" ");
+    const derivedPots = Math.max(1, recipeCookware(recipe).length);
+    const pots = Number.isInteger(recipe.pots_used) && recipe.pots_used >= 1 && recipe.pots_used <= 6 ? recipe.pots_used : derivedPots;
+    const advanced = /油炸|炸至|過油|勾芡|deep[- ]fr|flamb|temper|emulsif/i.test(text);
+    const derivedDifficulty = Math.min(3, 1 + (steps.length > 6 ? 1 : 0) + (advanced || pots >= 3 ? 1 : 0));
+    const difficulty = [1, 2, 3].includes(recipe.difficulty) ? recipe.difficulty : derivedDifficulty;
+    const cleanup = ["low", "medium", "high"].includes(recipe.cleanup) ? recipe.cleanup : pots <= 1 ? "low" : pots === 2 ? "medium" : "high";
+    return { difficulty, pots, cleanup };
+  }
+
+  function recipeBadgeText(recipe, language = "en") {
+    const badges = recipeBadges(recipe);
+    const zh = language === "zh-TW";
+    const cleanup = { low: zh ? "少" : "light", medium: zh ? "中" : "medium", high: zh ? "多" : "heavy" }[badges.cleanup];
+    return zh
+      ? `難度 ${"★".repeat(badges.difficulty)}${"☆".repeat(3 - badges.difficulty)} · 用 ${badges.pots} 個鍋具 · 洗碗量${cleanup}`
+      : `Difficulty ${"★".repeat(badges.difficulty)}${"☆".repeat(3 - badges.difficulty)} · ${badges.pots} ${badges.pots === 1 ? "pan" : "pans"} · ${cleanup} cleanup`;
+  }
+
+  // What to cut and which tools to get out before step 1.
+  function prepChecklist(recipe = {}, language = "en") {
+    const zh = language === "zh-TW";
+    const items = [];
+    (Array.isArray(recipe.ingredients) ? recipe.ingredients : []).forEach((item, index) => {
+      if (!item || typeof item !== "object") return;
+      const preparation = ingredientPreparation(item);
+      if (preparation) items.push({ id: `prep-${index}`, kind: "prep", text: `${item.name}${zh ? "：" : ": "}${preparation}` });
+    });
+    const tools = Array.isArray(recipe.equipment_needed) && recipe.equipment_needed.length
+      ? recipe.equipment_needed.map((name) => String(name)).filter(Boolean).slice(0, 8)
+      : recipeCookware(recipe).map((tool) => zh ? tool.zh : tool.en);
+    if (items.length) tools.unshift(zh ? "砧板與菜刀" : "cutting board and knife");
+    [...new Set(tools)].forEach((name, index) => items.push({ id: `tool-${index}`, kind: "tool", text: zh ? `準備${name}` : `Get out the ${name}` }));
+    return items;
+  }
+
+  function genericRescueTips(language = "en") {
+    const zh = language === "zh-TW";
+    return zh
+      ? [
+          ["太鹹", "加一點水或無鹽高湯稀釋，或多加一些沒調味的食材（例如蔬菜、豆腐）。"],
+          ["太淡", "每次少量加鹽或醬油，攪拌後再試味道，不要一次加太多。"],
+          ["燒焦", "立刻離火，把沒焦的部分移到乾淨鍋子，焦掉的鍋底不要刮進去。"],
+          ["太油", "用廚房紙巾吸掉表面浮油，或搭配白飯、清燙蔬菜一起吃。"],
+          ["太乾", "加一點水或高湯，蓋上鍋蓋用小火燜一下。"],
+        ]
+      : [
+          ["Too salty", "Add a little water or unsalted stock, or more unseasoned ingredients such as vegetables or tofu."],
+          ["Too bland", "Add salt or soy sauce a little at a time, stir, and taste again."],
+          ["Burnt", "Take it off the heat at once and move the unburnt part to a clean pan; leave the burnt bottom."],
+          ["Too oily", "Blot surface oil with paper towels, or serve with plain rice or blanched vegetables."],
+          ["Too dry", "Add a splash of water or stock, cover, and cook on low heat briefly."],
+        ];
+  }
+
+  const feedbackTagOptions = [
+    ["too_salty", "Too salty", "太鹹"],
+    ["too_bland", "Too bland", "太淡"],
+    ["too_hard", "Too hard", "太難"],
+    ["delicious", "Delicious", "很好吃"],
+  ];
+
+  // Ratings are required by the feedback table; quick tags alone map to one.
+  function feedbackRatingForTags(tags = []) {
+    if (!Array.isArray(tags) || !tags.length) return null;
+    return tags.includes("delicious") && tags.length === 1 ? 5 : tags.includes("delicious") ? 4 : 3;
+  }
+
+  // Dishes the user has completed, excluding ones last marked too hard.
+  function cookedDishes(logs = [], feedback = [], recipes = []) {
+    const byTitle = new Map();
+    for (const log of Array.isArray(logs) ? logs : []) {
+      const title = String(log?.recipe_title || "").trim();
+      if (!title) continue;
+      const entry = byTitle.get(title) || { title, count: 0, last: "" };
+      entry.count += 1;
+      if (String(log.eaten_on || "") > entry.last) entry.last = String(log.eaten_on || "");
+      byTitle.set(title, entry);
+    }
+    const latestFeedback = new Map();
+    for (const row of [...(Array.isArray(feedback) ? feedback : [])].sort((a, b) => String(a?.created_at || "").localeCompare(String(b?.created_at || "")))) {
+      if (row?.recipe_title) latestFeedback.set(String(row.recipe_title).trim(), row);
+    }
+    return [...byTitle.values()]
+      .filter((entry) => !(latestFeedback.get(entry.title)?.tags || []).includes("too_hard"))
+      .map((entry) => ({ ...entry, recipe: (Array.isArray(recipes) ? recipes : []).find((row) => String(row?.title || "").trim() === entry.title) || null }))
+      .sort((a, b) => b.last.localeCompare(a.last) || b.count - a.count);
+  }
+
+  const cookingSkillOptions = [
+    ["beginner", "Beginner", "新手"],
+    ["some", "Some experience", "會一點"],
+    ["confident", "Confident", "熟練"],
+  ];
+
   function calculateUsdaMealNutrition(ingredients, foods) {
     const normalized = (Array.isArray(ingredients) ? ingredients : []).map(
       normalizeGroceryItem,
@@ -932,6 +1169,19 @@
     unitLabel,
     textMatchesLanguage,
     parsePantryEntries,
+    cookingTermsIn,
+    stepMeasuresIn,
+    measureHelp,
+    stepSegments,
+    recipeCookware,
+    recipeBadges,
+    recipeBadgeText,
+    prepChecklist,
+    genericRescueTips,
+    feedbackTagOptions,
+    feedbackRatingForTags,
+    cookedDishes,
+    cookingSkillOptions,
     ingredientWeightInGrams,
     calculateUsdaMealNutrition,
     hasCompleteUsdaNutrition,

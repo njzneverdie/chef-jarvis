@@ -46,7 +46,7 @@ function recipeContentTexts(plan) {
         ? item.step_updates.map((update) => update?.instruction)
         : []),
     ]),
-    ...steps.map((step) => step?.instruction),
+    ...steps.flatMap((step) => [step?.instruction, step?.doneness, step?.rescue]),
   ].map(normalizeRestrictionText).filter(Boolean);
 }
 
@@ -528,6 +528,7 @@ const repairablePatterns = [
   /^steps\[\d+\]\.instruction must use one exact duration/,
   /^ingredients\[\d+\]\.(?:quantity|unit|preparation|category) /,
   /^substitutions\[\d+\]\./,
+  /^Recipe uses equipment the user does not have: /,
 ];
 
 export function recipeValidationDisposition(error) {
