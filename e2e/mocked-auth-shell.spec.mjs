@@ -82,8 +82,10 @@ async function installBackendMock(page, options = {}) {
       let body = null;
       try { body = request.postDataJSON(); } catch {}
       options.writes.push({ table, method: request.method(), body });
-      const rows = (Array.isArray(body) ? body : [body || {}]).map((row, index) => ({ id: `written-${options.writes.length}-${index}`, ...row }));
-      return route.fulfill(json(rows, 201));
+      const rows = (Array.isArray(body) ? body : [body || {}]).map((row, index) => ({ id: `00000000-0000-4000-8000-${String(options.writes.length * 100 + index).padStart(12, "0")}`, ...row }));
+      // .single() asks for one object instead of an array.
+      const single = /vnd\.pgrst\.object/.test(request.headers()["accept"] || "");
+      return route.fulfill(json(single ? rows[0] : rows, 201));
     }
     if (table === "app_profiles") {
       if (!currentProfile) return route.fulfill(json(null, 200, { "content-range": "*/0" }));
@@ -308,4 +310,79 @@ test("an onboarded account never sees the quick setup", async ({ page }) => {
   await signIn(page);
   await expect(page.locator("#meal-form")).toBeVisible();
   await expect(page.locator("#quick-setup")).toHaveCount(0);
+});
+
+const measuredPlan = {
+  title: "Garlic chicken rice bowl",
+  image_query: "garlic chicken rice bowl",
+  summary: "A quick chicken rice bowl.",
+  minutes: 25,
+  servings: 1,
+  kcal: 600,
+  protein_g: 45,
+  carbs_g: 60,
+  fat_g: 15,
+  ingredients: [
+    { name: "Chicken breast", usda_query: "chicken breast raw", quantity: 200, unit: "g", preparation: "diced", category: "protein" },
+    { name: "Cooked rice", usda_query: "rice white cooked", quantity: 200, unit: "g", preparation: "no preparation", category: "grain" },
+    { name: "Olive oil", usda_query: "olive oil", quantity: 1, unit: "tbsp", preparation: "no preparation", category: "oil" },
+  ],
+  steps: [
+    { instruction: "Heat 1 tbsp olive oil in a frying pan over medium heat for 1 minute.", timers: [{ label: "Heat oil", kind: "preheat", duration_seconds: 60 }], doneness: "The oil shimmers.", rescue: "Smoking? Take the pan off the heat for a moment." },
+    { instruction: "Sear the diced chicken for 6 minutes until cooked through.", timers: [{ label: "Sear chicken", kind: "cook", duration_seconds: 360 }] },
+    { instruction: "Serve the chicken over the rice.", timers: [] },
+  ],
+  substitutions: [],
+  equipment_adaptations: [],
+  reuse_ideas: [],
+};
+
+async function generateMeasuredPlan(page) {
+  await page.route("**/functions/v1/chef-meal-plan", (route) =>
+    route.fulfill(json({ plan: measuredPlan, meta: {} })),
+  );
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Start guided cooking →" })).toBeEnabled();
+}
+
+const savedRecipeRow = {
+  id: "22222222-2222-4222-8222-222222222222",
+  title: measuredPlan.title,
+  servings: 1,
+  minutes: 25,
+  recipe: { ...measuredPlan, saved_recipe_id: "22222222-2222-4222-8222-222222222222" },
+  nutrition: { estimate: { kcal: 600, protein_g: 45, carbs_g: 60, fat_g: 15 } },
+  created_at: "2026-10-30T10:00:00Z",
+  is_saved: true,
+};
+
+// "Cook later" saves the plan (accepted by the write-capturing mock), which
+// makes guided-cooking progress survive a reload.
+async function openSavedRecipe(page) {
+  await generateMeasuredPlan(page);
+  await page.getByRole("button", { name: "Cook later" }).click();
+  await expect(page.getByText("Not saved yet")).toHaveCount(0);
+}
+
+test("guided cooking starts with a prep checklist that survives a reload", async ({ page }) => {
+  await installBackendMock(page, { writes: [], tables: { recipes: [savedRecipeRow] } });
+  await signIn(page);
+  await openSavedRecipe(page);
+  await page.getByRole("button", { name: "Start guided cooking →" }).click();
+  const prep = page.locator(".prep-checklist");
+  await expect(prep).toBeVisible();
+  await expect(prep.getByText("Chicken breast: diced")).toBeVisible();
+  await expect(prep.getByText("Get out the frying pan")).toBeVisible();
+  await expect(prep.getByRole("button", { name: "Start cooking" })).toBeDisabled();
+  await prep.getByText("Chicken breast: diced").click();
+  await expect(prep.getByText("1 of 3 ready")).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: /Cook$/ }).first().click();
+  const restored = page.locator(".prep-checklist");
+  await expect(restored.getByText("1 of 3 ready")).toBeVisible();
+  for (const label of ["Get out the cutting board and knife", "Get out the frying pan"]) {
+    await restored.getByText(label).click();
+  }
+  await restored.getByRole("button", { name: "Start cooking" }).click();
+  await expect(page.getByText("STEP 1 / 3")).toBeVisible();
 });

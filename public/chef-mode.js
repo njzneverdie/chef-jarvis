@@ -658,6 +658,10 @@ async function beginGuidedCooking(
     ingredients,
     saved_recipe_id: recipeId || recipe.saved_recipe_id || null,
   };
+  // The prep checklist travels with the recipe snapshot, so it is saved
+  // locally and in the cloud session like the rest of the cooking state.
+  if (window.ChefDomain.prepChecklist(activeRecipe, window.I18n.code).length)
+    activeRecipe.prep_state = { done: false, checks: [] };
   activeRecipeId = activeRecipe.saved_recipe_id;
   activeRecipeInstanceId = planInstanceId;
   cookingStepIndex = 0;
@@ -2855,6 +2859,44 @@ function toggleVoiceControl() {
   else startVoiceControl();
 }
 
+function renderPrepChecklist(root, recipe) {
+  const items = window.ChefDomain.prepChecklist(recipe, window.I18n.code);
+  const checks = new Set(recipe.prep_state.checks || []);
+  const finishPrep = () => {
+    recipe.prep_state = { ...recipe.prep_state, done: true };
+    persistCookingState();
+    renderCook();
+  };
+  if (!items.length) return finishPrep();
+  const allChecked = items.every((item) => checks.has(item.id));
+  root.innerHTML = `<section class="card prep-checklist" aria-labelledby="prep-title">
+    <p class="eyebrow">${tr("BEFORE YOU START", "開煮前準備")}</p>
+    <h1 id="prep-title">${esc(recipe.title)}</h1>
+    <p>${tr("Cut everything and get your tools out first, so nothing burns while you prep.", "先切好食材、拿出器具，煮的時候就不會手忙腳亂。")}</p>
+    <div class="prep-items">${items
+      .map(
+        (item) =>
+          `<label class="${checks.has(item.id) ? "checked" : ""}"><input type="checkbox" data-prep-item="${esc(item.id)}" ${checks.has(item.id) ? "checked" : ""}><span>${esc(item.text)}</span></label>`,
+      )
+      .join("")}</div>
+    <p class="prep-progress" aria-live="polite">${tr(`${checks.size} of ${items.length} ready`, `已完成 ${checks.size} / ${items.length} 項`)}</p>
+    <div class="form-actions"><button type="button" class="cream" id="skip-prep">${tr("Skip (I am ready)", "略過（已準備好）")}</button><button type="button" class="dark" id="start-after-prep" ${allChecked ? "" : "disabled"}>${tr("Start cooking", "開始烹飪")}</button></div>
+  </section>`;
+  root.querySelectorAll("[data-prep-item]").forEach((input) => {
+    input.onchange = () => {
+      const next = new Set(recipe.prep_state.checks || []);
+      if (input.checked) next.add(input.dataset.prepItem);
+      else next.delete(input.dataset.prepItem);
+      recipe.prep_state = { ...recipe.prep_state, checks: [...next] };
+      persistCookingState();
+      renderCook();
+      root.querySelector(`[data-prep-item="${CSS.escape(input.dataset.prepItem)}"]`)?.focus();
+    };
+  });
+  root.querySelector("#skip-prep").onclick = finishPrep;
+  root.querySelector("#start-after-prep").onclick = finishPrep;
+}
+
 function renderCook() {
   markViewRendered("cook");
   const root = document.querySelector("#cook");
@@ -2870,6 +2912,12 @@ function renderCook() {
   if (!steps.length) {
     clearCookingState();
     return renderCook();
+  }
+  // Sessions started before the checklist existed have no prep_state and go
+  // straight to their step.
+  if (recipe.prep_state && !recipe.prep_state.done) {
+    renderPrepChecklist(root, recipe);
+    return;
   }
   const adaptations = recipe.equipment_adaptations?.length
     ? recipe.equipment_adaptations

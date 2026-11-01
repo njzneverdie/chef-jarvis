@@ -1190,3 +1190,10 @@ h1 em {
 .quick-setup legend {font-weight:700; margin-bottom:6px;}
 .quick-setup .link {margin-top:8px;}
 .quick-setup-note {color:#5d6b63; font-size:14px;}
+
+.prep-checklist {display:grid; gap:12px; max-width:720px;}
+.prep-items {display:grid; gap:8px;}
+.prep-items label {display:flex; gap:10px; align-items:center; min-height:44px; padding:10px 14px; border:1px solid #c9cec3; border-radius:8px; background:#fffaf3; cursor:pointer;}
+.prep-items label.checked {background:#e7ecdf;}
+.prep-items input {width:20px; height:20px;}
+.prep-progress {font-weight:600; margin:0;}
