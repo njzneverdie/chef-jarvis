@@ -431,6 +431,17 @@ test("display language check matches the Edge one-language rule", async () => {
   }
 });
 
+test("pantry batch entry splits Chinese and English lists with per-item amounts", () => {
+  const parse = globalThis.ChefDomain.parsePantryEntries;
+  const simple = (entries) => entries.map(({ name, quantity, unit }) => [name, quantity, unit]);
+  assert.deepEqual(simple(parse("鯛魚、蛋、青江菜、蝦仁")), [["鯛魚", 1, "piece"], ["蛋", 1, "piece"], ["青江菜", 1, "piece"], ["蝦仁", 1, "piece"]]);
+  assert.deepEqual(simple(parse("鯛魚 300g、蛋 6顆，牛奶1公升；青江菜 2把/蒜 3瓣")), [["鯛魚", 300, "g"], ["蛋", 6, "piece"], ["牛奶", 1, "L"], ["青江菜", 2, "把"], ["蒜", 3, "clove"]]);
+  assert.deepEqual(simple(parse("chicken breast 500 g, 6 eggs; milk 1L\nspinach", { quantity: "200", unit: "g" })), [["chicken breast", 500, "g"], ["eggs", 6, "piece"], ["milk", 1, "L"], ["spinach", 200, "g"]]);
+  assert.deepEqual(simple(parse("蛋 6、 蛋 ,  ,Eggs、eggs")), [["蛋", 6, "piece"], ["Eggs", 1, "piece"]]);
+  assert.deepEqual(simple(parse("7up 2 cans、雞胸肉 0.5公斤")), [["7up", 2, "can"], ["雞胸肉", 0.5, "kg"]]);
+  assert.deepEqual(parse("  "), []);
+});
+
 test("recipe titles stay consistent after ingredient substitution", () => {
   assert.equal(
     recipeTitleAfterSubstitution(

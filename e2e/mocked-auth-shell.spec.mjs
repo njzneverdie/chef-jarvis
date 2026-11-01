@@ -220,3 +220,34 @@ test("pantry ideas come from the server and a chosen idea is sent for a full rec
   expect(bodies[1].pantry_idea).toEqual({ title: "Cabbage egg stir-fry", uses: ["Cabbage"] });
   expect(bodies[1].request).toContain("saved allergies");
 });
+
+test("pantry accepts several ingredients at once after a preview", async ({ page }) => {
+  await installBackendMock(page);
+  let inserted;
+  await page.route("**/rest/v1/pantry_items**", (route) => {
+    if (route.request().method() === "POST") {
+      inserted = route.request().postDataJSON();
+      return route.fulfill(json([], 201));
+    }
+    return route.fulfill(json([], 200, { "content-range": "*/0" }));
+  });
+  let preview = "";
+  page.on("dialog", (dialog) => {
+    preview = dialog.message();
+    void dialog.accept();
+  });
+  await page.goto("/");
+  await page.getByLabel("Email").fill("chef-audit@example.com");
+  await page.getByLabel("Password").fill("audit-only-password");
+  await page.getByRole("button", { name: "Sign in →" }).click();
+  await page.getByRole("button", { name: /Pantry$/ }).first().click();
+  await page.locator('#pantry-form input[name="item"]').fill("sea bream 300g, eggs 6, bok choy");
+  await page.locator("#pantry-form button").click();
+  await expect.poll(() => inserted?.length).toBe(3);
+  expect(preview).toBe("Add 3 items: sea bream 300 g, eggs 6 pieces, bok choy");
+  expect(inserted.map(({ name, quantity, unit }) => [name, quantity ?? null, unit ?? null])).toEqual([
+    ["sea bream", 300, "g"],
+    ["eggs", 6, "piece"],
+    ["bok choy", null, null],
+  ]);
+});

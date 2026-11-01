@@ -92,7 +92,7 @@
     "KITCHEN INVENTORY": "廚房庫存",
     "What’s in your": "你的廚房",
     "kitchen?": "有什麼？",
-    "Add an ingredient, e.g. chicken breast": "新增食材，例如：去骨去皮雞胸肉",
+    "Add ingredients, e.g. chicken breast 300g, eggs 6": "新增食材，可一次多項，例如：雞胸肉 300克、蛋 6顆",
     "Add ingredient": "新增食材",
     "Loading your pantry…": "正在載入庫存…",
     "Your pantry is empty.": "你的庫存目前是空的。",

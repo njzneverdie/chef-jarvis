@@ -780,7 +780,7 @@ async function renderPantry() {
   if (!panel) return;
   panel.innerHTML = `
     <div class="title"><div><p class="eyebrow">KITCHEN INVENTORY</p><h1>What’s in your<br><em>kitchen?</em></h1></div></div>
-    <form class="add-row" id="pantry-form"><input name="item" required maxlength="120" placeholder="Add an ingredient, e.g. chicken breast"><button class="dark">Add ingredient</button></form>
+    <form class="add-row" id="pantry-form"><input name="item" required maxlength="500" placeholder="Add ingredients, e.g. chicken breast 300g, eggs 6"><button class="dark">Add ingredient</button></form>
     <section class="card pantry-ideas" id="pantry-ideas" hidden></section>
     <div class="pantry-grid" id="pantry-list"><p>Loading your pantry…</p></div>`;
   const { data, error } = await sb
@@ -833,17 +833,33 @@ async function renderPantry() {
       new FormData(form).get("item") || "",
     ).trim();
     if (!name) return;
-    const { error: insertError } = await sb.from("pantry_items").insert({
-      user_id: user.id,
-      app_user_id: user.id,
-      name,
-      storage_zone: "fridge",
-      source: "manual",
-    });
+    // "鯛魚 300g、蛋 6顆" adds several rows; items without an amount keep the
+    // previous name-only behavior.
+    const entries = window.ChefDomain.parsePantryEntries(name);
+    if (!entries.length) return;
+    const zh = window.I18n.code === "zh-TW";
+    if (
+      entries.length > 1 &&
+      !window.confirm(
+        `${zh ? `將新增 ${entries.length} 項：` : `Add ${entries.length} items: `}${entries
+          .map((entry) => entry.explicit ? `${entry.name} ${entry.quantity} ${window.ChefDomain.unitLabel(entry.unit, window.I18n.code, entry.quantity)}` : entry.name)
+          .join(zh ? "、" : ", ")}`,
+      )
+    ) return;
+    const { error: insertError } = await sb.from("pantry_items").insert(
+      entries.map((entry) => ({
+        user_id: user.id,
+        app_user_id: user.id,
+        name: entry.name,
+        ...(entry.explicit ? { quantity: entry.quantity, unit: entry.unit } : {}),
+        storage_zone: "fridge",
+        source: "manual",
+      })),
+    );
     if (insertError) toast(insertError.message);
     else {
       form.reset();
-      toast("Added to your pantry ✓");
+      toast(entries.length > 1 ? (zh ? `已新增 ${entries.length} 項到庫存 ✓` : `Added ${entries.length} items to your pantry ✓`) : "Added to your pantry ✓");
       renderPantry();
     }
   };

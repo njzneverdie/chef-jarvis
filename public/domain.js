@@ -221,6 +221,73 @@
     return !/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(value);
   }
 
+  const pantryEntryUnits = [
+    [/^(?:g|grams?|克|公克)$/i, "g"],
+    [/^(?:kg|kilograms?|公斤|千克)$/i, "kg"],
+    [/^(?:ml|cc|milliliters?|毫升)$/i, "ml"],
+    [/^(?:l|liters?|litres?|公升|升)$/i, "L"],
+    [/^(?:pcs?|pieces?|個|个|顆|颗|粒|隻|只)$/i, "piece"],
+    [/^(?:packs?|包)$/i, "pack"],
+    [/^(?:cans?|罐)$/i, "can"],
+    [/^(?:slices?|片)$/i, "slice"],
+    [/^(?:cloves?|瓣)$/i, "clove"],
+    [/^(?:cups?|杯)$/i, "cup"],
+    [/^(?:tsp|茶匙|小匙)$/i, "tsp"],
+    [/^(?:tbsp|湯匙|汤匙|大匙)$/i, "tbsp"],
+    [/^(?:把|瓶|盒|條|条|份|塊|块|串|bunch(?:es)?|bottles?|boxes?)$/i, null],
+  ];
+  const pantryUnitPattern = "kg|g|grams?|kilograms?|ml|cc|milliliters?|l|liters?|litres?|pcs?|pieces?|packs?|cans?|slices?|cloves?|cups?|tsp|tbsp|bunch(?:es)?|bottles?|boxes?|公斤|千克|公克|克|毫升|公升|升|個|个|顆|颗|粒|隻|只|包|罐|片|瓣|杯|茶匙|小匙|湯匙|汤匙|大匙|把|瓶|盒|條|条|份|塊|块|串";
+
+  function pantryEntryUnit(raw) {
+    const value = String(raw || "").trim();
+    for (const [pattern, unit] of pantryEntryUnits) {
+      if (pattern.test(value)) return unit || value.toLocaleLowerCase();
+    }
+    return null;
+  }
+
+  /**
+   * Splits "鯛魚 300g、蛋 6顆, milk 1 L" into pantry rows. A token's own
+   * amount wins (a bare number counts pieces); otherwise the form
+   * quantity/unit apply, else 1 piece.
+   * Recognized units become the shared unit enum; others (把, 瓶…) stay text.
+   */
+  function parsePantryEntries(text, defaults = {}) {
+    const fallbackQuantity = Number(defaults.quantity);
+    const hasFallback = Number.isFinite(fallbackQuantity) && fallbackQuantity > 0;
+    const fallbackUnit = String(defaults.unit || "").trim() || "piece";
+    const trailing = new RegExp(`^(.*?\\S)\\s*(\\d+(?:\\.\\d+)?)\\s*(${pantryUnitPattern})?$`, "i");
+    const leading = new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*(${pantryUnitPattern})?\\s+(\\S.*)$`, "i");
+    const seen = new Set();
+    const entries = [];
+    for (const token of String(text || "").split(/[、,，;；/\n]+/)) {
+      const clean = token.replace(/\s+/g, " ").trim();
+      if (!clean) continue;
+      let name = clean, quantity = null, unit = null;
+      const tail = clean.match(trailing);
+      const head = tail ? null : clean.match(leading);
+      if (tail && /[^\d.\s]/.test(tail[1])) {
+        [name, quantity, unit] = [tail[1], Number(tail[2]), tail[3]];
+      } else if (head) {
+        [quantity, unit, name] = [Number(head[1]), head[2], head[3]];
+      }
+      name = name.trim().slice(0, 120);
+      const key = name.toLocaleLowerCase();
+      if (!name || seen.has(key)) continue;
+      seen.add(key);
+      const explicit = quantity != null && quantity > 0;
+      entries.push({
+        name,
+        quantity: explicit ? quantity : hasFallback ? fallbackQuantity : 1,
+        unit: explicit
+          ? (unit && pantryEntryUnit(unit)) || "piece"
+          : hasFallback ? fallbackUnit : "piece",
+        explicit,
+      });
+    }
+    return entries;
+  }
+
   function normalizeIngredient(item = {}) {
     const name = String(item.name || "Ingredient").trim() || "Ingredient";
     const rawQuantity = item.quantity;
@@ -864,6 +931,7 @@
     groceryDisplayMeasurement,
     unitLabel,
     textMatchesLanguage,
+    parsePantryEntries,
     ingredientWeightInGrams,
     calculateUsdaMealNutrition,
     hasCompleteUsdaNutrition,

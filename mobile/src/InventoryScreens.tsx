@@ -41,8 +41,52 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
     [unit, setUnit] = useState("g"),
     [zone, setZone] = useState("fridge"),
     [expires, setExpires] = useState(""),
-    [edit, setEdit] = useState<string | undefined>();
+    [edit, setEdit] = useState<string | undefined>(),
+    [batch, setBatch] = useState<
+      { name: string; quantity: number; unit: string }[] | null
+    >(null);
+  function checkExpiry() {
+    if (
+      expires &&
+      (!/^\d{4}-\d{2}-\d{2}$/.test(expires) ||
+        !Number.isFinite(Date.parse(expires)))
+    )
+      throw new Error(
+        t("Use YYYY-MM-DD for expiry.", "效期請使用 YYYY-MM-DD。"),
+      );
+  }
+  function resetForm() {
+    setName("");
+    setQuantity("");
+    setExpires("");
+    setEdit(undefined);
+    setBatch(null);
+  }
   async function save() {
+    // Several items separated by 、 , ; / or new lines go through a preview.
+    const entries = edit
+      ? []
+      : domain.parsePantryEntries(name, { quantity, unit });
+    if (entries.length > 1) {
+      checkExpiry();
+      setBatch(entries);
+      return;
+    }
+    if (entries.length === 1 && entries[0].explicit) {
+      checkExpiry();
+      await st.mutate("pantry_items", {
+        user_id: st.userId,
+        app_user_id: st.userId,
+        name: entries[0].name,
+        quantity: entries[0].quantity,
+        unit: entries[0].unit,
+        storage_zone: zone,
+        expires_on: expires || null,
+        source: "manual",
+      });
+      resetForm();
+      return;
+    }
     if (
       !name.trim() ||
       !Number.isFinite(Number(quantity)) ||
@@ -55,14 +99,7 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
           "請填寫食材名稱、正數份量與單位。",
         ),
       );
-    if (
-      expires &&
-      (!/^\d{4}-\d{2}-\d{2}$/.test(expires) ||
-        !Number.isFinite(Date.parse(expires)))
-    )
-      throw new Error(
-        t("Use YYYY-MM-DD for expiry.", "效期請使用 YYYY-MM-DD。"),
-      );
+    checkExpiry();
     const payload = {
       user_id: st.userId,
       app_user_id: st.userId,
@@ -74,10 +111,25 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
       ...(edit ? {} : { source: "manual" }),
     };
     await st.mutate("pantry_items", payload, edit ? "update" : "insert", edit);
-    setName("");
-    setQuantity("");
-    setExpires("");
-    setEdit(undefined);
+    resetForm();
+  }
+  // One insert call for the whole batch: all rows are saved or none.
+  async function saveBatch() {
+    if (!batch?.length) return;
+    await st.mutate(
+      "pantry_items",
+      batch.map((entry) => ({
+        user_id: st.userId,
+        app_user_id: st.userId,
+        name: entry.name,
+        quantity: entry.quantity,
+        unit: entry.unit,
+        storage_zone: zone,
+        expires_on: expires || null,
+        source: "manual",
+      })) as any,
+    );
+    resetForm();
   }
   return (
     <Page>
@@ -91,9 +143,19 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
             : t("Add an ingredient", "新增食材")}
         </Text>
         <Field
-          label={t("Ingredient", "食材名稱")}
+          label={
+            edit
+              ? t("Ingredient", "食材名稱")
+              : t(
+                  "Ingredient (add several with commas, e.g. fish 300g, eggs 6)",
+                  "食材名稱（可一次輸入多項，用、或逗號分開，例如：鯛魚 300克、蛋 6顆）",
+                )
+          }
           value={name}
-          onChange={setName}
+          onChange={(value: string) => {
+            setName(value);
+            setBatch(null);
+          }}
         />
         <View style={s.row}>
           <View style={{ flex: 1 }}>
@@ -123,11 +185,37 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
           value={expires}
           onChange={setExpires}
         />
-        <Button
-          disabled={st.busy}
-          title={t("Save ingredient", "儲存食材")}
-          onPress={() => st.run(save)}
-        />
+        {batch ? (
+          <View style={{ gap: 9 }}>
+            <Text style={s.fieldLabel}>
+              {t(`Add ${batch.length} items:`, `將新增 ${batch.length} 項：`)}
+            </Text>
+            <Copy>
+              {batch
+                .map(
+                  (entry) =>
+                    `${entry.name} ${entry.quantity} ${domain.unitLabel(entry.unit, st.lang, entry.quantity)}`,
+                )
+                .join(t(", ", "、"))}
+            </Copy>
+            <Button
+              disabled={st.busy}
+              title={t(`Add all ${batch.length}`, `確認新增 ${batch.length} 項`)}
+              onPress={() => st.run(saveBatch)}
+            />
+            <Button
+              quiet
+              title={t("Back to edit", "返回修改")}
+              onPress={() => setBatch(null)}
+            />
+          </View>
+        ) : (
+          <Button
+            disabled={st.busy}
+            title={t("Save ingredient", "儲存食材")}
+            onPress={() => st.run(save)}
+          />
+        )}
         {edit && (
           <Button
             quiet
