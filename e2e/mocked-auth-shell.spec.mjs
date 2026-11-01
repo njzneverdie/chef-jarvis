@@ -51,7 +51,11 @@ function json(body, status = 200, extraHeaders = {}) {
   };
 }
 
-async function installBackendMock(page) {
+// options.profile overrides the signed-in profile (null = no profile row);
+// options.tables returns rows per table; options.writes collects mutations,
+// which are then accepted instead of rejected.
+async function installBackendMock(page, options = {}) {
+  const currentProfile = options.profile === null ? null : { ...profile, ...(options.profile || {}) };
   await page.route("**/auth/v1/token?grant_type=password", (route) =>
     route.fulfill(
       json({
@@ -69,17 +73,26 @@ async function installBackendMock(page) {
   );
   await page.route("**/rest/v1/**", (route) => {
     const request = route.request();
-    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
-      return route.fulfill(json({ message: "Unexpected mutation in read-only audit" }, 409));
-    }
     const url = new URL(request.url());
     const table = url.pathname.split("/").at(-1);
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+      if (!options.writes) {
+        return route.fulfill(json({ message: "Unexpected mutation in read-only audit" }, 409));
+      }
+      let body = null;
+      try { body = request.postDataJSON(); } catch {}
+      options.writes.push({ table, method: request.method(), body });
+      const rows = (Array.isArray(body) ? body : [body || {}]).map((row, index) => ({ id: `written-${options.writes.length}-${index}`, ...row }));
+      return route.fulfill(json(rows, 201));
+    }
     if (table === "app_profiles") {
+      if (!currentProfile) return route.fulfill(json(null, 200, { "content-range": "*/0" }));
       return route.fulfill(
-        json(profile, 200, { "content-range": "0-0/1" }),
+        json(currentProfile, 200, { "content-range": "0-0/1" }),
       );
     }
-    return route.fulfill(json([], 200, { "content-range": "*/0" }));
+    const rows = options.tables?.[table] || [];
+    return route.fulfill(json(rows, 200, { "content-range": rows.length ? `0-${rows.length - 1}/${rows.length}` : "*/0" }));
   });
 }
 
@@ -161,7 +174,7 @@ test('one sign-in loads the profile once and does not replace navigation', async
 });
 
 test("meal planning submits selected conditions without a text field", async ({ page }) => {
-  await installBackendMock(page);
+  await installBackendMock(page, { profile: { cooking_skill: "beginner" } });
   let body;
   await page.route("**/functions/v1/chef-meal-plan", async route => {
     body = route.request().postDataJSON();
@@ -188,6 +201,7 @@ test("meal planning submits selected conditions without a text field", async ({ 
   expect(body.request).toContain("saved allergies");
   expect(body.preferences.practical).toEqual(["use_pantry"]);
   expect(body.preferences.cuisine).toEqual(["japanese", "korean"]);
+  expect(body.cooking_skill).toBe("beginner");
   await expect(planner.getByRole("button", { name: "Generate", exact: true })).toBeEnabled();
 });
 

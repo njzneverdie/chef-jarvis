@@ -2171,7 +2171,7 @@ async function requestPantryIdeas(preferences) {
       apikey: SUPABASE_KEY,
       Authorization: `Bearer ${session.access_token}`,
     },
-    body: JSON.stringify({ mode: "pantry_ideas", language: window.I18n.code, preferences }),
+    body: JSON.stringify({ mode: "pantry_ideas", language: window.I18n.code, preferences, ...cookingSkillField() }),
     signal: AbortSignal.timeout(30000),
   });
   const data = await response.json().catch(() => ({}));
@@ -2200,7 +2200,7 @@ async function generatePlan(request, constraints, preferences, extra) {
           apikey: SUPABASE_KEY,
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ ...extra, request, language: window.I18n.code, constraints, preferences }),
+        body: JSON.stringify({ ...extra, ...cookingSkillField(), request, language: window.I18n.code, constraints, preferences }),
         signal: controller.signal,
       });
       assertGenerationContext(ownerUserId, generationEpoch);

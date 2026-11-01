@@ -5,6 +5,15 @@ const app = document.querySelector("#app");
 
 let user = null;
 let profile = null;
+// New copy picks its language directly: zh strings stay fully Chinese and
+// en strings fully English (checked by tests/web-copy-language.test.mjs).
+function tr(en, zh) {
+  return window.I18n?.code === "zh-TW" ? zh : en;
+}
+// Saved skill drives prompt difficulty; omitted when the user has none.
+function cookingSkillField() {
+  return profile?.cooking_skill ? { cooking_skill: profile.cooking_skill } : {};
+}
 let timers = [];
 let authSignup = false;
 let renderedViews = new Set();
