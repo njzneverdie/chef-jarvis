@@ -1185,3 +1185,8 @@ h1 em {
 .step-term {all:unset; cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; color:inherit;}
 .step-term:focus-visible {outline:2px solid #c77c44; outline-offset:2px;}
 .step-hint {display:block; margin-top:4px; color:#5d6b63;}
+
+.quick-setup fieldset {border:0; padding:0; margin:12px 0; display:grid; gap:8px;}
+.quick-setup legend {font-weight:700; margin-bottom:6px;}
+.quick-setup .link {margin-top:8px;}
+.quick-setup-note {color:#5d6b63; font-size:14px;}

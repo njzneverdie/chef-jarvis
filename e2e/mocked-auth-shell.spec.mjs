@@ -265,3 +265,47 @@ test("pantry accepts several ingredients at once after a preview", async ({ page
     ["bok choy", null, null],
   ]);
 });
+
+async function signIn(page) {
+  await page.goto("/");
+  await page.getByLabel("Email").fill("chef-audit@example.com");
+  await page.getByLabel("Password").fill("audit-only-password");
+  await page.getByRole("button", { name: "Sign in →" }).click();
+}
+
+test("a new account finishes the three-step quick setup without body data", async ({ page }) => {
+  const writes = [];
+  await installBackendMock(page, { profile: null, writes });
+  await signIn(page);
+  const setup = page.locator("#quick-setup");
+  await expect(setup.getByText("Quick setup · step 1 of 3")).toBeVisible();
+  await setup.getByLabel("Peanut", { exact: true }).check();
+  await setup.getByLabel("Vegetarian", { exact: true }).check();
+  await setup.getByRole("button", { name: "Next" }).click();
+  await expect(setup.getByText("Quick setup · step 2 of 3")).toBeVisible();
+  await setup.getByLabel("Oven", { exact: true }).check();
+  await setup.getByRole("button", { name: "Back" }).click();
+  await expect(setup.getByLabel("Peanut", { exact: true })).toBeChecked();
+  await setup.getByRole("button", { name: "Next" }).click();
+  await expect(setup.getByLabel("Oven", { exact: true })).toBeChecked();
+  await setup.getByRole("button", { name: "Next" }).click();
+  await setup.getByLabel("Some experience", { exact: true }).check();
+  await setup.getByRole("button", { name: "Start cooking" }).click();
+  await expect(setup).toHaveCount(0);
+  const saved = writes.find((write) => write.table === "app_profiles")?.body;
+  expect(saved).toMatchObject({
+    onboarding_completed: true,
+    allergies: ["Peanut"],
+    dietary_preferences: ["Vegetarian"],
+    equipment: ["Oven"],
+    cooking_skill: "some",
+  });
+  expect(saved.height_cm).toBeUndefined();
+});
+
+test("an onboarded account never sees the quick setup", async ({ page }) => {
+  await installBackendMock(page);
+  await signIn(page);
+  await expect(page.locator("#meal-form")).toBeVisible();
+  await expect(page.locator("#quick-setup")).toHaveCount(0);
+});
