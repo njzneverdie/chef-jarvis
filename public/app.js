@@ -1065,6 +1065,7 @@ function renderProfile() {
           )
           .join("")}<button class="dark">Save kitchen setup →</button></form>
       </article>
+      <article class="card cooked-dishes" id="cooked-dishes" hidden></article>
       <article class="card account-danger-zone">
         <div><p class="eyebrow">DANGER ZONE</p><h2>Delete account and data.</h2><p>Permanent deletion removes your sign-in and all linked Chef Jarvis product data. <a href="/privacy.html">Read privacy & retention</a></p></div>
         <button class="danger-button" id="delete-account">Delete my account</button>
@@ -1072,6 +1073,7 @@ function renderProfile() {
     </div>`;
   document.querySelector("#edit-profile").onclick = () => onboarding(true);
   document.querySelector("#edit-quick-setup").onclick = () => quickSetup({ edit: true });
+  renderCookedDishes();
   document.querySelector("#saved-meals").onclick = showSaved;
   document.querySelector("#export-my-data").onclick = (event) =>
     exportMyData(event.currentTarget);
@@ -1092,6 +1094,34 @@ function renderProfile() {
       toast("Kitchen setup saved ✓");
     }
   };
+}
+
+// "Dishes I can make": completed meals not last marked too hard.
+async function renderCookedDishes() {
+  const card = document.querySelector("#cooked-dishes");
+  if (!card || !user) return;
+  const owner = user.id;
+  const [logs, feedback, recipes] = await Promise.all([
+    sb.from("nutrition_logs").select("recipe_title,eaten_on").eq("user_id", owner).order("eaten_on", { ascending: false }).limit(300),
+    sb.from("recipe_feedback").select("*").eq("user_id", owner).order("created_at", { ascending: false }).limit(300),
+    sb.from("recipes").select("id,title,servings,minutes,recipe,nutrition,created_at,is_saved").eq("user_id", owner).eq("is_saved", true).limit(100),
+  ]);
+  if (!isCurrentAppUser(owner) || !card.isConnected || logs.error) return;
+  const dishes = window.ChefDomain.cookedDishes(logs.data || [], feedback.data || [], recipes.data || []).slice(0, 12);
+  if (!dishes.length) return;
+  card.hidden = false;
+  card.innerHTML = `<p class="eyebrow">${tr("YOUR REPERTOIRE", "我的拿手菜")}</p><h2>${tr("Dishes I can make", "我會做的菜")}</h2><div class="cooked-dish-list">${dishes
+    .map(
+      (dish, index) =>
+        `<div class="cooked-dish"><div><b>${esc(dish.title)}</b><small>${esc(tr(`Cooked ${dish.count}× · last ${dish.last}`, `做過 ${dish.count} 次・最近 ${dish.last}`))}</small></div>${dish.recipe?.recipe ? `<button type="button" class="cream" data-open-cooked="${index}">${tr("Open recipe", "開啟食譜")}</button>` : ""}</div>`,
+    )
+    .join("")}</div>`;
+  card.querySelectorAll("[data-open-cooked]").forEach((button) => {
+    button.onclick = () => {
+      renderPlan(planFromSavedRow(dishes[Number(button.dataset.openCooked)].recipe));
+      show("plan");
+    };
+  });
 }
 
 async function showSaved() {

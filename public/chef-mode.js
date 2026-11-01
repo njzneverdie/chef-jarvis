@@ -2624,7 +2624,7 @@ function openMealFeedback(recipe, nutritionLogPromise) {
   const modal = document.createElement("div");
   modal.className = "modal meal-feedback-modal";
   const servingsLimit = 12;
-  modal.innerHTML = `<form class="modal-card feedback-card"><p class="eyebrow">HELP JARVIS LEARN</p><h2>How did this meal taste?</h2><p>One quick rating helps future recipes fit you better.</p><div class="automation-summary"><p class="eyebrow">AUTOMATICALLY COMPLETED</p><div data-auto-nutrition>◌ Recording 1 serving of nutrition…</div><div data-auto-pantry>◌ Checking recipe amounts against your pantry…</div></div><div class="field"><label>Servings you ate</label><input name="servings_eaten" type="number" min="0.25" max="${servingsLimit}" step="0.25" value="1" required><small>Nutrition starts at one serving. Change this if you ate more.</small></div><div class="rating-row" role="radiogroup" aria-label="Meal rating">${[1, 2, 3, 4, 5].map((rating) => `<label><input type="radio" name="rating" value="${rating}" required><span>${rating}★</span></label>`).join("")}</div><div class="field"><label>Optional note</label><input name="note" maxlength="300" placeholder="e.g. Less spicy next time"></div><div class="form-actions"><button type="button" class="cream" data-feedback-skip>Skip rating</button><button type="submit" class="dark">Save feedback →</button></div></form>`;
+  modal.innerHTML = `<form class="modal-card feedback-card"><p class="eyebrow">HELP JARVIS LEARN</p><h2>How did this meal taste?</h2><p>One quick rating helps future recipes fit you better.</p><div class="automation-summary"><p class="eyebrow">AUTOMATICALLY COMPLETED</p><div data-auto-nutrition>◌ Recording 1 serving of nutrition…</div><div data-auto-pantry>◌ Checking recipe amounts against your pantry…</div></div><div class="field"><label>Servings you ate</label><input name="servings_eaten" type="number" min="0.25" max="${servingsLimit}" step="0.25" value="1" required><small>Nutrition starts at one serving. Change this if you ate more.</small></div><fieldset class="feedback-tags"><legend>${tr("How was it? (pick any)", "這道菜如何？（可複選）")}</legend><div class="choice-grid">${window.ChefDomain.feedbackTagOptions.map(([value, en, zh]) => `<label><input type="checkbox" name="tags" value="${value}"><span>${esc(tr(en, zh))}</span></label>`).join("")}</div></fieldset><div class="rating-row" role="radiogroup" aria-label="${esc(tr("Star rating (optional)", "星等（選填）"))}">${[1, 2, 3, 4, 5].map((rating) => `<label><input type="radio" name="rating" value="${rating}"><span>${rating}★</span></label>`).join("")}</div><p class="error hidden" data-feedback-error role="alert"></p><div class="field"><label>Optional note</label><input name="note" maxlength="300" placeholder="e.g. Less spicy next time"></div><div class="form-actions"><button type="button" class="cream" data-feedback-skip>Skip rating</button><button type="submit" class="dark">Save feedback →</button></div></form>`;
   document.body.append(modal);
   window.associateFieldLabels?.(modal);
   const close = bindDismissibleModal(modal);
@@ -2664,22 +2664,34 @@ function openMealFeedback(recipe, nutritionLogPromise) {
   modal.querySelector("form").onsubmit = async (event) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
+    const tags = values.getAll("tags").map(String);
+    // Stars are optional; quick reactions alone map to a rating.
+    const rating = values.get("rating")
+      ? Number(values.get("rating"))
+      : window.ChefDomain.feedbackRatingForTags(tags);
+    if (!rating) {
+      const message = modal.querySelector("[data-feedback-error]");
+      message.textContent = tr("Pick a quick reaction or stars, or tap Skip rating.", "請選一個快速回饋或星等，或按「略過評分」。");
+      message.classList.remove("hidden");
+      return;
+    }
     const saveButton = event.currentTarget.querySelector(
       'button[type="submit"]',
     );
     saveButton.disabled = true;
     saveButton.textContent = "Saving…";
     await updateLoggedServings(values.get("servings_eaten"));
-    const { error } = await sb.from("recipe_feedback").insert({
+    const feedbackRow = {
       user_id: user.id,
       recipe_id: recipe.saved_recipe_id || null,
       recipe_title: String(recipe.title || "Completed meal").slice(0, 160),
-      rating: Number(values.get("rating")),
+      rating,
       note:
         String(values.get("note") || "")
           .trim()
           .slice(0, 300) || null,
-    });
+    };
+    const { error } = await sb.from("recipe_feedback").insert({ ...feedbackRow, tags });
     if (error) {
       saveButton.disabled = false;
       saveButton.textContent = "Save feedback →";
@@ -2731,9 +2743,24 @@ async function completeCooking(recipe) {
   renderCook();
   if (isSessionOnlyRecipe(recipe)) {
     toast(
-      "Dish completed in this session ✓ Nothing was saved or changed, including pantry, nutrition, feedback, and cooking progress. 料理已完成 ✓ 沒有儲存或變更任何資料，包括食材庫、營養、評價與烹飪進度。",
+      tr(
+        "Dish completed in this session ✓ Nothing was saved or changed, including pantry, nutrition, feedback, and cooking progress.",
+        "料理已完成 ✓ 沒有儲存或變更任何資料，包括庫存、營養、評價與烹飪進度。",
+      ),
     );
     return;
+  }
+  // Finished dishes are kept so "Dishes I can make" can reopen them.
+  if (!recipe.saved_recipe_id) {
+    try {
+      const toSave = { ...recipe };
+      delete toSave.prep_state;
+      const saved = await saveGeneratedPlanForLater(toSave, Symbol("completed-dish"));
+      recipe.saved_recipe_id = saved.saved_recipe_id;
+    } catch (error) {
+      if (error?.code === "stale_auth_context") return;
+      console.warn("Could not save the completed recipe", error);
+    }
   }
   const nutritionLogPromise = logCompletedMeal(recipe);
   const feedback = openMealFeedback(recipe, nutritionLogPromise);

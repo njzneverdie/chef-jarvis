@@ -396,3 +396,52 @@ test("guided cooking starts with a prep checklist that survives a reload", async
   await page.getByRole("button", { name: "Complete step →" }).click();
   await expect(page.locator(".chef-current .step-tips", { hasText: "How do I know it is done?" })).toHaveCount(0);
 });
+
+test("finishing a dish saves it and sends one-tap feedback tags without stars", async ({ page }) => {
+  const writes = [];
+  await installBackendMock(page, { writes });
+  await signIn(page);
+  await generateMeasuredPlan(page);
+  await page.getByRole("button", { name: "Start guided cooking →" }).click();
+  await page.locator(".prep-checklist").getByRole("button", { name: "Skip (I am ready)" }).click();
+  await page.getByRole("button", { name: "Complete step →" }).click();
+  await page.getByRole("button", { name: "Complete step →" }).click();
+  await page.getByRole("button", { name: "Finish dish ✓" }).click();
+  const feedback = page.locator(".feedback-card");
+  await expect(feedback).toBeVisible();
+  await feedback.getByRole("button", { name: /Save feedback/ }).click();
+  await expect(feedback.getByText("Pick a quick reaction or stars, or tap Skip rating.")).toBeVisible();
+  await feedback.getByText("Too salty", { exact: true }).click();
+  await feedback.getByText("Delicious", { exact: true }).click();
+  await feedback.getByRole("button", { name: /Save feedback/ }).click();
+  await expect(feedback).toHaveCount(0);
+  const saved = writes.find((write) => write.table === "recipes");
+  const log = writes.find((write) => write.table === "nutrition_logs");
+  const rated = writes.find((write) => write.table === "recipe_feedback");
+  expect(saved.body.title).toBe(measuredPlan.title);
+  expect(saved.body.recipe.prep_state).toBeUndefined();
+  expect(log.body.recipe_id).toBeTruthy();
+  expect(rated.body).toMatchObject({ tags: ["too_salty", "delicious"], rating: 4, recipe_title: measuredPlan.title });
+});
+
+test("Dishes I can make lists cooked meals and reopens the saved recipe", async ({ page }) => {
+  await installBackendMock(page, {
+    tables: {
+      recipes: [savedRecipeRow],
+      nutrition_logs: [
+        { recipe_title: measuredPlan.title, eaten_on: "2026-10-30" },
+        { recipe_title: measuredPlan.title, eaten_on: "2026-10-31" },
+        { recipe_title: "Too hard stew", eaten_on: "2026-10-29" },
+      ],
+      recipe_feedback: [{ recipe_title: "Too hard stew", tags: ["too_hard"], rating: 3, created_at: "2026-10-29T12:00:00Z" }],
+    },
+  });
+  await signIn(page);
+  await page.getByRole("button", { name: /Profile$/ }).first().click();
+  const card = page.locator("#cooked-dishes");
+  await expect(card.getByText("Dishes I can make")).toBeVisible();
+  await expect(card.getByText("Cooked 2× · last 2026-10-31")).toBeVisible();
+  await expect(card.getByText("Too hard stew")).toHaveCount(0);
+  await card.getByRole("button", { name: "Open recipe" }).click();
+  await expect(page.locator("#plan").getByRole("heading", { name: measuredPlan.title })).toBeVisible();
+});

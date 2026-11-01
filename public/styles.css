@@ -1202,3 +1202,9 @@ h1 em {
 .step-help-hint {font-size:14px; color:#5d6b63; margin:0;}
 .step-tips summary {cursor:pointer; min-height:44px; display:flex; align-items:center; font-weight:600;}
 .step-tips p, .step-tips ul {margin:4px 0 8px;}
+
+.feedback-tags {border:0; padding:0; margin:12px 0;}
+.feedback-tags legend {font-weight:700; margin-bottom:6px;}
+.cooked-dish-list {display:grid; gap:10px;}
+.cooked-dish {display:flex; justify-content:space-between; align-items:center; gap:12px; border-top:1px solid #e4e1d8; padding-top:10px;}
+.cooked-dish small {display:block; color:#5d6b63;}
