@@ -2143,7 +2143,28 @@ async function renderUsdaReference(
   }
 }
 
-async function generatePlan(request, constraints, preferences) {
+// Pantry-based dish ideas; the server reads the pantry itself.
+async function requestPantryIdeas(preferences) {
+  const {
+    data: { session },
+  } = await sb.auth.getSession();
+  if (!session) throw new Error("Please sign in again.");
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/chef-meal-plan`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ mode: "pantry_ideas", language: window.I18n.code, preferences }),
+    signal: AbortSignal.timeout(30000),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "Jarvis could not suggest dishes right now.");
+  return data;
+}
+
+async function generatePlan(request, constraints, preferences, extra) {
   const generationEpoch = chefStateEpoch;
   const {
     data: { session },
@@ -2164,7 +2185,7 @@ async function generatePlan(request, constraints, preferences) {
           apikey: SUPABASE_KEY,
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ request, language: window.I18n.code, constraints, preferences }),
+        body: JSON.stringify({ ...extra, request, language: window.I18n.code, constraints, preferences }),
         signal: controller.signal,
       });
       assertGenerationContext(ownerUserId, generationEpoch);

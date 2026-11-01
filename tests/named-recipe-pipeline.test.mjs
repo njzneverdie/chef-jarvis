@@ -1041,9 +1041,10 @@ test("chef-meal-plan routes every JSON return through one request-scoped allerge
     "only OPTIONS may bypass the JSON response gate",
   );
 
+  const unconfiguredStart = handler.indexOf("if (!apiKey) {\n      if (namedRequest)");
   const unconfigured = handler.slice(
-    handler.indexOf("if (!apiKey)"),
-    handler.indexOf("quotaRequestId = requestId"),
+    unconfiguredStart,
+    handler.indexOf("const quotaRejection = await consumeMealPlanQuota()", unconfiguredStart),
   );
   assert.match(unconfigured, /const response = safeRespond\(\{[\s\S]*?plan,/);
   assert.match(unconfigured, /outcome: "fallback_unconfigured"/);
@@ -1172,12 +1173,12 @@ test("an ambiguous quota-consume error refunds before returning quota unavailabl
     "utf8",
   );
   const quotaErrorBlock = edge.match(
-    /if \(quotaError\) \{([\s\S]*?)\n    \}\n    const allowance/,
+    /if \(quotaError\) \{([\s\S]*?)\n      \}\n      const allowance/,
   )?.[1];
   assert.ok(quotaErrorBlock, "expected the quota error response branch");
   assert.match(
     quotaErrorBlock,
-    /await refundQuotaSafely\(admin, quotaUserId, refundRequestId, deadlineAt\);[\s\S]*return safeRespond\(/,
+    /await refundQuotaSafely\(admin!?, quotaUserId, refundRequestId, deadlineAt\);[\s\S]*return safeRespond\(/,
   );
 });
 

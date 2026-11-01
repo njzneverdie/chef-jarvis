@@ -190,3 +190,33 @@ test("meal planning submits selected conditions without a text field", async ({ 
   expect(body.preferences.cuisine).toEqual(["japanese", "korean"]);
   await expect(planner.getByRole("button", { name: "Generate", exact: true })).toBeEnabled();
 });
+
+test("pantry ideas come from the server and a chosen idea is sent for a full recipe", async ({ page }) => {
+  await installBackendMock(page);
+  await page.route("**/rest/v1/pantry_items**", (route) =>
+    route.fulfill(json([{ id: "p1", name: "Cabbage", quantity: 1, unit: "piece", storage_zone: "fridge", expires_on: "2026-11-02" }], 200, { "content-range": "0-0/1" })),
+  );
+  const bodies = [];
+  await page.route("**/functions/v1/chef-meal-plan", async (route) => {
+    const body = route.request().postDataJSON();
+    bodies.push(body);
+    if (body.mode === "pantry_ideas") {
+      return route.fulfill(json({ ideas: [{ title: "Cabbage egg stir-fry", reason: "Quick and uses the cabbage first.", minutes: 15, uses: ["Cabbage"], expiring: ["Cabbage"], missing: ["eggs"] }] }));
+    }
+    return route.fulfill(json({ error: "Test response: idea received" }, 503));
+  });
+  await page.goto("/");
+  await page.getByLabel("Email").fill("chef-audit@example.com");
+  await page.getByLabel("Password").fill("audit-only-password");
+  await page.getByRole("button", { name: "Sign in →" }).click();
+  await page.getByRole("button", { name: /Pantry$/ }).first().click();
+  await page.getByRole("button", { name: "See what I can make" }).click();
+  await expect(page.getByText("Cabbage egg stir-fry · 15 min")).toBeVisible();
+  await expect(page.getByText("Uses: Cabbage (expiring)")).toBeVisible();
+  expect(bodies[0]).toMatchObject({ mode: "pantry_ideas", language: "en" });
+  expect(bodies[0].pantry).toBeUndefined();
+  await page.getByRole("button", { name: "Make this" }).click();
+  await expect.poll(() => bodies.length).toBe(2);
+  expect(bodies[1].pantry_idea).toEqual({ title: "Cabbage egg stir-fry", uses: ["Cabbage"] });
+  expect(bodies[1].request).toContain("saved allergies");
+});

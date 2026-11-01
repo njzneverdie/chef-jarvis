@@ -37,6 +37,10 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
     [data, setData] = useState<Record<string, Row[]>>({}),
     [cooking, setCooking] = useState<Cooking | null>(null),
     [plannedRecipe, setPlannedRecipe] = useState<Recipe | null>(null),
+    [pendingPantryIdea, setPendingPantryIdea] = useState<{
+      title: string;
+      uses: string[];
+    } | null>(null),
     [planningChoices, setPlanningChoices] = useState({
       ...domain.defaultMealPlanningChoices,
     }),
@@ -375,6 +379,11 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
         cooking,
         plannedRecipe,
         planningChoices,
+        pendingPantryIdea,
+        setPendingPantryIdea: (value: any) => {
+          guard(renderedOwner, renderedEpoch);
+          setPendingPantryIdea(value);
+        },
         setPlannedRecipe: (value: any) => {
           guard(renderedOwner, renderedEpoch);
           setPlannedRecipe(value);

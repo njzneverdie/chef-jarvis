@@ -38,7 +38,7 @@ function Shell() {
     Home: <HomeScreen go={setTab} />,
     Plan: <PlanScreen go={setTab} />,
     Saved: <SavedScreen go={setTab} />,
-    Pantry: <PantryScreen />,
+    Pantry: <PantryScreen go={setTab} />,
     Shopping: <ShoppingScreen />,
     Week: <WeekScreen />,
     Nutrition: <NutritionScreen />,

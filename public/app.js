@@ -721,12 +721,67 @@ async function renderDailyNutritionProgress() {
     .join("");
 }
 
+function renderPantryIdeas(hasPantry) {
+  const section = document.querySelector("#pantry-ideas");
+  if (!section) return;
+  section.hidden = !hasPantry;
+  if (!hasPantry) return;
+  const zh = window.I18n.code === "zh-TW";
+  const choices = window.ChefDomain.defaultMealPlanningChoices;
+  section.innerHTML = `<p class="eyebrow">${zh ? "用現有食材" : "COOK FROM YOUR PANTRY"}</p><h2>${zh ? "用現有食材做什麼？" : "What can I make?"}</h2><p>${zh ? "Jarvis 會依你的庫存推薦料理，優先用掉快到期的食材。" : "Jarvis suggests dishes from your pantry, using items that expire soonest first."}</p><button type="button" class="dark" id="pantry-ideas-load">${zh ? "看看能做什麼" : "See what I can make"}</button><div class="pantry-ideas-list" id="pantry-ideas-list" aria-live="polite"></div>`;
+  const listEl = section.querySelector("#pantry-ideas-list");
+  section.querySelector("#pantry-ideas-load").onclick = async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    listEl.textContent = zh ? "正在整理你的庫存…" : "Looking through your pantry…";
+    try {
+      const result = await requestPantryIdeas(window.ChefDomain.buildMealPlanningPreferences(choices));
+      const ideas = Array.isArray(result.ideas) ? result.ideas : [];
+      if (!ideas.length) {
+        listEl.textContent = zh ? "庫存目前沒有可用的食材（或只有你避開的食材），請先新增食材。" : "Your pantry has no usable items (or only items you avoid). Add ingredients first.";
+        return;
+      }
+      listEl.innerHTML = `${result.fallback ? `<p>${zh ? "智慧推薦暫時無法使用，以下是依庫存整理的簡單建議。" : "Smart suggestions are unavailable right now; these are simple ideas from your pantry."}</p>` : ""}${ideas.map((idea, index) => `<article class="pantry-idea"><h3>${esc(idea.title)} · ${esc(idea.minutes)} ${zh ? "分鐘" : "min"}</h3><p>${esc(idea.reason)}</p><p>${zh ? "使用：" : "Uses: "}${idea.uses.map((name) => esc(name) + (idea.expiring.includes(name) ? (zh ? "（快到期）" : " (expiring)") : "")).join(zh ? "、" : ", ")}</p><p>${idea.missing.length ? `${zh ? "還需要：" : "Also need: "}${idea.missing.map(esc).join(zh ? "、" : ", ")}` : zh ? "不用另外採買。" : "Nothing else to buy."}</p><button type="button" class="cream" data-idea-index="${index}">${zh ? "做這道" : "Make this"}</button></article>`).join("")}`;
+      listEl.querySelectorAll("[data-idea-index]").forEach((ideaButton) => {
+        ideaButton.onclick = async () => {
+          const idea = ideas[Number(ideaButton.dataset.ideaIndex)];
+          ideaButton.disabled = true;
+          ideaButton.textContent = zh ? "正在準備食譜…" : "Preparing your recipe…";
+          try {
+            const plan = await generatePlan(
+              window.ChefDomain.buildMealPlanningRequest(choices, window.I18n.code),
+              { servings: Number(choices.servings), max_minutes: choices.time === "any" ? null : Number(choices.time) },
+              window.ChefDomain.buildMealPlanningPreferences(choices),
+              { pantry_idea: { title: idea.title, uses: idea.uses } },
+            );
+            assertGenerationContext(plan.ownerUserId, plan.generationEpoch);
+            if (plan.kind !== "plan") return;
+            renderPlan(plan.plan);
+            show("plan");
+          } catch (error) {
+            if (error?.code === "stale_auth_context") return;
+            toast(error.message);
+            ideaButton.disabled = false;
+            ideaButton.textContent = zh ? "做這道" : "Make this";
+          }
+        };
+      });
+    } catch (error) {
+      listEl.textContent = error.message;
+    } finally {
+      button.disabled = false;
+      button.textContent = zh ? "重新推薦" : "Suggest again";
+    }
+  };
+}
+
 async function renderPantry() {
   const panel = document.querySelector("#pantry");
   if (!panel) return;
   panel.innerHTML = `
     <div class="title"><div><p class="eyebrow">KITCHEN INVENTORY</p><h1>What’s in your<br><em>kitchen?</em></h1></div></div>
     <form class="add-row" id="pantry-form"><input name="item" required maxlength="120" placeholder="Add an ingredient, e.g. chicken breast"><button class="dark">Add ingredient</button></form>
+    <section class="card pantry-ideas" id="pantry-ideas" hidden></section>
     <div class="pantry-grid" id="pantry-list"><p>Loading your pantry…</p></div>`;
   const { data, error } = await sb
     .from("pantry_items")
@@ -751,6 +806,7 @@ async function renderPantry() {
     return;
   }
   markViewRendered("pantry");
+  renderPantryIdeas(data.length > 0);
 
   list.querySelectorAll("[data-remove-id]").forEach((button) => {
     button.onclick = async () => {

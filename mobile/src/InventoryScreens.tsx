@@ -15,6 +15,7 @@ import {
 import { useStore, domain } from "./store";
 import { supabase, requireOK } from "./client";
 import { Choice } from "./AccountScreens";
+import { PantryIdeas } from "./PantryIdeas";
 import { scheduleMeal, validateMeasuredRecipe } from "./mobile-domain.mjs";
 const zoneLabels: Record<string, [string, string]> = {
   fridge: ["Fridge", "冷藏"],
@@ -32,7 +33,7 @@ const labelFor = (
   key: string,
   t: (en: string, zh: string) => string,
 ) => (labels[key] ? t(...labels[key]) : key || "");
-export function PantryScreen() {
+export function PantryScreen({ go }: { go: (tab: string) => void }) {
   const st = useStore(),
     t = useT();
   const [name, setName] = useState(""),
@@ -82,6 +83,7 @@ export function PantryScreen() {
     <Page>
       <Label>{t("Your kitchen inventory", "你的廚房庫存")}</Label>
       <Heading>{t("Use what you have.", "從現有食材開始。")}</Heading>
+      {!!(st.data.pantry_items || []).length && <PantryIdeas go={go} />}
       <Card>
         <Text style={s.title}>
           {edit

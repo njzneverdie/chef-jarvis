@@ -58,6 +58,13 @@ export function HomeScreen({ go }: { go: (tab: string) => void }) {
         title={t("Plan a meal", "開始規劃餐點")}
         onPress={() => go("Plan")}
       />
+      {!!(st.data.pantry_items || []).length && (
+        <Button
+          quiet
+          title={t("What can I make from my pantry?", "用現有食材做什麼？")}
+          onPress={() => go("Pantry")}
+        />
+      )}
       {!st.profile?.onboarding_completed && (
         <Card>
           <Text style={s.title}>
@@ -180,10 +187,20 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
     ];
     return () => timers.forEach(clearTimeout);
   }, [planning]);
+  // An idea chosen on the Pantry screen generates its full recipe here.
+  useEffect(() => {
+    const idea = st.pendingPantryIdea;
+    if (!idea || st.busy) return;
+    st.setPendingPantryIdea(null);
+    void st.run(() =>
+      generate(domain.buildMealPlanningRequest(choices, st.lang), [], true, idea),
+    );
+  }, [st.pendingPantryIdea, st.busy]);
   async function generate(
     text: string,
     avoid: string[] = [],
     withPicks = true,
+    idea: { title: string; uses: string[] } | null = null,
   ) {
     if (!st.profile?.onboarding_completed)
       throw new Error(
@@ -192,13 +209,19 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
     setClarification(null);
     setPlanning(true);
     try {
-      await requestPlan(text, avoid, withPicks);
+      await requestPlan(text, avoid, withPicks, idea);
     } finally {
       setPlanning(false);
     }
   }
-  async function requestPlan(text: string, avoid: string[], withPicks: boolean) {
+  async function requestPlan(
+    text: string,
+    avoid: string[],
+    withPicks: boolean,
+    idea: { title: string; uses: string[] } | null,
+  ) {
     const result = await st.edge("chef-meal-plan", {
+      ...(idea ? { pantry_idea: idea } : {}),
       ...(withPicks
         ? { preferences: domain.buildMealPlanningPreferences(choices) }
         : {}),
