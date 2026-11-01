@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Pressable, StatusBar, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { Alert, Pressable, StatusBar, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { StoreProvider, useStore } from "./src/store";
 import { Busy, Button, colors, LangContext, s, useT } from "./src/ui";
@@ -33,17 +33,37 @@ function Root() {
 function Shell() {
   const st = useStore(),
     t = useT(),
-    [tab, setTab] = useState("Home");
+    [tab, setTab] = useState("Home"),
+    [history, setHistory] = useState<string[]>([]);
   useCookingAlarms();
+  // Errors pop up wherever the user is scrolled (the header line alone was
+  // easy to miss further down a page).
+  useEffect(() => {
+    if (!st.error) return;
+    Alert.alert(t("Something went wrong", "發生問題"), st.error, [
+      { text: t("OK", "好"), onPress: () => st.setError("") },
+    ]);
+  }, [st.error]);
+  const tabs = ["Home", "Plan", "Pantry", "Shopping", "Cook", "Profile"];
+  const go = (next: string) => {
+    if (next === tab) return;
+    setHistory((stack) => (tabs.includes(next) ? [] : [...stack, tab].slice(-5)));
+    setTab(next);
+  };
+  const back = () => {
+    const previous = history[history.length - 1] || "Home";
+    setHistory((stack) => stack.slice(0, -1));
+    setTab(previous);
+  };
   const views: Record<string, React.ReactNode> = {
-    Home: <HomeScreen go={setTab} />,
-    Plan: <PlanScreen go={setTab} />,
-    Saved: <SavedScreen go={setTab} />,
-    Pantry: <PantryScreen go={setTab} />,
-    Shopping: <ShoppingScreen />,
-    Week: <WeekScreen />,
+    Home: <HomeScreen go={go} />,
+    Plan: <PlanScreen go={go} />,
+    Saved: <SavedScreen go={go} />,
+    Pantry: <PantryScreen go={go} />,
+    Shopping: <ShoppingScreen go={go} />,
+    Week: <WeekScreen go={go} />,
     Nutrition: <NutritionScreen />,
-    Cook: <CookScreen />,
+    Cook: <CookScreen go={go} />,
     Profile: <ProfileScreen key={st.profile?.updated_at || "new"} />,
   };
   return (
@@ -65,18 +85,6 @@ function Shell() {
           onPress={() => st.setLang(st.lang === "en" ? "zh-TW" : "en")}
         />
       </View>
-      {!!st.error && (
-        <View accessibilityRole="alert" style={styles.error}>
-          <Text selectable style={s.error}>
-            {st.error}
-          </Text>
-          <Button
-            quiet
-            title={t("Dismiss", "關閉")}
-            onPress={() => st.setError("")}
-          />
-        </View>
-      )}
       {st.busy && <Busy />}
       {!st.ready ? (
         <Busy />
@@ -87,7 +95,18 @@ function Shell() {
           {!st.profileLoaded ||
           st.profile?.onboarding_completed ||
           st.onboardingSkipped ? (
-            views[tab] || views.Home
+            <>
+              {!tabs.includes(tab) && (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={back}
+                  style={styles.back}
+                >
+                  <Text style={styles.backText}>{t("← Back", "← 返回")}</Text>
+                </Pressable>
+              )}
+              {views[tab] || views.Home}
+            </>
           ) : (
             <Onboarding />
           )}
@@ -95,15 +114,18 @@ function Shell() {
             {[
               ["Home", t("Home", "首頁")],
               ["Plan", t("Plan", "規劃")],
+              ["Pantry", t("Kitchen", "食材")],
               ["Cook", t("Cook", "烹飪")],
-              ["Shopping", t("Shop", "採買")],
               ["Profile", t("You", "我的")],
-            ].map(([key, label]) => (
+            ].map(([key, label]) => {
+              // The 食材 tab covers both the pantry and the shopping lists.
+              const active = key === "Pantry" ? tab === "Pantry" || tab === "Shopping" : tab === key;
+              return (
               <Pressable
                 key={key}
                 accessibilityRole="tab"
-                accessibilityState={{ selected: tab === key }}
-                onPress={() => setTab(key)}
+                accessibilityState={{ selected: active }}
+                onPress={() => go(key)}
                 style={styles.navItem}
               >
                 <View
@@ -111,21 +133,22 @@ function Shell() {
                     styles.dot,
                     {
                       backgroundColor:
-                        tab === key ? colors.green : "transparent",
+                        active ? colors.green : "transparent",
                     },
                   ]}
                 />
                 <Text
                   style={{
-                    color: tab === key ? colors.green : colors.muted,
-                    fontWeight: tab === key ? "700" : "500",
+                    color: active ? colors.green : colors.muted,
+                    fontWeight: active ? "700" : "500",
                     fontSize: 14,
                   }}
                 >
                   {label}
                 </Text>
               </Pressable>
-            ))}
+              );
+            })}
           </View>
         </View>
       )}
@@ -159,6 +182,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   dot: { height: 4, width: 20, borderRadius: 2 },
+  back: { paddingHorizontal: 22, paddingTop: 10, minHeight: 44, justifyContent: "center" },
+  backText: { color: colors.green, fontSize: 16, fontWeight: "600" },
   error: {
     padding: 16,
     gap: 10,

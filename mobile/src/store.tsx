@@ -13,7 +13,7 @@ import * as Notifications from "expo-notifications";
 import { Session } from "@supabase/supabase-js";
 import { supabase, requireOK, handleAuthLink, edge } from "./client";
 import type { Cooking, Recipe, Row } from "./types";
-import { persistableCooking } from "./mobile-domain.mjs";
+import { localizeErrorMessage, persistableCooking } from "./mobile-domain.mjs";
 import "./shared-domain";
 export const domain = (globalThis as any).ChefDomain;
 const tables = [
@@ -37,6 +37,8 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
     [data, setData] = useState<Record<string, Row[]>>({}),
     [cooking, setCooking] = useState<Cooking | null>(null),
     [plannedRecipe, setPlannedRecipe] = useState<Recipe | null>(null),
+    [previousPlans, setPreviousPlans] = useState<Recipe[]>([]),
+    [skippedTitles, setSkippedTitles] = useState<string[]>([]),
     [pendingPantryIdea, setPendingPantryIdea] = useState<{
       title: string;
       uses: string[];
@@ -50,9 +52,11 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
     [profileLoadedFor, setProfileLoadedFor] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const langRef = useRef<"en" | "zh-TW">("en");
   const owner = useRef<string | null>(null),
     epoch = useRef(0),
     cookingLoaded = useRef(false);
+  langRef.current = lang;
   const renderedOwner = session?.user.id || null,
     renderedEpoch = epoch.current;
   const cloudQueue = useRef(Promise.resolve());
@@ -104,10 +108,19 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
     AsyncStorage.multiGet([
       `chef-skill:${renderedOwner}`,
       `chef-onboarding-skipped:${renderedOwner}`,
-    ]).then(([[, skill], [, skipped]]) => {
+      `chef-planned:${renderedOwner}`,
+    ]).then(([[, skill], [, skipped], [, planned]]) => {
       if (!alive) return;
       setLocalSkill(skill);
       setOnboardingSkipped(skipped === "1");
+      try {
+        const saved = planned ? JSON.parse(planned) : null;
+        // Session-only sourced recipes are never written; this is a guard.
+        if (saved?.current && saved.current.source_persistence !== "session_only") {
+          setPlannedRecipe((current) => current || saved.current);
+          setPreviousPlans(Array.isArray(saved.previous) ? saved.previous.slice(0, 3) : []);
+        }
+      } catch {}
     });
     return () => {
       alive = false;
@@ -132,6 +145,8 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
         setData({});
         setCooking(null);
         setPlannedRecipe(null);
+        setPreviousPlans([]);
+        setSkippedTitles([]);
         setPlanningChoices({ ...domain.defaultMealPlanningChoices });
         setError("");
         setBusy(false);
@@ -139,7 +154,8 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
         await Notifications.cancelAllScheduledNotificationsAsync().catch(
           () => {},
         );
-        if (previous) await AsyncStorage.removeItem(`chef-cooking:${previous}`);
+        if (previous)
+          await AsyncStorage.multiRemove([`chef-cooking:${previous}`, `chef-planned:${previous}`]);
         if (!alive || owner.current !== id || epoch.current !== transition)
           return;
         const e = transition;
@@ -319,7 +335,7 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
       return await action();
     } catch (err: any) {
       if (owner.current === id && epoch.current === e)
-        setError(err.message || String(err));
+        setError(String(localizeErrorMessage(err?.message || String(err), langRef.current)));
       return undefined;
     } finally {
       if (owner.current === id && epoch.current === e) setBusy(false);
@@ -365,7 +381,9 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
   async function saveRecipe(recipe: Recipe) {
     if (recipe.source_persistence === "session_only")
       throw new Error(
-        "This sourced recipe is session only. 此來源食譜僅限本次使用。",
+        langRef.current === "zh-TW"
+          ? "此來源食譜僅限本次使用。"
+          : "This sourced recipe is session only.",
       );
     if (recipe.saved_recipe_id) return recipe;
     const rows = await mutate("recipes", {
@@ -407,10 +425,42 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
           guard(renderedOwner, renderedEpoch);
           setPendingPantryIdea(value);
         },
-        setPlannedRecipe: (value: any) => {
+        // fresh = a newly generated dish (kept in a 3-deep "previous" list);
+        // otherwise an edit of the current one (swap, save, USDA check).
+        setPlannedRecipe: (value: any, fresh = false) => {
           guard(renderedOwner, renderedEpoch);
+          const previous =
+            fresh && plannedRecipe && value && plannedRecipe.title !== value.title
+              ? [plannedRecipe, ...previousPlans].slice(0, 3)
+              : previousPlans;
           setPlannedRecipe(value);
+          setPreviousPlans(previous);
+          if (renderedOwner) {
+            const persistable = (recipe: any) =>
+              recipe && recipe.source_persistence !== "session_only";
+            void AsyncStorage.setItem(
+              `chef-planned:${renderedOwner}`,
+              JSON.stringify({
+                current: persistable(value) ? value : null,
+                previous: previous.filter(persistable),
+              }),
+            );
+          }
         },
+        previousPlans,
+        restorePreviousPlan: () => {
+          if (!previousPlans.length) return;
+          const [last, ...rest] = previousPlans;
+          setPlannedRecipe(last);
+          setPreviousPlans(rest);
+          if (renderedOwner)
+            void AsyncStorage.setItem(
+              `chef-planned:${renderedOwner}`,
+              JSON.stringify({ current: last, previous: rest }),
+            );
+        },
+        skippedTitles,
+        setSkippedTitles,
         setPlanningChoices: (value: any) => {
           guard(renderedOwner, renderedEpoch);
           setPlanningChoices(value);
@@ -443,6 +493,11 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
         cookingSkill: profile?.cooking_skill || localSkill,
         profileLoaded: Boolean(renderedOwner) && profileLoadedFor === renderedOwner,
         onboardingSkipped,
+        resumeOnboarding: () => {
+          setOnboardingSkipped(false);
+          if (renderedOwner)
+            void AsyncStorage.removeItem(`chef-onboarding-skipped:${renderedOwner}`);
+        },
         skipOnboarding: () => {
           setOnboardingSkipped(true);
           if (renderedOwner)

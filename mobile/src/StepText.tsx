@@ -25,7 +25,12 @@ export function StepText({
             accessibilityRole="button"
             accessibilityHint={segment.help}
             onPress={() => Alert.alert(segment.text, segment.help)}
-            style={{ textDecorationLine: "underline", textDecorationStyle: "dotted", color: "#254C39" }}
+            style={{
+              textDecorationLine: "underline",
+              textDecorationStyle: "dotted",
+              color: "#254C39",
+              backgroundColor: "#E7ECDF",
+            }}
           >
             {segment.text}
           </Text>

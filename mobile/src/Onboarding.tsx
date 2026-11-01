@@ -6,6 +6,7 @@ import {
   Choice,
   MultiChoice,
   allergyOptions,
+  dietOptions,
   equipmentOptions,
   skillOptions,
 } from "./AccountScreens";
@@ -17,6 +18,7 @@ export function Onboarding() {
     t = useT();
   const [step, setStep] = useState(0),
     [allergies, setAllergies] = useState(""),
+    [diet, setDiet] = useState(""),
     [equipment, setEquipment] = useState(""),
     [skill, setSkill] = useState("beginner");
   const parts = (value: string) => [
@@ -26,13 +28,14 @@ export function Onboarding() {
     await st.saveProfile({
       app_user_id: st.userId,
       allergies: parts(allergies),
+      dietary_preferences: parts(diet),
       equipment: parts(equipment),
       cooking_skill: skill,
       onboarding_completed: true,
     });
   }
   const titles = [
-    t("Any food allergies?", "有沒有食物過敏？"),
+    t("Allergies or diet?", "有過敏或飲食限制嗎？"),
     t("What can you cook with?", "家裡有哪些器材？"),
     t("How much do you cook?", "你的料理經驗？"),
   ];
@@ -56,6 +59,12 @@ export function Onboarding() {
               value={allergies}
               onChange={setAllergies}
               options={allergyOptions(t)}
+            />
+            <MultiChoice
+              label={t("Dietary needs", "飲食需求")}
+              value={diet}
+              onChange={setDiet}
+              options={dietOptions(t)}
             />
           </>
         )}

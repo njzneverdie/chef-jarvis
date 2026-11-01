@@ -116,3 +116,43 @@ export function validateMealCompletion(servings, rating) {
     throw new Error("Choose a rating from 1 to 5, or skip it.");
   return { amount, rating: rating === "" ? null : Number(rating) };
 }
+
+// Backend, auth and network errors arrive in English; show them in the
+// interface language. Unknown English errors in Chinese mode get a generic
+// Chinese message instead of mixed text.
+const errorTranslations = [
+  [/invalid login credentials/i, "Email or password is incorrect.", "電子郵件或密碼不正確。"],
+  [/email not confirmed/i, "Confirm your email first, then sign in.", "請先到信箱確認帳號，再登入。"],
+  [/user already registered|already been registered/i, "This email is already registered. Sign in instead.", "這個電子郵件已註冊，請直接登入。"],
+  [/password should be at least|weak password/i, "Use a longer, stronger password.", "密碼太短或太簡單，請換一個。"],
+  [/rate limit|too many requests|429/i, "Too many attempts. Wait a minute and try again.", "嘗試太多次，請等一分鐘再試。"],
+  [/jwt expired|session.*(expired|missing)|refresh token|please sign in again/i, "Your sign-in expired. Please sign in again.", "登入已過期，請重新登入。"],
+  [/network request failed|failed to fetch|network|timed? ?out|abort/i, "Network problem. Check your connection and try again.", "網路連線有問題，請確認連線後再試。"],
+  [/permission denied|row-level security|not authorized|forbidden/i, "This action is not allowed for your account.", "你的帳號沒有權限執行這個動作。"],
+];
+
+export function localizeErrorMessage(message, language) {
+  const text = String(message || "").trim();
+  const zh = language === "zh-TW";
+  const match = errorTranslations.find(([pattern]) => pattern.test(text));
+  if (match) return zh ? match[2] : match[1];
+  if (!text) return zh ? "發生問題，請再試一次。" : "Something went wrong. Please try again.";
+  const hasCjk = /[㐀-鿿]/.test(text);
+  if (zh && !hasCjk) return "發生問題，請再試一次。";
+  if (!zh && hasCjk) return "Something went wrong. Please try again.";
+  return text;
+}
+
+// Where bought items go in the pantry, with a conservative default expiry.
+export function pantryDefaultsForCategory(category, today = new Date()) {
+  const days = { protein: 2, dairy: 7, produce: 5 }[category];
+  const zone = ["protein", "dairy", "produce"].includes(category) ? "fridge" : "pantry";
+  return { storage_zone: zone, expires_on: days ? expiryAfterDays(days, today) : null };
+}
+
+export function expiryAfterDays(days, today = new Date()) {
+  const date = new Date(today);
+  date.setDate(date.getDate() + days);
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}

@@ -38,7 +38,7 @@ export function HomeScreen({ go }: { go: (tab: string) => void }) {
       0,
     );
   return (
-    <Page>
+    <Page onRefresh={() => void st.run(st.refresh)} refreshing={false}>
       <Label>
         {new Date().toLocaleDateString(st.lang, {
           weekday: "long",
@@ -73,23 +73,17 @@ export function HomeScreen({ go }: { go: (tab: string) => void }) {
           </Text>
           <Copy>
             {t(
-              "Set your goals, allergies and kitchen equipment before generating a meal.",
-              "先填寫目標、過敏原與廚房器材，再開始產生食譜。",
+              "Three quick taps: allergies, equipment and cooking skill.",
+              "點三下就好：過敏原、廚房器材與料理經驗。",
             )}
           </Copy>
           <Button
             quiet
-            title={t("Set up profile", "設定飲食資料")}
-            onPress={() => go("Profile")}
+            title={t("Start quick setup", "開始快速設定")}
+            onPress={() => st.resumeOnboarding()}
           />
         </Card>
       )}
-      <Button
-        quiet
-        disabled={st.busy}
-        title={t("Refresh cloud data", "更新雲端資料")}
-        onPress={() => st.run(st.refresh)}
-      />
       <Label>{t("Today, so far", "今天的營養記錄")}</Label>
       <Card>
         <View style={s.row}>
@@ -144,7 +138,7 @@ export function HomeScreen({ go }: { go: (tab: string) => void }) {
       <View style={s.row}>
         <Button
           quiet
-          title={t("Pantry", "食材庫")}
+          title={t("Pantry", "庫存")}
           onPress={() => go("Pantry")}
         />
         <Button
@@ -175,7 +169,7 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
   const setRecipe = st.setPlannedRecipe;
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({}),
     [clarification, setClarification] = useState<any>(null),
-    [skipped, setSkipped] = useState<string[]>([]),
+    [clearedChoices, setClearedChoices] = useState<any>(null),
     [planning, setPlanning] = useState(false),
     [planningStage, setPlanningStage] = useState(0);
   // Same staged wait copy as the web planner (8 s and 22 s).
@@ -203,10 +197,11 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
     withPicks = true,
     idea: { title: string; uses: string[] } | null = null,
   ) {
-    if (!st.profile?.onboarding_completed)
-      throw new Error(
-        t("Complete your food profile first.", "請先完成飲食設定。"),
-      );
+    if (!st.profile?.onboarding_completed) {
+      // Send the user to the three-tap setup rather than a dead-end error.
+      st.resumeOnboarding();
+      return;
+    }
     setClarification(null);
     setPlanning(true);
     try {
@@ -240,7 +235,7 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
     }
     if (!result.plan)
       throw new Error(t("No valid recipe returned.", "未取得有效食譜。"));
-    setRecipe(result.plan);
+    setRecipe(result.plan, true);
   }
   return (
     <Page>
@@ -295,16 +290,24 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
           title={t("Try another (same choices)", "換一道（保留目前條件）")}
           onPress={() =>
             st.run(async () => {
-              const avoid = [recipe.title, ...skipped]
+              const avoid = [recipe.title, ...st.skippedTitles]
                 .filter((title, i, all) => title && all.indexOf(title) === i)
                 .slice(0, 5);
               await generate(
                 domain.buildMealPlanningRequest(choices, st.lang),
                 avoid,
               );
-              setSkipped(avoid);
+              st.setSkippedTitles(avoid);
             })
           }
+        />
+      )}
+      {!!st.previousPlans?.length && (
+        <Button
+          quiet
+          disabled={st.busy}
+          title={t(`Back to: ${st.previousPlans[0].title}`, `回上一道：${st.previousPlans[0].title}`)}
+          onPress={() => st.restorePreviousPlan()}
         />
       )}
       {/* The result sits right under the buttons; the options follow it. */}
@@ -326,6 +329,7 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
             setChoices={setChoices}
             disabled={st.busy}
             zh={st.lang === "zh-TW"}
+            onChoose={() => setClearedChoices(null)}
           />
         ))}
       <Text style={s.fieldLabel}>
@@ -358,21 +362,34 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
                       setChoices={setChoices}
                       disabled={st.busy}
                       zh={st.lang === "zh-TW"}
+                      onChoose={() => setClearedChoices(null)}
                     />
                   ))}
             </View>
           );
         })}
-      <Button
-        quiet
-        disabled={st.busy}
-        title={t("Clear choices", "清除選擇")}
-        onPress={() =>
-          setChoices({
-            ...JSON.parse(JSON.stringify(domain.defaultMealPlanningChoices)),
-          })
-        }
-      />
+      {clearedChoices ? (
+        <Button
+          quiet
+          title={t("Choices cleared · Undo", "已清除・復原")}
+          onPress={() => {
+            setChoices(clearedChoices);
+            setClearedChoices(null);
+          }}
+        />
+      ) : (
+        <Button
+          quiet
+          disabled={st.busy}
+          title={t("Clear choices", "清除選擇")}
+          onPress={() => {
+            setClearedChoices(choices);
+            setChoices({
+              ...JSON.parse(JSON.stringify(domain.defaultMealPlanningChoices)),
+            });
+          }}
+        />
+      )}
       <Copy>
         {t(
           "Saved allergies, dietary restrictions and equipment always apply and win over any pick. Nutrition is an estimate; check ingredient labels.",
@@ -416,12 +433,14 @@ function ChoiceGroup({
   setChoices,
   disabled,
   zh,
+  onChoose,
 }: {
   group: any;
   choices: Record<string, string | string[]>;
   setChoices: (update: (previous: any) => any) => void;
   disabled: boolean;
   zh: boolean;
+  onChoose?: () => void;
 }) {
   const current = choices[group.key];
   const isSelected = (value: string) =>
@@ -450,6 +469,7 @@ function ChoiceGroup({
               disabled={disabled}
               onPress={() =>
                 setChoices((previous: Record<string, string | string[]>) => {
+                  onChoose?.();
                   if (!group.multi) return { ...previous, [group.key]: value };
                   const list = Array.isArray(previous[group.key])
                     ? (previous[group.key] as string[])
@@ -487,7 +507,8 @@ export function RecipeCard({
 }) {
   const st = useStore(),
     t = useT(),
-    [usda, setUsda] = useState<any>(null);
+    [usda, setUsda] = useState<any>(null),
+    [showMore, setShowMore] = useState(false);
   const safe = validateMeasuredRecipe(r),
     ephemeral = r.source_persistence === "session_only";
   async function grocery() {
@@ -628,8 +649,8 @@ export function RecipeCard({
         {r.fallback && (
           <Copy>
             {t(
-              "AI generation was unavailable. This is a measured backup recipe; review its ingredients before cooking.",
-              "AI 暫時未能完成生成，這是份量完整的備援食譜，請先確認食材。",
+              "Smart generation was unavailable. This is a measured backup recipe; review its ingredients before cooking.",
+              "智慧規劃暫時無法完成，這是份量完整的備用食譜，請先確認食材。",
             )}
           </Copy>
         )}
@@ -640,10 +661,14 @@ export function RecipeCard({
         <Copy>{domain.recipeBadgeText(r, st.lang)}</Copy>
         {n ? (
           <>
-            <Text style={s.number}>{number(n.kcal)} kcal</Text>
+            <Text style={s.number}>
+              {number(n.kcal)} {t("kcal", "大卡")}
+            </Text>
             <Copy>
-              {t("Per serving", "每份")} · P {number(n.protein_g)}g · C{" "}
-              {number(n.carbs_g)}g · F {number(n.fat_g)}g
+              {t(
+                `Per serving · protein ${number(n.protein_g)} g · carbs ${number(n.carbs_g)} g · fat ${number(n.fat_g)} g`,
+                `每份・蛋白質 ${number(n.protein_g)} 克・碳水 ${number(n.carbs_g)} 克・脂肪 ${number(n.fat_g)} 克`,
+              )}
             </Copy>
           </>
         ) : (
@@ -657,10 +682,10 @@ export function RecipeCard({
         <Copy>
           {reference
             ? t(
-                "USDA ingredient reference. Only complete ingredient and nutrient coverage is used for meal logs; otherwise the AI estimate is retained.",
-                "USDA 食材參考值。僅完整配對的食材與營養資料用於餐點記錄；不完整時保留 AI 估算。",
+                "USDA ingredient reference. Only complete ingredient and nutrient coverage is used for meal logs; otherwise the estimate is retained.",
+                "美國農業部營養資料庫參考值。只有完整配對的食材與營養資料會用於餐點記錄；不完整時保留估算值。",
               )
-            : t("AI nutrition estimate", "AI 營養估算")}
+            : t("Estimated nutrition", "營養估算值")}
         </Copy>
         {safeURL(r.source_url) && (
           <Button
@@ -700,6 +725,23 @@ export function RecipeCard({
           </View>
         ))}
       </Card>
+      <Card>
+        <Text style={s.title}>{t("How to make it", "作法")}</Text>
+        {(r.steps || []).map((step: any, i) => (
+          <View key={i} style={{ gap: 6 }}>
+            <Label>
+              {t("Step", "步驟")} {i + 1}
+            </Label>
+            {typeof step === "string" ? (
+              <Copy>{step}</Copy>
+            ) : (
+              <Copy>
+                <StepText text={step.instruction} ingredients={r.ingredients} lang={st.lang} />
+              </Copy>
+            )}
+          </View>
+        ))}
+      </Card>
       {!safe && (
         <Copy>
           {t(
@@ -735,8 +777,14 @@ export function RecipeCard({
           />
           <Button
             quiet
+            title={showMore ? t("Fewer actions", "收起") : t("More", "更多")}
+            onPress={() => setShowMore((value) => !value)}
+          />
+          {showMore && (
+          <Button
+            quiet
             disabled={!safe || st.busy}
-            title={t("Check USDA nutrition", "查詢 USDA 營養")}
+            title={t("Check nutrition in the USDA database", "查詢美國農業部營養資料")}
             onPress={() =>
               st.run(async () => {
                 const result = await st.edge("chef-usda-nutrition", {
@@ -745,7 +793,7 @@ export function RecipeCard({
                 const foods = (result.foods || []).filter((f: any) => f.found);
                 if (!foods.length)
                   throw new Error(
-                    t("No USDA matches found.", "找不到 USDA 配對資料。"),
+                    t("No USDA matches found.", "營養資料庫找不到對應的食材。"),
                   );
                 const total = domain.calculateUsdaMealNutrition(
                   r.ingredients,
@@ -755,7 +803,7 @@ export function RecipeCard({
                   throw new Error(
                     t(
                       "USDA matches have no convertible ingredient weights. Your estimate is unchanged.",
-                      "USDA 配對缺少可換算克重，原營養估算未變更。",
+                      "營養資料庫的配對缺少可換算的重量，原本的營養估算不變。",
                     ),
                   );
                 setUsda(total);
@@ -763,6 +811,7 @@ export function RecipeCard({
               })
             }
           />
+          )}
         </View>
       )}
       {!!r.substitutions?.length && onChange && (
@@ -785,23 +834,6 @@ export function RecipeCard({
           ))}
         </Card>
       )}
-      <Card>
-        <Text style={s.title}>{t("Before you begin", "先看一下作法")}</Text>
-        {(r.steps || []).map((step: any, i) => (
-          <View key={i} style={{ gap: 6 }}>
-            <Label>
-              {t("Step", "步驟")} {i + 1}
-            </Label>
-            {typeof step === "string" ? (
-              <Copy>{step}</Copy>
-            ) : (
-              <Copy>
-                <StepText text={step.instruction} ingredients={r.ingredients} lang={st.lang} />
-              </Copy>
-            )}
-          </View>
-        ))}
-      </Card>
       {!!r.equipment_adaptations?.length && (
         <Card>
           <Text style={s.title}>

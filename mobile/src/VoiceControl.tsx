@@ -78,7 +78,7 @@ export function VoiceControl({
       <Copy>
         {t(
           "Say “next”, “previous”, “read aloud”, or “start timer”. Speech may be processed by Apple; enable only when you choose to use it.",
-          "可說「下一步」、「上一步」、「朗讀」或「開始計時」。語音可能由 Apple 處理；僅在你選擇使用時啟用。",
+          "可說「下一步」、「上一步」、「朗讀」或「開始計時」。語音可能交由系統語音服務處理；僅在你選擇使用時啟用。",
         )}
       </Copy>
       {!!heard && <Copy>{heard}</Copy>}

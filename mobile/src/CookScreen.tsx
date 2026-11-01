@@ -103,7 +103,7 @@ export function useCookingAlarms() {
     };
   }, [st.cooking]);
 }
-export function CookScreen() {
+export function CookScreen({ go }: { go: (tab: string) => void }) {
   const st = useStore(),
     t = useT(),
     c = st.cooking;
@@ -156,6 +156,8 @@ export function CookScreen() {
             "從規劃或收藏選擇份量完整的食譜，開始引導烹飪。",
           )}
         />
+        <Button title={t("Plan a meal", "去規劃一餐")} onPress={() => go("Plan")} />
+        <Button quiet title={t("Saved recipes", "看收藏食譜")} onPress={() => go("Saved")} />
       </Page>
     );
   const step = c.recipe.steps[c.step];
@@ -261,13 +263,17 @@ export function CookScreen() {
       setShowFinish(false);
       return;
     }
+    // A finished dish is kept in the collection so "Dishes I can make" can
+    // reopen it later.
+    const recipeId =
+      c.recipe.saved_recipe_id || (await st.saveRecipe(c.recipe)).saved_recipe_id;
     const multiplier = amount / Math.max(1, c.recipe.servings);
     const n = recipeNutrition(c.recipe);
     if (!n)
       throw new Error(
         t(
           "Nutrition changed after a swap. Recheck USDA before logging, or end without logging.",
-          "替換食材後需先查詢 USDA 再記錄營養，或選擇不記錄並結束。",
+          "替換食材後需先查詢營養資料再記錄營養，或選擇不記錄並結束。",
         ),
       );
     await st.mutate(
@@ -276,7 +282,7 @@ export function CookScreen() {
         id: c.logId,
         user_id: st.userId,
         app_user_id: st.userId,
-        recipe_id: c.recipe.saved_recipe_id || null,
+        recipe_id: recipeId || null,
         recipe_title: c.recipe.title,
         eaten_on: domain.localDateKey(new Date()),
         calories: Number(n.kcal || 0) * multiplier,
@@ -299,7 +305,7 @@ export function CookScreen() {
       const feedback = {
         id: c.feedbackId,
         user_id: st.userId,
-        recipe_id: c.recipe.saved_recipe_id || null,
+        recipe_id: recipeId || null,
         recipe_title: c.recipe.title,
         rating: selectedRating,
         note,
@@ -354,7 +360,11 @@ export function CookScreen() {
       <Heading>
         <StepText text={step.instruction} ingredients={c.recipe.ingredients} lang={st.lang} />
       </Heading>
-      <Copy>{t("Tap underlined words for help.", "點有底線的字可看說明。")}</Copy>
+      {domain
+        .stepSegments(step.instruction, c.recipe.ingredients || [], st.lang)
+        .some((segment: any) => segment.kind !== "text") && (
+        <Copy>{t("Tap underlined words for help.", "點有底線的字可看說明。")}</Copy>
+      )}
       <Button
         quiet
         title={t("Read this step aloud", "朗讀這個步驟")}
@@ -503,7 +513,7 @@ export function CookScreen() {
         <Copy>
           {t(
             "Timers start only when you choose them. They continue by clock time while the app is in the background.",
-            "計時器由你手動啟動。App 在背景時仍依實際時間計算。",
+            "計時器由你手動啟動。應用程式在背景時仍依實際時間計算。",
           )}
         </Copy>
       )}

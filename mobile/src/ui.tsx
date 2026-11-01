@@ -7,8 +7,8 @@ import {
   TextInput,
   View,
   ScrollView,
-  KeyboardAvoidingView,
   Platform,
+  RefreshControl,
 } from "react-native";
 export const colors = {
   bg: "#F7F4EE",
@@ -42,29 +42,34 @@ export function Button({
   onPress,
   quiet = false,
   disabled = false,
+  danger = false,
+  selected,
   testID,
 }: {
   title: string;
   onPress: () => void;
   quiet?: boolean;
   disabled?: boolean;
+  danger?: boolean;
+  selected?: boolean;
   testID?: string;
 }) {
   return (
     <Pressable
       testID={testID}
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, ...(selected === undefined ? {} : { selected }) }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         s.button,
         quiet && s.quiet,
+        danger && { backgroundColor: colors.clay },
         disabled && { opacity: 0.45 },
         pressed && { opacity: 0.7 },
       ]}
     >
-      <Text style={[s.buttonText, quiet && { color: colors.green }]}>
+      <Text style={[s.buttonText, quiet && !danger && { color: colors.green }]}>
         {title}
       </Text>
     </Pressable>
@@ -77,6 +82,7 @@ export function Field({
   secure = false,
   numeric = false,
   multiline = false,
+  type,
 }: {
   label: string;
   value: string;
@@ -84,6 +90,7 @@ export function Field({
   secure?: boolean;
   numeric?: boolean;
   multiline?: boolean;
+  type?: "email" | "password" | "newPassword";
 }) {
   return (
     <View style={{ gap: 7, marginVertical: 7 }}>
@@ -92,8 +99,28 @@ export function Field({
         accessibilityLabel={label}
         value={value}
         onChangeText={onChange}
-        secureTextEntry={secure}
-        keyboardType={numeric ? "decimal-pad" : "default"}
+        secureTextEntry={secure || type === "password" || type === "newPassword"}
+        keyboardType={
+          numeric ? "decimal-pad" : type === "email" ? "email-address" : "default"
+        }
+        textContentType={
+          type === "email"
+            ? "emailAddress"
+            : type === "password"
+              ? "password"
+              : type === "newPassword"
+                ? "newPassword"
+                : undefined
+        }
+        autoComplete={
+          type === "email"
+            ? "email"
+            : type === "password"
+              ? "current-password"
+              : type === "newPassword"
+                ? "new-password"
+                : undefined
+        }
         autoCapitalize="none"
         autoCorrect={false}
         multiline={multiline}
@@ -105,19 +132,28 @@ export function Field({
     </View>
   );
 }
-export function Page({ children }: React.PropsWithChildren) {
+// The scroll view insets itself for the keyboard (iOS), so inputs near the
+// bottom stay visible regardless of the header and tab bar above/below it.
+export function Page({
+  children,
+  onRefresh,
+  refreshing = false,
+}: React.PropsWithChildren<{ onRefresh?: () => void; refreshing?: boolean }>) {
   return (
-    <KeyboardAvoidingView
+    <ScrollView
       style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
+      keyboardDismissMode="interactive"
+      contentContainerStyle={s.page}
+      refreshControl={
+        onRefresh ? (
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        ) : undefined
+      }
     >
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={s.page}
-      >
-        {children}
-      </ScrollView>
-    </KeyboardAvoidingView>
+      {children}
+    </ScrollView>
   );
 }
 export function Busy() {

@@ -146,3 +146,20 @@ test("a skipped rating still permits valid nutrition logging", () => {
   assert.deepEqual(validateMealCompletion("0.25", "4"), { amount: 0.25, rating: 4 });
   for (const [servings, rating] of [["0", ""], ["13", "5"], ["NaN", ""], ["1", "6"]]) assert.throws(() => validateMealCompletion(servings, rating));
 });
+test("errors are shown in the interface language", async () => {
+  const { localizeErrorMessage } = await import("../src/mobile-domain.mjs");
+  assert.equal(localizeErrorMessage("Invalid login credentials", "zh-TW"), "電子郵件或密碼不正確。");
+  assert.equal(localizeErrorMessage("Invalid login credentials", "en"), "Email or password is incorrect.");
+  assert.equal(localizeErrorMessage("TypeError: Network request failed", "zh-TW"), "網路連線有問題，請確認連線後再試。");
+  assert.equal(localizeErrorMessage("duplicate key value violates unique constraint", "zh-TW"), "發生問題，請再試一次。");
+  assert.equal(localizeErrorMessage("請先完成飲食設定。", "zh-TW"), "請先完成飲食設定。");
+  assert.equal(localizeErrorMessage("Complete your food profile first.", "en"), "Complete your food profile first.");
+});
+test("bought items get a sensible storage zone and default expiry", async () => {
+  const { pantryDefaultsForCategory, expiryAfterDays } = await import("../src/mobile-domain.mjs");
+  const today = new Date(2026, 10, 1, 12);
+  assert.deepEqual(pantryDefaultsForCategory("protein", today), { storage_zone: "fridge", expires_on: "2026-11-03" });
+  assert.deepEqual(pantryDefaultsForCategory("produce", today), { storage_zone: "fridge", expires_on: "2026-11-06" });
+  assert.deepEqual(pantryDefaultsForCategory("grain", today), { storage_zone: "pantry", expires_on: null });
+  assert.equal(expiryAfterDays(30, today), "2026-12-01");
+});

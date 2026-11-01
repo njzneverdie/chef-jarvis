@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { Alert, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 import {
   Button,
   Card,
@@ -16,7 +16,12 @@ import { useStore, domain } from "./store";
 import { supabase, requireOK } from "./client";
 import { Choice } from "./AccountScreens";
 import { PantryIdeas } from "./PantryIdeas";
-import { scheduleMeal, validateMeasuredRecipe } from "./mobile-domain.mjs";
+import {
+  expiryAfterDays,
+  pantryDefaultsForCategory,
+  scheduleMeal,
+  validateMeasuredRecipe,
+} from "./mobile-domain.mjs";
 const zoneLabels: Record<string, [string, string]> = {
   fridge: ["Fridge", "冷藏"],
   freezer: ["Freezer", "冷凍"],
@@ -28,6 +33,29 @@ const mealLabels: Record<string, [string, string]> = {
   dinner: ["Dinner", "晚餐"],
   snack: ["Snack", "點心"],
 };
+const pantryUnits = ["g", "kg", "ml", "L", "piece", "pack", "can", "slice", "clove"];
+const expiryPresets: [string, number][] = [["3", 3], ["7", 7], ["14", 14], ["30", 30]];
+
+// Pantry and shopping lists live under one 食材 tab.
+function KitchenSwitch({ current, go }: { current: "Pantry" | "Shopping"; go: (tab: string) => void }) {
+  const t = useT();
+  return (
+    <View style={s.row}>
+      <Button
+        quiet={current !== "Pantry"}
+        selected={current === "Pantry"}
+        title={t("Pantry", "庫存")}
+        onPress={() => go("Pantry")}
+      />
+      <Button
+        quiet={current !== "Shopping"}
+        selected={current === "Shopping"}
+        title={t("Shopping lists", "購物清單")}
+        onPress={() => go("Shopping")}
+      />
+    </View>
+  );
+}
 const labelFor = (
   labels: Record<string, [string, string]>,
   key: string,
@@ -42,6 +70,7 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
     [zone, setZone] = useState("fridge"),
     [expires, setExpires] = useState(""),
     [edit, setEdit] = useState<string | undefined>(),
+    [expiryChoice, setExpiryChoice] = useState(""),
     [batch, setBatch] = useState<
       { name: string; quantity: number; unit: string }[] | null
     >(null);
@@ -52,13 +81,14 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
         !Number.isFinite(Date.parse(expires)))
     )
       throw new Error(
-        t("Use YYYY-MM-DD for expiry.", "效期請使用 YYYY-MM-DD。"),
+        t("Use YYYY-MM-DD for expiry.", "日期請用「年-月-日」格式，例如 2026-11-05。"),
       );
   }
   function resetForm() {
     setName("");
     setQuantity("");
     setExpires("");
+    setExpiryChoice("");
     setEdit(undefined);
     setBatch(null);
   }
@@ -135,6 +165,7 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
     <Page>
       <Label>{t("Your kitchen inventory", "你的廚房庫存")}</Label>
       <Heading>{t("Use what you have.", "從現有食材開始。")}</Heading>
+      <KitchenSwitch current="Pantry" go={go} />
       {!!(st.data.pantry_items || []).length && <PantryIdeas go={go} />}
       <Card>
         <Text style={s.title}>
@@ -157,19 +188,21 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
             setBatch(null);
           }}
         />
-        <View style={s.row}>
-          <View style={{ flex: 1 }}>
-            <Field
-              label={t("Quantity", "份量")}
-              value={quantity}
-              onChange={setQuantity}
-              numeric
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Field label={t("Unit", "單位")} value={unit} onChange={setUnit} />
-          </View>
-        </View>
+        <Field
+          label={t("Quantity", "份量")}
+          value={quantity}
+          onChange={setQuantity}
+          numeric
+        />
+        <Choice
+          label={t("Unit", "單位")}
+          value={unit}
+          options={[
+            ...pantryUnits,
+            ...(unit && !pantryUnits.includes(unit) ? [unit] : []),
+          ].map((value) => [value, domain.unitLabel(value, st.lang, 2)])}
+          onChange={setUnit}
+        />
         <Choice
           label={t("Storage", "存放區域")}
           value={zone}
@@ -180,11 +213,33 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
           ]}
           onChange={setZone}
         />
-        <Field
-          label={t("Expiry (optional, YYYY-MM-DD)", "效期（選填，YYYY-MM-DD）")}
-          value={expires}
-          onChange={setExpires}
+        <Choice
+          label={t("Use by (optional)", "效期（選填）")}
+          value={expiryChoice}
+          options={[
+            ["", t("None", "不設定")],
+            ["3", t("3 days", "3 天")],
+            ["7", t("1 week", "1 週")],
+            ["14", t("2 weeks", "2 週")],
+            ["30", t("1 month", "1 個月")],
+            ["custom", t("Other date", "其他日期")],
+          ]}
+          onChange={(value) => {
+            setExpiryChoice(value);
+            const preset = expiryPresets.find(([key]) => key === value);
+            if (preset) setExpires(expiryAfterDays(preset[1]));
+            else if (!value) setExpires("");
+          }}
         />
+        {expiryChoice === "custom" ? (
+          <Field
+            label={t("Date (YYYY-MM-DD)", "日期（年-月-日，例如 2026-11-05）")}
+            value={expires}
+            onChange={setExpires}
+          />
+        ) : (
+          !!expires && <Copy>{t("Use by ", "到期日：")}{expires}</Copy>
+        )}
         {batch ? (
           <View style={{ gap: 9 }}>
             <Text style={s.fieldLabel}>
@@ -233,7 +288,7 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
         <Empty
           text={t(
             "Your pantry is empty. Add the ingredients you have at home.",
-            "食材庫尚無資料，先加入家中現有的食材。",
+            "庫存還沒有食材，先加入家中現有的食材。",
           )}
         />
       )}
@@ -255,6 +310,7 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
                 setUnit(item.unit || "g");
                 setZone(item.storage_zone || "fridge");
                 setExpires(item.expires_on || "");
+                setExpiryChoice(item.expires_on ? "custom" : "");
               }}
             />
             <Button
@@ -280,10 +336,11 @@ export function PantryScreen({ go }: { go: (tab: string) => void }) {
     </Page>
   );
 }
-export function ShoppingScreen() {
+export function ShoppingScreen({ go }: { go: (tab: string) => void }) {
   const st = useStore(),
     t = useT();
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<any[]>([]),
+    [openLists, setOpenLists] = useState<Record<string, boolean>>({});
   async function load() {
     const ids = (st.data.shopping_lists || []).map((l: any) => l.id);
     const result = ids.length
@@ -301,22 +358,34 @@ export function ShoppingScreen() {
   useEffect(() => {
     void st.run(load);
   }, [st.data.shopping_lists]);
+  // Tick immediately and save in the background; revert if the save fails.
   async function toggle(item: any) {
-    await st.scoped(async () =>
-      requireOK(
-        await supabase
-          .from("shopping_list_items")
-          .update({ is_checked: !item.is_checked })
-          .eq("id", item.id)
-          .eq("shopping_list_id", item.shopping_list_id),
-      ),
-    );
-    await load();
+    const next = !item.is_checked;
+    const apply = (value: boolean) =>
+      setItems((current) =>
+        current.map((row) => (row.id === item.id ? { ...row, is_checked: value } : row)),
+      );
+    apply(next);
+    try {
+      await st.scoped(async () =>
+        requireOK(
+          await supabase
+            .from("shopping_list_items")
+            .update({ is_checked: next })
+            .eq("id", item.id)
+            .eq("shopping_list_id", item.shopping_list_id),
+        ),
+      );
+    } catch (error: any) {
+      apply(!next);
+      st.setError(t("Could not save that tick. Try again.", "勾選沒有儲存成功，請再試一次。"));
+    }
   }
   return (
     <Page>
       <Label>{t("Shop with a plan", "有計畫地採買")}</Label>
       <Heading>{t("A shorter shopping trip.", "把採買，變簡單。")}</Heading>
+      <KitchenSwitch current="Shopping" go={go} />
       {!(st.data.shopping_lists || []).length && (
         <Empty
           text={t(
@@ -325,9 +394,31 @@ export function ShoppingScreen() {
           )}
         />
       )}
-      {(st.data.shopping_lists || []).map((list: any) => (
+      {(st.data.shopping_lists || []).map((list: any, listIndex: number) => {
+        const listItems = items.filter((i) => i.shopping_list_id === list.id);
+        const picked = listItems.filter((i) => i.is_checked).length;
+        const stocked = listItems.length > 0 && listItems.every((i) => i.pantry_item_id);
+        // Only the newest unfinished list starts open.
+        const open = openLists[list.id] ?? (listIndex === 0 && !stocked);
+        return (
         <Card key={list.id}>
-          <Text style={s.title}>{list.title}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: open }}
+            onPress={() => setOpenLists((current) => ({ ...current, [list.id]: !open }))}
+          >
+            <Text style={s.title}>
+              {open ? "▾ " : "▸ "}
+              {list.title}
+            </Text>
+            <Copy>
+              {stocked
+                ? t("Done · moved to pantry", "已完成・已加入庫存")
+                : t(`${picked} of ${listItems.length} picked`, `已買 ${picked} / ${listItems.length} 項`)}
+            </Copy>
+          </Pressable>
+          {open && (
+          <>
           {!!list.created_at && (
             <Copy>
               {t("Created ", "建立於 ")}
@@ -348,15 +439,13 @@ export function ShoppingScreen() {
               )}
             </Copy>
           )}
-          {items
-            .filter((i) => i.shopping_list_id === list.id)
-            .map((item) => (
+          {listItems.map((item) => (
               <Button
-                quiet
+                quiet={!item.is_checked}
+                selected={!!item.is_checked}
                 key={item.id}
-                disabled={st.busy}
                 title={`${item.is_checked ? "✓" : "○"}  ${item.quantity ?? ""} ${domain.unitLabel(item.unit, st.lang, item.quantity)} · ${item.ingredient}${item.pantry_item_id ? t(" · in pantry", "・已入庫") : ""}`}
-                onPress={() => st.run(() => toggle(item))}
+                onPress={() => void toggle(item)}
               />
             ))}
           <Button
@@ -399,7 +488,7 @@ export function ShoppingScreen() {
                           name: item.ingredient,
                           quantity: Number(item.quantity),
                           unit: item.unit,
-                          storage_zone: "pantry",
+                          ...pantryDefaultsForCategory(item.category),
                           source: "shopping_list",
                         },
                         { onConflict: "id", ignoreDuplicates: true },
@@ -416,7 +505,13 @@ export function ShoppingScreen() {
                 }
                 await st.refresh();
                 await load();
-                Alert.alert(t("Added to pantry", "已加入食材庫"));
+                Alert.alert(
+                  t("Added to pantry", "已加入庫存"),
+                  t(
+                    "Meat, dairy and produce go to the fridge with a default use-by date; edit them in the pantry if needed.",
+                    "肉類、乳製品與蔬果會放進冷藏並帶入預設效期，需要時可到庫存修改。",
+                  ),
+                );
               })
             }
           />
@@ -437,17 +532,20 @@ export function ShoppingScreen() {
               ])
             }
           />
+          </>
+          )}
         </Card>
-      ))}
+        );
+      })}
     </Page>
   );
 }
-export function WeekScreen() {
+export function WeekScreen({ go }: { go: (tab: string) => void }) {
   const st = useStore(),
     t = useT();
   const [date, setDate] = useState(domain.localDateKey(new Date())),
     [meal, setMeal] = useState("dinner"),
-    [servings, setServings] = useState("2"),
+    [servings, setServings] = useState("1"),
     [selected, setSelected] = useState(""),
     [slots, setSlots] = useState<any[]>([]);
   const start = new Date();
@@ -594,7 +692,14 @@ export function WeekScreen() {
         <Choice
           label={t("Day", "日期")}
           value={date}
-          options={days.map((d) => [d, d.slice(5)])}
+          options={days.map((d) => {
+            const [, month, day] = d.split("-").map(Number);
+            const weekday = new Date(`${d}T12:00:00`).toLocaleDateString(
+              st.lang === "zh-TW" ? "zh-TW" : "en-US",
+              { weekday: "short" },
+            );
+            return [d, `${weekday} ${month}/${day}`];
+          })}
           onChange={setDate}
         />
         <Choice
@@ -618,6 +723,17 @@ export function WeekScreen() {
           ])}
         />
         <Label>{t("Choose a saved recipe", "選擇收藏食譜")}</Label>
+        {!(st.data.recipes || []).length && (
+          <>
+            <Copy>
+              {t(
+                "No saved recipes yet. Generate one and tap Save for later first.",
+                "還沒有收藏的食譜。先產生一道菜並按「收藏食譜」。",
+              )}
+            </Copy>
+            <Button quiet title={t("Go to planning", "去規劃")} onPress={() => go("Plan")} />
+          </>
+        )}
         {(st.data.recipes || []).map((r: any) => (
           <Button
             quiet={selected !== r.id}
@@ -766,9 +882,10 @@ export function NutritionScreen() {
           <Label>{n.eaten_on}</Label>
           <Text style={s.title}>{n.recipe_title}</Text>
           <Copy>
-            {Math.round(n.calories || 0)} kcal · P{" "}
-            {Math.round(n.protein_g || 0)}g · C {Math.round(n.carbs_g || 0)}g ·
-            F {Math.round(n.fat_g || 0)}g
+            {t(
+              `${Math.round(n.calories || 0)} kcal · protein ${Math.round(n.protein_g || 0)} g · carbs ${Math.round(n.carbs_g || 0)} g · fat ${Math.round(n.fat_g || 0)} g`,
+              `${Math.round(n.calories || 0)} 大卡・蛋白質 ${Math.round(n.protein_g || 0)} 克・碳水 ${Math.round(n.carbs_g || 0)} 克・脂肪 ${Math.round(n.fat_g || 0)} 克`,
+            )}
           </Copy>
           <Button
             quiet

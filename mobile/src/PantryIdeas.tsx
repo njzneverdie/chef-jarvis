@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Text, View } from "react-native";
 import { Button, Card, Copy, s, useT } from "./ui";
 import { domain, useStore } from "./store";
+import { localizeErrorMessage } from "./mobile-domain.mjs";
 
 type PantryIdea = {
   title: string;
@@ -19,8 +20,20 @@ export function PantryIdeas({ go }: { go: (tab: string) => void }) {
     t = useT();
   const [ideas, setIdeas] = useState<PantryIdea[] | null>(null),
     [empty, setEmpty] = useState(false),
-    [fallback, setFallback] = useState(false);
+    [fallback, setFallback] = useState(false),
+    [loading, setLoading] = useState(false);
+  // Its own loading state: suggestions must not lock the rest of the app.
   async function load() {
+    setLoading(true);
+    try {
+      await fetchIdeas();
+    } catch (error: any) {
+      st.setError(String(localizeErrorMessage(error?.message, st.lang)));
+    } finally {
+      setLoading(false);
+    }
+  }
+  async function fetchIdeas() {
     const result = await st.edge("chef-meal-plan", {
       mode: "pantry_ideas",
       language: st.lang,
@@ -42,13 +55,15 @@ export function PantryIdeas({ go }: { go: (tab: string) => void }) {
         )}
       </Copy>
       <Button
-        disabled={st.busy}
+        disabled={loading}
         title={
-          ideas
-            ? t("Suggest again", "重新推薦")
-            : t("See what I can make", "看看能做什麼")
+          loading
+            ? t("Looking through your pantry…", "正在整理你的庫存…")
+            : ideas
+              ? t("Suggest again", "重新推薦")
+              : t("See what I can make", "看看能做什麼")
         }
-        onPress={() => st.run(load)}
+        onPress={() => void load()}
       />
       {empty && (
         <Copy>

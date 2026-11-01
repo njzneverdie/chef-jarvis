@@ -41,12 +41,13 @@ export function AuthScreen() {
           label={t("Email", "電子郵件")}
           value={email}
           onChange={setEmail}
+          type="email"
         />
         <Field
           label={t("Password · at least 8 characters", "密碼・至少 8 個字元")}
           value={password}
           onChange={setPassword}
-          secure
+          type={signup ? "newPassword" : "password"}
         />
         <Button
           disabled={st.busy}
@@ -107,7 +108,7 @@ export function AuthScreen() {
               setMessage(
                 t(
                   "If this account exists, a reset link is on its way. Finish the reset on the website, then sign in here.",
-                  "若帳號存在，系統會寄出重設連結。請在網站完成重設，再回 App 登入。",
+                  "若帳號存在，系統會寄出重設連結。請在網站完成重設，再回到應用程式登入。",
                 ),
               );
             })
@@ -125,7 +126,7 @@ export function AuthScreen() {
       <Copy>
         {t(
           "Recipe generation sends your request and food profile to our AI service. Nutrition is an estimate; always check allergen labels.",
-          "產生食譜時，你的需求與飲食設定會傳送至 AI 服務。營養數值為估算；過敏者仍須確認食材標示。",
+          "產生食譜時，你的需求與飲食設定會傳送至智慧規劃服務。營養數值為估算；過敏者仍須確認食材標示。",
         )}
       </Copy>
     </Page>
@@ -153,6 +154,13 @@ export const equipmentOptions = (t: T): [string, string][] => [
   ["Air fryer", t("Air fryer", "氣炸鍋")],
   ["Rice cooker", t("Rice cooker", "電鍋")],
   ["Steamer", t("Steamer", "蒸籠")],
+];
+export const dietOptions = (t: T): [string, string][] => [
+  ["Vegetarian", t("Vegetarian", "蛋奶素")],
+  ["Vegan", t("Vegan", "純素")],
+  ["Halal", t("Halal", "清真")],
+  ["Gluten-free", t("Gluten-free", "無麩質")],
+  ["Lactose-free", t("Lactose-free", "無乳糖")],
 ];
 export const skillOptions = (t: T): [string, string][] =>
   domain.cookingSkillOptions.map(([value, en, zh]: string[]) => [value, t(en, zh)]);
@@ -231,15 +239,23 @@ export function ProfileScreen() {
       protein_g: targets.protein,
       carbs_g: targets.carbs,
       fat_g: targets.fat,
+    };
+    await st.saveProfile(payload);
+    Alert.alert(t("Nutrition targets saved", "營養目標已儲存"));
+  }
+  // Diet and kitchen settings save on their own: allergies must never be
+  // blocked by missing body measurements.
+  async function saveFood() {
+    await st.saveProfile({
+      app_user_id: st.userId,
       onboarding_completed: true,
       allergies: parts(allergies),
       dietary_preferences: parts(diet),
       dislikes: parts(dislikes),
       equipment: parts(equipment),
       ...(skill ? { cooking_skill: skill } : {}),
-    };
-    await st.saveProfile(payload);
-    Alert.alert(t("Profile saved", "設定已儲存"));
+    });
+    Alert.alert(t("Diet & kitchen saved", "飲食與廚房設定已儲存"));
   }
   async function exportData() {
     const uid = st.userId;
@@ -384,6 +400,11 @@ export function ProfileScreen() {
               numeric
             />
           ))}
+        <Button
+          disabled={st.busy}
+          title={t("Save nutrition targets", "儲存營養目標")}
+          onPress={() => st.run(save)}
+        />
       </Card>
       <Card>
         <Text style={s.title}>{t("Food & kitchen", "飲食與廚房")}</Text>
@@ -397,13 +418,7 @@ export function ProfileScreen() {
           label={t("Dietary needs", "飲食需求")}
           value={diet}
           onChange={setDiet}
-          options={[
-            ["Vegetarian", t("Vegetarian", "蛋奶素")],
-            ["Vegan", t("Vegan", "純素")],
-            ["Halal", t("Halal", "清真")],
-            ["Gluten-free", t("Gluten-free", "無麩質")],
-            ["Lactose-free", t("Lactose-free", "無乳糖")],
-          ]}
+          options={dietOptions(t)}
         />
         <MultiChoice
           label={t("Disliked ingredients", "不喜歡的食材")}
@@ -432,8 +447,8 @@ export function ProfileScreen() {
         />
         <Button
           disabled={st.busy}
-          title={t("Save profile", "儲存設定")}
-          onPress={() => st.run(save)}
+          title={t("Save diet & kitchen", "儲存飲食與廚房設定")}
+          onPress={() => st.run(saveFood)}
         />
       </Card>
       <Card>
@@ -454,7 +469,7 @@ export function ProfileScreen() {
           }
         />
         <Field
-          secure
+          type="newPassword"
           label={t("New password", "新密碼")}
           value={newPassword}
           onChange={setNewPassword}
@@ -500,13 +515,18 @@ export function ProfileScreen() {
         <Copy>
           {t(
             "Account deletion permanently removes your cloud data. Type DELETE to enable the final confirmation.",
-            "刪除帳號會永久移除雲端資料。輸入 DELETE 後可進行最後確認。",
+            "刪除帳號會永久移除雲端資料。輸入「刪除」兩個字後，才能進行最後確認。",
           )}
         </Copy>
-        <Field label="DELETE" value={deleteText} onChange={setDeleteText} />
+        <Field
+          label={t("Type DELETE", "輸入「刪除」")}
+          value={deleteText}
+          onChange={setDeleteText}
+        />
         <Button
+          danger
           title={t("Delete my account", "刪除我的帳號")}
-          disabled={st.busy || deleteText !== "DELETE"}
+          disabled={st.busy || deleteText.trim() !== t("DELETE", "刪除")}
           onPress={() =>
             Alert.alert(
               t("Permanently delete?", "永久刪除？"),
@@ -553,7 +573,8 @@ export function Choice({
           <Button
             key={v}
             quiet={value !== v}
-            title={l}
+            selected={value === v}
+            title={`${value === v ? "✓ " : ""}${l}`}
             onPress={() => onChange(v)}
           />
         ))}
