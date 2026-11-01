@@ -307,6 +307,15 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
           }
         />
       )}
+      {/* The result sits right under the buttons; the options follow it. */}
+      {recipe && (
+        <RecipeCard
+          key={JSON.stringify([recipe.title, recipe.ingredients])}
+          recipe={recipe}
+          onChange={setRecipe}
+          go={go}
+        />
+      )}
       {domain.mealPlanningGroups
         .filter((group: any) => !group.optional)
         .map((group: any) => (
@@ -397,14 +406,6 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
             );
           })}
         </Card>
-      )}
-      {recipe && (
-        <RecipeCard
-          key={JSON.stringify([recipe.title, recipe.ingredients])}
-          recipe={recipe}
-          onChange={setRecipe}
-          go={go}
-        />
       )}
     </Page>
   );

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, AppState, Text, View } from "react-native";
+import { Alert, AppState, Modal, StyleSheet, Text, View } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Speech from "expo-speech";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
@@ -316,7 +316,36 @@ export function CookScreen() {
     setShowFinish(false);
     Alert.alert(t("Meal logged. Enjoy!", "餐點已記錄，好好享用！"));
   }
+  const runningTimers = c.timers.filter(
+    (timer: Timer) => timer.mode === "stopwatch" || remainingSeconds(timer, now) > 0,
+  );
   return (
+    <View style={{ flex: 1 }}>
+      {!!runningTimers.length && (
+        <View
+          accessibilityRole="summary"
+          accessibilityLabel={t("Running timers", "進行中的計時器")}
+          style={timerBar.bar}
+        >
+          {runningTimers.slice(0, 3).map((timer: Timer) => {
+            const left = remainingSeconds(timer, now);
+            return (
+              <Text key={timer.id} style={timerBar.item} numberOfLines={1}>
+                {timer.deadline ? "⏱" : "⏸"} {timer.label}{" "}
+                <Text style={timerBar.time}>
+                  {String(Math.floor(left / 60)).padStart(2, "0")}:
+                  {String(left % 60).padStart(2, "0")}
+                </Text>
+              </Text>
+            );
+          })}
+          {runningTimers.length > 3 && (
+            <Text style={timerBar.item}>
+              {t(`+${runningTimers.length - 3} more`, `還有 ${runningTimers.length - 3} 個`)}
+            </Text>
+          )}
+        </View>
+      )}
     <Page>
       <Label>{c.recipe.title}</Label>
       <Copy>
@@ -594,6 +623,41 @@ export function CookScreen() {
         />
       </Card>
       <PantryUse />
+      <Button
+        quiet
+        title={t("End cooking without logging", "結束烹飪，不記錄餐點")}
+        onPress={() =>
+          Alert.alert(
+            t("End this cooking session?", "結束本次烹飪？"),
+            t("Current timers will be cancelled.", "目前的計時通知將取消。"),
+            [
+              { text: t("Cancel", "取消"), style: "cancel" },
+              {
+                text: t("End cooking", "結束烹飪"),
+                style: "destructive",
+                onPress: () =>
+                  st.run(async () => {
+                    await st.endCooking();
+                  }),
+              },
+            ],
+          )
+        }
+      />
+    </Page>
+      {/* Shown as a sheet so it is visible wherever the page is scrolled. */}
+      <Modal
+        visible={showFinish}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowFinish(false)}
+      >
+        <Page>
+          {!!st.error && (
+            <Text accessibilityRole="alert" style={s.error}>
+              {st.error}
+            </Text>
+          )}
       {showFinish && (
         <Card>
           <Text style={s.title}>
@@ -694,27 +758,21 @@ export function CookScreen() {
           />
         </Card>
       )}
-      <Button
-        quiet
-        title={t("End cooking without logging", "結束烹飪，不記錄餐點")}
-        onPress={() =>
-          Alert.alert(
-            t("End this cooking session?", "結束本次烹飪？"),
-            t("Current timers will be cancelled.", "目前的計時通知將取消。"),
-            [
-              { text: t("Cancel", "取消"), style: "cancel" },
-              {
-                text: t("End cooking", "結束烹飪"),
-                style: "destructive",
-                onPress: () =>
-                  st.run(async () => {
-                    await st.endCooking();
-                  }),
-              },
-            ],
-          )
-        }
-      />
-    </Page>
+        </Page>
+      </Modal>
+    </View>
   );
 }
+
+const timerBar = StyleSheet.create({
+  bar: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: "#254C39",
+  },
+  item: { color: "white", fontSize: 15, fontWeight: "600" },
+  time: { fontVariant: ["tabular-nums"], fontSize: 17 },
+});
