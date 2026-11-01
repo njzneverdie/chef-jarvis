@@ -780,7 +780,7 @@ async function renderPantry() {
   if (!panel) return;
   panel.innerHTML = `
     <div class="title"><div><p class="eyebrow">KITCHEN INVENTORY</p><h1>What’s in your<br><em>kitchen?</em></h1></div></div>
-    <form class="add-row" id="pantry-form"><input name="item" required maxlength="500" placeholder="Add ingredients, e.g. chicken breast 300g, eggs 6"><button class="dark">Add ingredient</button></form>
+    <form class="add-row" id="pantry-form"><input name="item" required maxlength="500" placeholder="Add ingredients, e.g. chicken breast 300g, eggs 6"><select name="expiry" aria-label="Use by"><option value="">No use-by date</option><option value="3">Use within 3 days</option><option value="7">Use within 1 week</option><option value="14">Use within 2 weeks</option><option value="30">Use within 1 month</option></select><button class="dark">Add ingredient</button></form>
     <section class="card pantry-ideas" id="pantry-ideas" hidden></section>
     <div class="pantry-grid" id="pantry-list"><p>Loading your pantry…</p></div>`;
   const { data, error } = await sb
@@ -837,6 +837,10 @@ async function renderPantry() {
     // previous name-only behavior.
     const entries = window.ChefDomain.parsePantryEntries(name);
     if (!entries.length) return;
+    const expiryDays = Number(new FormData(form).get("expiry") || 0);
+    const expiresOn = expiryDays
+      ? window.ChefDomain.localDateKey(new Date(Date.now() + expiryDays * 86400000))
+      : null;
     const zh = window.I18n.code === "zh-TW";
     if (
       entries.length > 1 &&
@@ -852,6 +856,7 @@ async function renderPantry() {
         app_user_id: user.id,
         name: entry.name,
         ...(entry.explicit ? { quantity: entry.quantity, unit: entry.unit } : {}),
+        ...(expiresOn ? { expires_on: expiresOn } : {}),
         storage_zone: "fridge",
         source: "manual",
       })),
