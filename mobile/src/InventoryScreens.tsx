@@ -238,6 +238,26 @@ export function ShoppingScreen() {
       {(st.data.shopping_lists || []).map((list: any) => (
         <Card key={list.id}>
           <Text style={s.title}>{list.title}</Text>
+          {!!list.created_at && (
+            <Copy>
+              {t("Created ", "建立於 ")}
+              {new Date(list.created_at).toLocaleDateString(
+                st.lang === "zh-TW" ? "zh-TW" : "en-US",
+              )}
+            </Copy>
+          )}
+          {items.some(
+            (i) =>
+              i.shopping_list_id === list.id &&
+              !domain.textMatchesLanguage(i.ingredient, st.lang),
+          ) && (
+            <Copy>
+              {t(
+                "This list was created in another language, so item names stay as saved. Delete it and create a new list from a new recipe to switch.",
+                "這份清單是用其他語言建立的舊資料，食材名稱維持當時的內容。要改成中文，請刪除後從新產生的食譜重新建立。",
+              )}
+            </Copy>
+          )}
           {items
             .filter((i) => i.shopping_list_id === list.id)
             .map((item) => (

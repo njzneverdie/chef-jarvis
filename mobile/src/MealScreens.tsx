@@ -648,6 +648,17 @@ export function RecipeCard({
       </Card>
       <Card>
         <Text style={s.title}>{t("The ingredients", "準備食材")}</Text>
+        {(r.ingredients || []).some(
+          (i: any) =>
+            typeof i !== "string" && !domain.textMatchesLanguage(i.name, st.lang),
+        ) && (
+          <Copy>
+            {t(
+              "This recipe was created in another language and is shown as saved. Generate a new recipe to get it in English.",
+              "這份食譜是用其他語言產生的舊資料，內容維持當時的樣子。請重新產生食譜以取得全中文版本。",
+            )}
+          </Copy>
+        )}
         {(r.ingredients || []).map((i: any, index) => (
           <View key={index} style={{ gap: 4 }}>
             <Text style={s.fieldLabel}>

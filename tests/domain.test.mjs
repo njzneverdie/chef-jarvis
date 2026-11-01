@@ -424,6 +424,13 @@ test("unit labels localize every stored unit enum for display only", () => {
   assert.equal(globalThis.ChefDomain.normalizeGroceryItem({ name: "醬油", amount: "1 大匙" }).unit, "tbsp");
 });
 
+test("display language check matches the Edge one-language rule", async () => {
+  const { textMatchesLanguage: edgeRule } = await import("../supabase/functions/_shared/recipe-language.js");
+  for (const [text, language] of [["Sichuan peppercorns", "zh-TW"], ["四川花椒", "zh-TW"], ["2 瓣 minced garlic", "zh-TW"], ["Jarvis 準備了餐點", "zh-TW"], ["200°C 烤 20 分鐘", "zh-TW"], ["Garlic cloves", "en"], ["蒜瓣", "en"]]) {
+    assert.equal(globalThis.ChefDomain.textMatchesLanguage(text, language), edgeRule(text, language), `${language} ${text}`);
+  }
+});
+
 test("recipe titles stay consistent after ingredient substitution", () => {
   assert.equal(
     recipeTitleAfterSubstitution(

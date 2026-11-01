@@ -212,6 +212,15 @@
     return Number(quantity) === 1 ? value : enPluralUnitLabels[value] || value;
   }
 
+  // Mirrors the Edge recipe-language rule: zh-TW text has no Latin letters
+  // (°C/°F and the app name allowed), English text has no CJK.
+  function textMatchesLanguage(text, language = "en") {
+    const value = String(text || "");
+    if (language === "zh-TW")
+      return !/[A-Za-z]/.test(value.replace(/°\s?[CF]\b/g, "").replace(/\b(?:Chef\s+)?Jarvis\b/g, ""));
+    return !/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(value);
+  }
+
   function normalizeIngredient(item = {}) {
     const name = String(item.name || "Ingredient").trim() || "Ingredient";
     const rawQuantity = item.quantity;
@@ -854,6 +863,7 @@
     scaleIngredientsForServings,
     groceryDisplayMeasurement,
     unitLabel,
+    textMatchesLanguage,
     ingredientWeightInGrams,
     calculateUsdaMealNutrition,
     hasCompleteUsdaNutrition,
