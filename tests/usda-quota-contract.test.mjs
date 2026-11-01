@@ -13,7 +13,7 @@ test("USDA lookups consume a service-only per-user quota", async () => {
     ),
     readFile(
       new URL(
-        "../supabase/migrations/20260717002929_count_usda_lookup_units.sql",
+        "../supabase/migrations/20260717003730_count_usda_lookup_units.sql",
         import.meta.url,
       ),
       "utf8",

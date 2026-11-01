@@ -8,7 +8,7 @@ test("account deletion is authenticated, cascaded, and disclosed", async () => {
   const [migration, edge, app, privacy, config] = await Promise.all([
     readFile(
       new URL(
-        "supabase/migrations/20260718090000_link_text_profiles_to_auth_users.sql",
+        "supabase/migrations/20260722121032_link_text_profiles_to_auth_users.sql",
         rootUrl,
       ),
       "utf8",

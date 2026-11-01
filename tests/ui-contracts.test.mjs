@@ -410,7 +410,7 @@ test("cooking progress syncs to the user's cloud session with a local fallback",
     readFile(new URL("app.js", publicUrl), "utf8"),
     readFile(
       new URL(
-        "../supabase/migrations/20260717005304_optimize_active_cooking_sessions.sql",
+        "../supabase/migrations/20260717005955_optimize_active_cooking_sessions.sql",
         import.meta.url,
       ),
       "utf8",
