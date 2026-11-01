@@ -47,6 +47,35 @@ function cookingStorageKey() {
   return user ? `chef-jarvis:cooking:${user.id}` : null;
 }
 
+function previousPlansKey() {
+  return user ? `chef-jarvis:previous-plans:${user.id}` : null;
+}
+
+function readPreviousPlans() {
+  try {
+    const key = previousPlansKey();
+    const list = key ? JSON.parse(localStorage.getItem(key) || "[]") : [];
+    return Array.isArray(list) ? list.slice(0, 3) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePreviousPlans(list) {
+  try {
+    const key = previousPlansKey();
+    if (key) localStorage.setItem(key, JSON.stringify(list.slice(0, 3)));
+  } catch {}
+}
+
+// Before a newly generated dish replaces the current one, keep the current
+// dish (never session-only sources) so "Back to previous" can return to it.
+function rememberCurrentPlan(next) {
+  if (!currentPlan || isSessionOnlyRecipe(currentPlan)) return;
+  if (next && String(next.title || "") === String(currentPlan.title || "")) return;
+  writePreviousPlans([{ ...currentPlan }, ...readPreviousPlans()]);
+}
+
 function savedPlansCacheKey() {
   return user ? `chef-jarvis:saved-plans:${user.id}` : null;
 }
@@ -898,7 +927,7 @@ function renderPlan(query) {
     ? `<div class="recipe-photo dish-visual has-recipe-image"><img class="recipe-image" src="${esc(imageUrl)}" alt="${esc(recipe.title)}" loading="lazy">${imageSourceUrl ? `<a class="recipe-image-credit" href="${esc(imageSourceUrl)}" target="_blank" rel="noopener noreferrer">${imageMatchLabel}${esc(displayImage.source || "Wikimedia Commons")} · ${esc(displayImage.creator || "Commons contributor")} · ${esc(displayImage.license || "See source")}</a>` : ""}</div>`
     : `<div class="recipe-photo dish-visual"><div class="recipe-photo-empty"><span>YOUR DISH</span><b>${esc(recipe.title)}</b><small>Ingredients and cooking steps below</small></div></div>`;
   root.innerHTML = `
-    <div class="title"><div><p class="eyebrow">PERSONAL MEAL PLANNER</p><h1>${isAi ? "Your meal is" : "Let’s make something"}<br><em>${isAi ? "ready." : "great."}</em></h1></div><button class="dark" id="new-meal">＋ New meal</button></div>
+    <div class="title"><div><p class="eyebrow">PERSONAL MEAL PLANNER</p><h1>${isAi ? "Your meal is" : "Let’s make something"}<br><em>${isAi ? "ready." : "great."}</em></h1></div><div class="plan-title-actions">${isAi && readPreviousPlans().length ? `<button class="cream" id="previous-plan">${esc(tr(`Back to: ${readPreviousPlans()[0].title}`, `回上一道：${readPreviousPlans()[0].title}`))}</button>` : ""}<button class="dark" id="new-meal">＋ New meal</button></div></div>
     ${integrityWarning}
     <div class="planner recipe-plan-layout">
       <article class="recipe recipe-showcase card"><div class="recipe-body"><div class="recipe-personalized-note"><span>✦</span><div><b>Made for your profile</b><small>Pantry, nutrition and preferences applied</small></div></div><p class="eyebrow">CHEF JARVIS PLAN</p><h2 class="${recipe.title.length > 48 ? "long-title" : ""}">${esc(recipe.title)}</h2><p class="recipe-summary">${esc(recipe.summary)}</p>${sourceNote}<p class="recipe-request">${esc(isAi ? query.userRequest : query || "Tell Jarvis what you would like to cook.")}</p><div class="recipe-facts"><span>◷ ${displayNumber(recipe.minutes)} min</span><span>◌ ${displayNumber(recipe.servings)} servings</span><span>${esc(window.ChefDomain.recipeBadgeText(recipe, window.I18n.code))}</span></div><div class="macros"><div><b>${displayNumber(recipe.kcal)}</b><small>est. kcal · whole meal</small></div><div><b>${displayNumber(recipe.protein_g, "g")}</b><small>est. protein · whole meal</small></div><div><b>${displayNumber(recipe.carbs_g, "g")}</b><small>est. carbs · whole meal</small></div><div><b>${displayNumber(recipe.fat_g, "g")}</b><small>est. fat · whole meal</small></div></div><div class="recipe-primary-actions"><button class="cream" id="jump-to-ingredients">Review ingredients ↓</button><button class="dark" id="start-guided-cook" ${isAi ? integrityDisabled : "disabled"}>Start guided cooking →</button></div><p class="meal-estimate-note"><b>Meal estimate</b> · Whole recipe (${displayNumber(recipe.servings)} servings). Adjust it after changing quantities or swaps.</p></div>${recipeVisual}</article>
@@ -913,6 +942,12 @@ function renderPlan(query) {
       .join("")}</div></article>`;
 
   document.querySelector("#new-meal").onclick = () => show("home");
+  document.querySelector("#previous-plan")?.addEventListener("click", () => {
+    const [previous, ...rest] = readPreviousPlans();
+    if (!previous) return;
+    writePreviousPlans(rest);
+    renderPlan(previous);
+  });
   root
     .querySelector("#regenerate-precise-recipe")
     ?.addEventListener("click", () => {

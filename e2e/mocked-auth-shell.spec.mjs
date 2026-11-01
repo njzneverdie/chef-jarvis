@@ -445,3 +445,28 @@ test("Dishes I can make lists cooked meals and reopens the saved recipe", async 
   await card.getByRole("button", { name: "Open recipe" }).click();
   await expect(page.locator("#plan").getByRole("heading", { name: measuredPlan.title })).toBeVisible();
 });
+
+test("Back to previous returns to the dish before the latest one", async ({ page }) => {
+  await installBackendMock(page);
+  const titles = [measuredPlan.title, "Tofu noodle soup"];
+  let calls = 0;
+  await page.route("**/functions/v1/chef-meal-plan", (route) =>
+    route.fulfill(json({ plan: { ...measuredPlan, title: titles[Math.min(calls++, 1)] }, meta: {} })),
+  );
+  await signIn(page);
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
+  await expect(page.locator("#plan").getByRole("heading", { name: measuredPlan.title })).toBeVisible();
+  await expect(page.locator("#previous-plan")).toHaveCount(0);
+  await page.getByRole("button", { name: "＋ New meal" }).click();
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
+  await expect(page.locator("#plan").getByRole("heading", { name: "Tofu noodle soup" })).toBeVisible();
+  await page.getByRole("button", { name: `Back to: ${measuredPlan.title}` }).click();
+  await expect(page.locator("#plan").getByRole("heading", { name: measuredPlan.title })).toBeVisible();
+  await expect(page.locator("#previous-plan")).toHaveCount(0);
+  const stored = await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith("chef-jarvis:previous-plans:")));
+  expect(stored).toHaveLength(1);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByLabel("Email")).toBeVisible();
+  const afterSignOut = await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith("chef-jarvis:previous-plans:")));
+  expect(afterSignOut).toHaveLength(0);
+});

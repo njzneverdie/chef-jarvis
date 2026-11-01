@@ -1208,3 +1208,5 @@ h1 em {
 .cooked-dish-list {display:grid; gap:10px;}
 .cooked-dish {display:flex; justify-content:space-between; align-items:center; gap:12px; border-top:1px solid #e4e1d8; padding-top:10px;}
 .cooked-dish small {display:block; color:#5d6b63;}
+
+.plan-title-actions {display:flex; flex-wrap:wrap; gap:10px; align-items:center;}

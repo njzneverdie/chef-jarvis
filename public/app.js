@@ -449,6 +449,10 @@ function shell() {
     )
       return;
     if (typeof persistCookingState === "function") persistCookingState();
+    try {
+      if (typeof previousPlansKey === "function" && previousPlansKey())
+        localStorage.removeItem(previousPlansKey());
+    } catch {}
     const { error } = await sb.auth.signOut();
     if (error) return toast(error.message);
     resetChefState();
@@ -669,6 +673,7 @@ function renderHome() {
         renderDishClarification(result);
         return;
       }
+      rememberCurrentPlan(result.plan);
       renderPlan(result.plan);
       show("plan");
     } catch (error) {
@@ -771,6 +776,7 @@ function renderPantryIdeas(hasPantry) {
             );
             assertGenerationContext(plan.ownerUserId, plan.generationEpoch);
             if (plan.kind !== "plan") return;
+            rememberCurrentPlan(plan.plan);
             renderPlan(plan.plan);
             show("plan");
           } catch (error) {
