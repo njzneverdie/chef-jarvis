@@ -1197,3 +1197,8 @@ h1 em {
 .prep-items label.checked {background:#e7ecdf;}
 .prep-items input {width:20px; height:20px;}
 .prep-progress {font-weight:600; margin:0;}
+
+.step-help {display:grid; gap:6px; margin:8px 0;}
+.step-help-hint {font-size:14px; color:#5d6b63; margin:0;}
+.step-tips summary {cursor:pointer; min-height:44px; display:flex; align-items:center; font-weight:600;}
+.step-tips p, .step-tips ul {margin:4px 0 8px;}

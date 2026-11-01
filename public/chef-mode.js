@@ -2859,6 +2859,22 @@ function toggleVoiceControl() {
   else startVoiceControl();
 }
 
+// Help under the current Chef Mode step: the tap hint (only when a term or
+// measure is tappable), this step's doneness/rescue tips, and generic fixes.
+function stepHelpMarkup(step, ingredients = []) {
+  const tappable = window.ChefDomain
+    .stepSegments(step.instruction, ingredients, window.I18n.code)
+    .some((segment) => segment.kind !== "text");
+  const tips = [
+    step.doneness ? `<p><b>${tr("Done when: ", "熟度判斷：")}</b>${esc(step.doneness)}</p>` : "",
+    step.rescue ? `<p><b>${tr("If it goes wrong: ", "失敗怎麼救：")}</b>${esc(step.rescue)}</p>` : "",
+  ].join("");
+  const fixes = window.ChefDomain.genericRescueTips(window.I18n.code)
+    .map(([problem, fix]) => `<li><b>${esc(problem)}</b>${tr(": ", "：")}${esc(fix)}</li>`)
+    .join("");
+  return `<div class="step-help">${tappable ? `<p class="step-help-hint">${tr("Tap underlined words for help.", "點有底線的字可看說明。")}</p>` : ""}${tips ? `<details class="step-tips"><summary>${tr("How do I know it is done?", "怎樣算煮好？")}</summary>${tips}</details>` : ""}<details class="step-tips"><summary>${tr("Quick fixes: too salty, burnt…", "常見狀況怎麼救：太鹹、燒焦…")}</summary><ul>${fixes}</ul></details></div>`;
+}
+
 function renderPrepChecklist(root, recipe) {
   const items = window.ChefDomain.prepChecklist(recipe, window.I18n.code);
   const checks = new Set(recipe.prep_state.checks || []);
@@ -2955,7 +2971,7 @@ function renderCook() {
   root.innerHTML = `
     <div class="chef-mode-heading"><div><p class="eyebrow">CHEF MODE · ${activeRecipe ? "ACTIVE RECIPE" : "READY"}</p><h1>${esc(recipe.title)}<br><em>cook with Jarvis.</em></h1></div><div class="chef-voice-actions"><button class="cream" id="chef-voice">🎙 Hands-free</button><button class="cream" id="chef-read">🔊 Read current step</button></div></div>
     ${showVoiceTip ? '<aside class="chef-voice-tip" role="status"><div><b>🎙 Cook hands-free</b><span>Say “next step”, “repeat”, or “start timer” while your hands are busy.</span></div><button type="button" class="cream" id="dismiss-voice-tip">Got it</button></aside>' : ""}
-    <div class="chef-mode-grid"><section class="chef-guide"><div class="chef-step-counter"><span>STEP ${cookingStepIndex + 1} / ${steps.length}</span><div>${steps.map((_, index) => `<i class="${index < cookingStepIndex ? "done" : index === cookingStepIndex ? "now" : ""}"></i>`).join("")}</div></div><article class="current-step chef-current"><span>DO THIS NOW</span><h2>${esc(current)}</h2>${currentTimerMarkup}<p>${esc(progressPersistenceCopy)}</p></article><div class="guide-actions"><button class="cream" id="previous-step" ${cookingStepIndex === 0 ? "disabled" : ""}>← Previous</button><button class="cream" id="repeat-step">↻ Repeat</button><button class="dark" id="complete-step">${cookingStepIndex === steps.length - 1 ? "Finish dish ✓" : "Complete step →"}</button></div><div class="chef-queue"><p class="eyebrow">RECIPE QUEUE</p>${steps.map((step, index) => `<button class="${index === cookingStepIndex ? "current" : index < cookingStepIndex ? "done" : ""}" data-jump-step="${index}"><b>${index < cookingStepIndex ? "✓" : index + 1}</b><span>${esc(step.instruction)}</span></button>`).join("")}</div>${
+    <div class="chef-mode-grid"><section class="chef-guide"><div class="chef-step-counter"><span>STEP ${cookingStepIndex + 1} / ${steps.length}</span><div>${steps.map((_, index) => `<i class="${index < cookingStepIndex ? "done" : index === cookingStepIndex ? "now" : ""}"></i>`).join("")}</div></div><article class="current-step chef-current"><span>DO THIS NOW</span><h2>${stepTextMarkup(current, recipe.ingredients)}</h2>${stepHelpMarkup(currentStep, recipe.ingredients)}${currentTimerMarkup}<p>${esc(progressPersistenceCopy)}</p></article><div class="guide-actions"><button class="cream" id="previous-step" ${cookingStepIndex === 0 ? "disabled" : ""}>← Previous</button><button class="cream" id="repeat-step">↻ Repeat</button><button class="dark" id="complete-step">${cookingStepIndex === steps.length - 1 ? "Finish dish ✓" : "Complete step →"}</button></div><div class="chef-queue"><p class="eyebrow">RECIPE QUEUE</p>${steps.map((step, index) => `<button class="${index === cookingStepIndex ? "current" : index < cookingStepIndex ? "done" : ""}" data-jump-step="${index}"><b>${index < cookingStepIndex ? "✓" : index + 1}</b><span>${esc(step.instruction)}</span></button>`).join("")}</div>${
       adaptations.length
         ? `<div class="chef-adaptation-inline"><p class="eyebrow">YOUR EQUIPMENT OPTION</p>${adaptations
             .slice(0, 2)

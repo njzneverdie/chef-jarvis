@@ -385,4 +385,14 @@ test("guided cooking starts with a prep checklist that survives a reload", async
   }
   await restored.getByRole("button", { name: "Start cooking" }).click();
   await expect(page.getByText("STEP 1 / 3")).toBeVisible();
+  const step = page.locator(".chef-current");
+  await expect(step.getByText("Tap underlined words for help.")).toBeVisible();
+  await expect(step.locator(".step-term", { hasText: "1 tbsp" })).toBeVisible();
+  await step.getByText("How do I know it is done?").click();
+  await expect(step.getByText("The oil shimmers.")).toBeVisible();
+  await expect(step.getByText("Smoking? Take the pan off the heat for a moment.")).toBeVisible();
+  await step.getByText("Quick fixes: too salty, burnt…").click();
+  await expect(step.getByText("Too salty", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Complete step →" }).click();
+  await expect(page.locator(".chef-current .step-tips", { hasText: "How do I know it is done?" })).toHaveCount(0);
 });
