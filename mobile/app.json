@@ -42,8 +42,16 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Chef Jarvis reads only the cooking video you choose, uploads it for recipe analysis, and deletes it right after.",
+          "photosPermission": "Chef Jarvis reads the cooking video you choose, or the one you just downloaded from Instagram, uploads it for recipe analysis, and deletes it right after.",
           "cameraPermission": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Chef Jarvis reads the cooking video you choose, or the one you just downloaded from Instagram, uploads it for recipe analysis, and deletes it right after.",
+          "savePhotosPermission": false,
+          "granularPermissions": ["video"]
         }
       ],
       "./plugins/with-standalone-run.cjs"

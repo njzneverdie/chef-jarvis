@@ -260,7 +260,7 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
       <Button
         quiet
         disabled={st.busy}
-        title={t("Import from an Instagram Reel", "從 IG Reels 匯入食譜")}
+        title={t("Import from an Instagram Reel", "從 Instagram 影片匯入食譜")}
         onPress={() => go("ImportInstagram")}
       />
       <Button
@@ -985,7 +985,7 @@ export function SavedScreen({ go }: { go: (s: string) => void }) {
           />
           <Button
             quiet
-            title={t("Import from an Instagram Reel", "從 IG Reels 匯入食譜")}
+            title={t("Import from an Instagram Reel", "從 Instagram 影片匯入食譜")}
             onPress={() => go("ImportInstagram")}
           />
           {!(st.data.recipes || []).length && (

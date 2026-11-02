@@ -59,3 +59,9 @@ private Supabase storage folder only you can write to, sent to Gemini for
 analysis, and then deleted from Supabase and from Gemini. Any copy left by an
 interrupted import is removed on your next import or when you delete your
 account. Chef Jarvis never re-publishes the video.
+
+If you give Chef Jarvis full Photos access, then while you import an Instagram
+link the iOS app looks at the dates of your five newest videos to find one
+saved in the last 10 minutes (for example with Instagram's Download) and
+imports that video the same way. Nothing else in your photo library is read or
+uploaded. With limited or no access, you choose the video yourself.
