@@ -10,18 +10,49 @@
 		10C86E9651E556C42220AFEF /* libPods-ChefJarvis.a in Frameworks */ = {isa = PBXBuildFile; fileRef = AE06D589AF9F9CE71EBEB720 /* libPods-ChefJarvis.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
+		83479EBC68E587A7B721C760 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91939B84FB867BBB099A0813 /* ShareViewController.swift */; };
+		8C9C09051F58B4581E61C38A /* ChefJarvisShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 574160661FF0D97E603861E3 /* ChefJarvisShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B6799A1FAA80BB12557403E4 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7456B1D1496A006C62810561 /* Foundation.framework */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		D8C86D34A54A6AE70CEB131B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 7BDA7FDD2226D4588F5E70B4 /* PrivacyInfo.xcprivacy */; };
 		EDE29E76CB3FFEFFEF7B110E /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3317B10E3CD4E6B55898E23A /* ExpoModulesProvider.swift */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		919DD607884A6573D4FA9BC6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C444CE63C85B0C6571CB3711;
+			remoteInfo = ChefJarvisShare;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		174087498F20EC986C83B64D /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				8C9C09051F58B4581E61C38A /* ChefJarvisShare.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		08BA994C46F8497F4A1107DD /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* ChefJarvis.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChefJarvis.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = ChefJarvis/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = ChefJarvis/Info.plist; sourceTree = "<group>"; };
 		3317B10E3CD4E6B55898E23A /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-ChefJarvis/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		574160661FF0D97E603861E3 /* ChefJarvisShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ChefJarvisShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		7456B1D1496A006C62810561 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		7BDA7FDD2226D4588F5E70B4 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = ChefJarvis/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		91939B84FB867BBB099A0813 /* ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = ChefJarvis/SplashScreen.storyboard; sourceTree = "<group>"; };
 		AE06D589AF9F9CE71EBEB720 /* libPods-ChefJarvis.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-ChefJarvis.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BADCF68D27C2BA99CF51294A /* Pods-ChefJarvis.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ChefJarvis.debug.xcconfig"; path = "Target Support Files/Pods-ChefJarvis/Pods-ChefJarvis.debug.xcconfig"; sourceTree = "<group>"; };
@@ -38,6 +69,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				10C86E9651E556C42220AFEF /* libPods-ChefJarvis.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2B14398C1EED2670122D2829 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B6799A1FAA80BB12557403E4 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -63,6 +102,7 @@
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
 				AE06D589AF9F9CE71EBEB720 /* libPods-ChefJarvis.a */,
+				C51341761841242735172436 /* iOS */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -91,6 +131,7 @@
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				BE54E2098EAAEC2B568A5B16 /* Pods */,
 				7635B568BB8CF59BF83B470E /* ExpoModulesProviders */,
+				EAE11124EF515F7162E1E56C /* ChefJarvisShare */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -101,6 +142,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* ChefJarvis.app */,
+				574160661FF0D97E603861E3 /* ChefJarvisShare.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -123,12 +165,30 @@
 			path = Pods;
 			sourceTree = "<group>";
 		};
+		C51341761841242735172436 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				7456B1D1496A006C62810561 /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
 		E4FC0E2CD19E35A78DB76190 /* ChefJarvis */ = {
 			isa = PBXGroup;
 			children = (
 				3317B10E3CD4E6B55898E23A /* ExpoModulesProvider.swift */,
 			);
 			name = ChefJarvis;
+			sourceTree = "<group>";
+		};
+		EAE11124EF515F7162E1E56C /* ChefJarvisShare */ = {
+			isa = PBXGroup;
+			children = (
+				91939B84FB867BBB099A0813 /* ShareViewController.swift */,
+				08BA994C46F8497F4A1107DD /* Info.plist */,
+			);
+			name = ChefJarvisShare;
+			path = ChefJarvisShare;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -146,15 +206,34 @@
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
 				C7BBC3771E4E1DFCFA1B8FA8 /* [CP] Embed Pods Frameworks */,
+				174087498F20EC986C83B64D /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				491CD3646ECFDA99DCB9215D /* PBXTargetDependency */,
 			);
 			name = ChefJarvis;
 			productName = ChefJarvis;
 			productReference = 13B07F961A680F5B00A75B9A /* ChefJarvis.app */;
 			productType = "com.apple.product-type.application";
+		};
+		C444CE63C85B0C6571CB3711 /* ChefJarvisShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1B0A2F1E254E885EFC2C01BD /* Build configuration list for PBXNativeTarget "ChefJarvisShare" */;
+			buildPhases = (
+				8CA0803D0CD6AC4C1DF18D98 /* Sources */,
+				2B14398C1EED2670122D2829 /* Frameworks */,
+				B2F318D1645627810F96B18B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ChefJarvisShare;
+			productName = ChefJarvisShare;
+			productReference = 574160661FF0D97E603861E3 /* ChefJarvisShare.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -183,6 +262,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* ChefJarvis */,
+				C444CE63C85B0C6571CB3711 /* ChefJarvisShare */,
 			);
 		};
 /* End PBXProject section */
@@ -196,6 +276,13 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				D8C86D34A54A6AE70CEB131B /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B2F318D1645627810F96B18B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -343,7 +430,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8CA0803D0CD6AC4C1DF18D98 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				83479EBC68E587A7B721C760 /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		491CD3646ECFDA99DCB9215D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = ChefJarvisShare;
+			target = C444CE63C85B0C6571CB3711 /* ChefJarvisShare */;
+			targetProxy = 919DD607884A6573D4FA9BC6 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
@@ -417,6 +521,33 @@
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
+		};
+		173563ABB8A287E240204466 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UQ6WR8RBTM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ChefJarvisShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				PRODUCT_BUNDLE_IDENTIFIER = com.njzneverdie.chefjarvis.share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
 		};
 		83CBBA201A601CBA00E9B192 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -554,6 +685,34 @@
 			};
 			name = Release;
 		};
+		B651334D8CBE6D3BE11DAC13 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UQ6WR8RBTM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ChefJarvisShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
+				PRODUCT_BUNDLE_IDENTIFIER = com.njzneverdie.chefjarvis.share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -562,6 +721,15 @@
 			buildConfigurations = (
 				13B07F941A680F5B00A75B9A /* Debug */,
 				13B07F951A680F5B00A75B9A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1B0A2F1E254E885EFC2C01BD /* Build configuration list for PBXNativeTarget "ChefJarvisShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B651334D8CBE6D3BE11DAC13 /* Release */,
+				173563ABB8A287E240204466 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
