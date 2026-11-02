@@ -12,15 +12,41 @@ const {
   normalizeGroceryItem,
   applyIngredientSubstitution,
   ingredientPreparation,
+  recipeTitleAfterSubstitution,
   ingredientDetails,
   convertQuantity,
   mergeGroceryItems,
+  scaleIngredientsForServings,
   groceryDisplayMeasurement,
   ingredientWeightInGrams,
   calculateUsdaMealNutrition,
+  compareNutritionEstimates,
   localDateKey,
   safeExternalUrl,
+  curatedRecipeImage,
+  recipeIntegrityReport,
+  reconcileCookingRecipeReference,
 } = globalThis.ChefDomain;
+
+test("cloud cooking restore does not revive a deleted saved recipe reference", () => {
+  const restored = reconcileCookingRecipeReference(
+    {
+      activeRecipe: {
+        title: "Deleted recipe snapshot",
+        saved_recipe_id: "deleted-recipe-id",
+      },
+      activeRecipeId: "deleted-recipe-id",
+      cookingStepIndex: 2,
+    },
+    null,
+  );
+
+  assert.equal(restored.activeRecipeId, null);
+  assert.equal(restored.activeRecipe.saved_recipe_id, null);
+  assert.equal(restored.activeRecipe.cooking_session_persisted, true);
+  assert.equal(restored.activeRecipe.title, "Deleted recipe snapshot");
+  assert.equal(restored.cookingStepIndex, 2);
+});
 
 test("custom nutrition targets reject missing and non-finite values", () => {
   assert.throws(
@@ -60,6 +86,92 @@ test("calculated nutrition targets never produce negative carbs", () => {
   assert.equal(target.kcal, 1200);
   assert.ok(Number.isFinite(target.carbs));
   assert.ok(target.carbs >= 0);
+});
+
+test("legacy generic rice bowls receive a real attributed image, not emoji art", () => {
+  const image = curatedRecipeImage({
+    title: "Exact vegetable rice bowl",
+    image_query: "vegetable chickpea rice bowl",
+  });
+  assert.match(image.url, /BuddhaBowlLot\.jpg/);
+  assert.equal(image.creator, "PizzaMan");
+  const salmon = curatedRecipeImage({ title: "Pan-seared salmon" });
+  assert.match(salmon.url, /Salmon%2C_pan-seared_and_glazed/);
+  assert.equal(salmon.creator, "Daderot");
+  assert.equal(salmon.license, "CC0 1.0");
+});
+
+test("legacy recipes with generic or unmeasured ingredients are unsafe", () => {
+  const report = recipeIntegrityReport({
+    ingredients: [
+      {
+        name: "這道料理的主要蛋白質食材",
+        quantity: 2,
+        unit: "serving",
+      },
+      {
+        name: "新鮮蔬菜與辛香料",
+        quantity: null,
+        unit: "",
+      },
+    ],
+    steps: [{ instruction: "Cook until done.", timers: [] }],
+  });
+
+  assert.equal(report.safe, false);
+  assert.ok(report.issues.includes("generic_ingredient"));
+  assert.ok(report.issues.includes("missing_measurement"));
+});
+
+test("generic legacy ingredient variants are rejected without flagging specific seasonings", () => {
+  for (const name of [
+    "Main protein",
+    "Seasonings",
+    "Seasonings to taste",
+    "新鮮蔬菜",
+  ]) {
+    const report = recipeIntegrityReport({
+      ingredients: [{ name, quantity: 1, unit: "cup" }],
+      steps: ["Cook for 5 minutes."],
+    });
+    assert.equal(report.safe, false, `${name} should be treated as generic`);
+    assert.ok(report.issues.includes("generic_ingredient"));
+  }
+
+  const specific = recipeIntegrityReport({
+    ingredients: [
+      { name: "Italian seasoning blend", quantity: 2, unit: "tsp" },
+    ],
+    steps: ["Simmer the sauce for 5 minutes."],
+  });
+  assert.equal(specific.safe, true);
+});
+
+test("structured recipes pass the integrity report", () => {
+  const report = recipeIntegrityReport({
+    ingredients: [
+      {
+        name: "Boneless skinless chicken breast",
+        quantity: 400,
+        unit: "g",
+        preparation: "cut into 2 cm cubes",
+      },
+    ],
+    steps: [
+      {
+        instruction: "Cook the chicken for 6 minutes.",
+        timers: [
+          {
+            label: "Cook chicken",
+            kind: "cook",
+            duration_seconds: 360,
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.deepEqual(report, { safe: true, issues: [] });
 });
 
 test("one tick updates countdowns and stopwatches by mode", () => {
@@ -143,11 +255,71 @@ test("recipe steps never create timers for reading menus or untimed prep", () =>
     },
   ]);
 
-  assert.equal(steps[0].timer, null);
-  assert.equal(steps[1].timer, null);
-  assert.equal(steps[2].timer, null);
+  assert.deepEqual(steps[0].timers, []);
+  assert.deepEqual(steps[1].timers, []);
+  assert.deepEqual(steps[2].timers, []);
   assert.equal(buildRecipeTimers(steps).length, 1);
   assert.equal(buildRecipeTimers(steps)[0].name, "Simmer sauce");
+});
+
+test("strict recipe timers allow ordered 20-second flips and reject reading time", () => {
+  const steps = normalizeRecipeSteps([
+    {
+      instruction:
+        "Sear the first side for 20 seconds, flip, then sear the second side for 20 seconds.",
+      timers: [
+        {
+          label: "Sear steak side one",
+          kind: "cook",
+          duration_seconds: 20,
+        },
+        {
+          label: "Sear steak side two",
+          kind: "cook",
+          duration_seconds: 20,
+        },
+      ],
+    },
+    {
+      instruction: "給你 5 分鐘閱讀 Recipe，再開始下廚。",
+      timers: [
+        {
+          label: "5-minute recipe overview",
+          kind: "cook",
+          duration_seconds: 300,
+        },
+      ],
+    },
+  ]);
+  const timers = buildRecipeTimers(steps);
+
+  assert.deepEqual(
+    timers.map(({ name, duration, stepTimerIndex }) => ({
+      name,
+      duration,
+      stepTimerIndex,
+    })),
+    [
+      { name: "Sear steak side one", duration: 20, stepTimerIndex: 0 },
+      { name: "Sear steak side two", duration: 20, stepTimerIndex: 1 },
+    ],
+  );
+  assert.deepEqual(steps[1].timers, []);
+});
+
+test("one written interval cannot create duplicate recipe alarms", () => {
+  const timers = buildRecipeTimers([
+    {
+      instruction: "Sear the steak for 20 seconds.",
+      timers: [
+        { label: "First alarm", kind: "cook", duration_seconds: 20 },
+        { label: "Invented duplicate", kind: "cook", duration_seconds: 20 },
+      ],
+    },
+  ]);
+
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].name, "First alarm");
 });
 
 test("recipe steps are not truncated to an arbitrary fixed count", () => {
@@ -236,7 +408,27 @@ test("Chinese ingredients use readable units and hide no-op preparation text", (
   });
   assert.equal(ingredient.amount, "2 湯匙");
   assert.equal(ingredientPreparation(ingredient), "");
+  assert.equal(ingredientPreparation({ name: "鹽", preparation: "無處理" }), "");
   assert.equal(ingredientDetails(ingredient), "2 湯匙");
+});
+
+test("recipe titles stay consistent after ingredient substitution", () => {
+  assert.equal(
+    recipeTitleAfterSubstitution(
+      "高蛋白雞胸肉花椰菜炒飯",
+      "去皮去骨雞胸肉",
+      "板豆腐",
+    ),
+    "高蛋白板豆腐花椰菜炒飯",
+  );
+  assert.equal(
+    recipeTitleAfterSubstitution(
+      "High-protein chicken breast bowl",
+      "boneless skinless chicken breast",
+      "firm tofu",
+    ),
+    "High-protein firm tofu bowl",
+  );
 });
 
 test("recipe image URLs only allow HTTPS on approved hosts", () => {
@@ -289,6 +481,24 @@ test("small merged liquid quantities display as store-friendly spoons", () => {
   );
 });
 
+test("weekly ingredients scale to each scheduled serving count", () => {
+  const scaled = scaleIngredientsForServings(
+    [
+      { name: "Chicken breast", quantity: 300, unit: "g" },
+      { name: "Egg", quantity: 2, unit: "piece" },
+    ],
+    6,
+    3,
+  );
+  assert.deepEqual(
+    scaled.map(({ quantity, unit }) => ({ quantity, unit })),
+    [
+      { quantity: 600, unit: "g" },
+      { quantity: 4, unit: "piece" },
+    ],
+  );
+});
+
 test("nutrition log dates use the user's local calendar day", () => {
   const localHalfPastMidnight = new Date(2026, 6, 16, 0, 30, 0);
   assert.equal(localDateKey(localHalfPastMidnight), "2026-07-16");
@@ -322,4 +532,15 @@ test("USDA meal totals use quantities and disclose match coverage", () => {
     grams: 200,
     estimated: false,
   });
+});
+
+test("large USDA and recipe-estimate differences are flagged for review", () => {
+  const comparison = compareNutritionEstimates(
+    { kcal: 830, protein_g: 22 },
+    { kcal: 380, protein_g: 45 },
+    [{ found: true, match_score: 62 }],
+  );
+  assert.equal(comparison.needs_review, true);
+  assert.equal(comparison.low_confidence_matches, 1);
+  assert.equal(comparison.kcal_difference_percent, 118);
 });

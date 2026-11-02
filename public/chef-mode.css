@@ -122,13 +122,23 @@
 .chef-timer .timer-actions {
   grid-column: 1/-1;
 }
+.current-step-timers {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 2px;
+}
+.current-step-timers > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
 .current-step-timer {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 16px 0 2px;
+  margin: 0;
   padding: 11px 13px;
   border-radius: 12px;
   background: #fff8ed;
@@ -220,8 +230,48 @@
   font-size: 11px;
   line-height: 1.5;
 }
+.recipe-source-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.recipe-source-note span {
+  font-weight: 800;
+}
+.recipe-source-note a {
+  color: var(--green2);
+  font-weight: 700;
+  text-underline-offset: 3px;
+}
 .chef-adaptations {
   margin-top: 15px;
+}
+.legacy-recipe-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 15px;
+  padding: 20px 22px;
+  border-color: #c87435;
+  background: #fff4e7;
+}
+.legacy-recipe-warning h2 {
+  margin: 4px 0 7px;
+  font: 24px var(--serif);
+}
+.legacy-recipe-warning p:not(.eyebrow),
+.legacy-list-warning {
+  color: #71411f;
+  line-height: 1.5;
+}
+.legacy-list-warning {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff4e7;
+  font-size: 12px;
 }
 .adaptation-grid {
   display: grid;
@@ -284,6 +334,10 @@
   max-width: 530px;
 }
 @media (max-width: 850px) {
+  .legacy-recipe-warning {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .chef-mode-heading {
     display: grid;
   }
@@ -296,5 +350,8 @@
   .equipment-options button {
     width: 100%;
     margin-left: 0;
+  }
+  .recipe-source-note {
+    font-size: 12px;
   }
 }

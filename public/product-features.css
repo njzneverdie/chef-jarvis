@@ -233,6 +233,53 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.account-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 15px;
+  border-color: #b85b47;
+  background: #fff7f3;
+}
+.account-danger-zone h2 {
+  margin: 4px 0 7px;
+  font: 26px var(--serif);
+}
+.account-danger-zone p:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 12px;
+}
+.account-danger-zone a,
+.auth-card .note a {
+  color: #8d2f21;
+  font-weight: 700;
+}
+.danger-button {
+  border: 1px solid #8d2f21;
+  border-radius: 10px;
+  padding: 11px 14px;
+  color: #fff;
+  background: #8d2f21;
+  font-weight: 800;
+  cursor: pointer;
+}
+.danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.account-deletion-card {
+  max-width: 620px;
+}
+.account-deletion-card > h2 {
+  margin: 5px 0 12px;
+  color: #671f17;
+  font: 34px/1.05 var(--serif);
+}
+.account-deletion-card > p:not(.eyebrow) {
+  color: var(--muted);
+  line-height: 1.55;
+}
 .quick-log-card {
   width: min(900px, 100%);
 }
@@ -309,6 +356,10 @@
     flex-wrap: wrap;
   }
   .chef-voice-tip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .account-danger-zone {
     align-items: stretch;
     flex-direction: column;
   }

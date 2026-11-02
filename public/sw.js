@@ -1,43 +1,47 @@
-const CACHE = "chef-jarvis-20260716-original-chef";
-const SUPABASE_CDN =
-  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.5/dist/umd/supabase.min.js";
-const SUPABASE_INTEGRITY =
-  "sha384-Fntl9b+IRzm2GKZK0c129fQFknWsn8pyxDejLO4wwds1LF9DSob2K2QXlfw8EIXn";
+const CACHE = "chef-jarvis-20260730-cooking-session-restore-1";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=20260716-original-chef",
-  "/guided-cooking.css?v=20260716-original-chef",
-  "/chef-mode.css?v=20260716-original-chef",
-  "/shopping-list.css?v=20260716-original-chef",
-  "/usda-reference.css?v=20260716-original-chef",
-  "/personalized-swaps.css?v=20260716-original-chef",
-  "/plan-persistence.css?v=20260716-original-chef",
-  "/shopping-page.css?v=20260716-original-chef",
-  "/product-features.css?v=20260716-original-chef",
-  "/i18n.js?v=20260716-original-chef",
-  "/domain.js?v=20260716-original-chef",
-  "/app.js?v=20260716-original-chef",
-  "/chef-mode.js?v=20260716-original-chef",
-  "/manifest.webmanifest?v=20260716-original-chef",
-  "/chef-jarvis-icon-192.png",
-  "/chef-jarvis-icon-512.png",
-  "/chef-jarvis-icon-1024.png",
-  "/chef-jarvis-maskable-512.png",
-  "/apple-touch-icon.png",
+  "/styles.css?v=20260730-cooking-session-restore-1",
+  "/guided-cooking.css?v=20260730-cooking-session-restore-1",
+  "/chef-mode.css?v=20260730-cooking-session-restore-1",
+  "/shopping-list.css?v=20260730-cooking-session-restore-1",
+  "/usda-reference.css?v=20260730-cooking-session-restore-1",
+  "/personalized-swaps.css?v=20260730-cooking-session-restore-1",
+  "/plan-persistence.css?v=20260730-cooking-session-restore-1",
+  "/shopping-page.css?v=20260730-cooking-session-restore-1",
+  "/product-features.css?v=20260730-cooking-session-restore-1",
+  "/i18n.js?v=20260730-cooking-session-restore-1",
+  "/domain.js?v=20260730-cooking-session-restore-1",
+  "/boot.js?v=20260730-cooking-session-restore-1",
+  "/vendor/supabase-2.110.5.min.js",
+  "/app.js?v=20260730-cooking-session-restore-1",
+  "/chef-mode.js?v=20260730-cooking-session-restore-1",
+  "/manifest.webmanifest?v=20260730-cooking-session-restore-1",
+  "/fonts/dm-serif-display-latin-400.woff2",
+  "/fonts/dm-serif-display-latin-400-italic.woff2",
+  "/fonts/manrope-latin-400-800.woff2",
+  "/chef-jarvis-app-icon-v2-192.png?v=20260730-cooking-session-restore-1",
+  "/chef-jarvis-app-icon-v2-apple-180.png?v=20260730-cooking-session-restore-1",
 ];
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE).then(async (cache) => {
-      await cache.addAll(CORE);
-      const supabaseBundle = await fetch(SUPABASE_CDN, {
-        mode: "cors",
-        integrity: SUPABASE_INTEGRITY,
-      });
-      await cache.put(SUPABASE_CDN, supabaseBundle);
+      const results = await Promise.allSettled(
+        CORE.map((asset) => cache.add(asset)),
+      );
+      const failed = results
+        .map((result, index) => (result.status === "rejected" ? CORE[index] : null))
+        .filter(Boolean);
+      if (failed.length) {
+        await caches.delete(CACHE);
+        throw new Error(
+          `Offline update was not installed because required assets failed: ${failed.join(", ")}`,
+        );
+      }
+      await self.skipWaiting();
     }),
   );
-  self.skipWaiting();
 });
 self.addEventListener("activate", (event) => {
   event.waitUntil(
@@ -54,10 +58,14 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
-  const isSupabaseBundle = request.url === SUPABASE_CDN;
+  const isAppIcon =
+    url.origin === self.location.origin &&
+    /^\/chef-jarvis-app-icon-v2-(?:192|512|1024|maskable-512|apple-180)\.png$/.test(
+      url.pathname,
+    );
   if (
     request.method !== "GET" ||
-    (url.origin !== self.location.origin && !isSupabaseBundle)
+    url.origin !== self.location.origin
   )
     return;
   if (request.mode === "navigate") {
@@ -69,6 +77,20 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch(() => caches.match("/index.html")),
+    );
+    return;
+  }
+  if (isAppIcon) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request)),
     );
     return;
   }

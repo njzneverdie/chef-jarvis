@@ -85,11 +85,11 @@
     "cool",
   ]);
 
-  function instructionIncludesDuration(instruction, durationSeconds) {
-    const matches = instruction.matchAll(
+  function instructionDurations(instruction) {
+    const durations = [];
+    for (const match of String(instruction || "").matchAll(
       /(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|小時|分鐘|秒鐘?|秒)/gi,
-    );
-    for (const match of matches) {
+    )) {
       const value = Number(match[1]);
       const unit = match[2].toLowerCase();
       const multiplier = /^(?:hours?|hrs?|小時)$/.test(unit)
@@ -97,9 +97,28 @@
         : /^(?:minutes?|mins?|分鐘)$/.test(unit)
           ? 60
           : 1;
-      if (Math.round(value * multiplier) === durationSeconds) return true;
+      durations.push(Math.round(value * multiplier));
     }
-    return false;
+    return durations;
+  }
+
+  function instructionHasTimedCookingAction(instruction) {
+    return /\b(?:preheat|cook|bake|roast|sear|fry|grill|broil|simmer|boil|steam|rest|marinate|chill|refrigerate|freeze|proof|cool|soak|reheat|warm|reduce|toast|blanch|poach|braise|stew|smoke|microwave|flip|turn|stir|wait)\b|(?:預熱|烹煮|煮|煎|烤|炸|炒|燉|燜|蒸|煨|滾|沸騰|靜置|醒麵|休息|醃|冷藏|冷凍|發酵|放涼|冷卻|浸泡|加熱|收汁|翻面|翻轉|攪拌|等待)/i.test(
+      String(instruction || ""),
+    );
+  }
+
+  function isNonCookingTimerTask(instruction, label) {
+    const content = `${instruction || ""} ${label || ""}`;
+    return (
+      /\b(?:read|review|study|browse|look at|check|familiarize|plan)\b[\s\S]{0,50}\b(?:recipe|menu|instructions?|steps?)\b|\b(?:recipe|menu|instructions?|steps?)\b[\s\S]{0,50}\b(?:read|review|study|browse|check)\b/i.test(
+        content,
+      ) ||
+      /(?:閱讀|朗讀|查看|瀏覽|熟悉|檢查|研究|先看)[\s\S]{0,30}(?:食譜|菜單|料理步驟|步驟|recipe)|(?:食譜|菜單|料理步驟|步驟)[\s\S]{0,30}(?:閱讀|朗讀|查看|瀏覽|熟悉|檢查|研究|先看)/i.test(
+        content,
+      ) ||
+      !instructionHasTimedCookingAction(instruction)
+    );
   }
 
   function normalizeRecipeSteps(steps) {
@@ -108,53 +127,56 @@
       .map((step) => {
         if (typeof step === "string") {
           const instruction = step.trim();
-          return instruction ? { instruction, timer: null } : null;
+          return instruction ? { instruction, timers: [] } : null;
         }
         if (!step || typeof step !== "object") return null;
         const instruction = String(step.instruction || "").trim();
         if (!instruction) return null;
-        if (!step.timer || typeof step.timer !== "object") {
-          return { instruction, timer: null };
-        }
-        const label = String(step.timer.label || "").trim();
-        const kind = String(step.timer.kind || "").trim();
-        const duration = Math.round(Number(step.timer.duration_seconds));
-        const isFakeTask =
-          /^(?:read|review|look at|check)\b|^(?:閱讀|朗讀|查看|看|檢查)(?:食譜|菜單|步驟)/i.test(
-            label,
-          );
-        const timer =
-          label &&
-          recipeTimerKinds.has(kind) &&
-          Number.isFinite(duration) &&
-          duration >= 30 &&
-          duration <= 14400 &&
-          instructionIncludesDuration(instruction, duration) &&
-          !isFakeTask
-            ? { label, kind, duration_seconds: duration }
-            : null;
-        return { instruction, timer };
+        const rawTimers = Array.isArray(step.timers)
+          ? step.timers
+          : step.timer && typeof step.timer === "object"
+            ? [step.timer]
+            : [];
+        const unmatchedDurations = instructionDurations(instruction);
+        const timers = rawTimers.slice(0, 8).flatMap((rawTimer) => {
+          if (!rawTimer || typeof rawTimer !== "object") return [];
+          const label = String(rawTimer.label || "").trim();
+          const kind = String(rawTimer.kind || "").trim();
+          const duration = Math.round(Number(rawTimer.duration_seconds));
+          const matchingDurationIndex = unmatchedDurations.indexOf(duration);
+          if (
+            !label ||
+            !recipeTimerKinds.has(kind) ||
+            !Number.isFinite(duration) ||
+            duration < 1 ||
+            duration > 14400 ||
+            matchingDurationIndex < 0 ||
+            isNonCookingTimerTask(instruction, label)
+          )
+            return [];
+          unmatchedDurations.splice(matchingDurationIndex, 1);
+          return [{ label, kind, duration_seconds: duration }];
+        });
+        return { instruction, timers };
       })
       .filter(Boolean);
   }
 
   function buildRecipeTimers(steps) {
     return normalizeRecipeSteps(steps).flatMap((step, stepIndex) => {
-      if (!step.timer) return [];
-      return [
-        {
-          name: step.timer.label,
-          sec: step.timer.duration_seconds,
-          duration: step.timer.duration_seconds,
+      return step.timers.map((timer, stepTimerIndex) => ({
+          name: timer.label,
+          sec: timer.duration_seconds,
+          duration: timer.duration_seconds,
           mode: "countdown",
           running: false,
           completed: false,
           source: "recipe",
           stepIndex,
           stepNumber: stepIndex + 1,
-          timerKind: step.timer.kind,
-        },
-      ];
+          stepTimerIndex,
+          timerKind: timer.kind,
+        }));
     });
   }
 
@@ -201,6 +223,39 @@
       amount,
       preparation,
       category: String(item.category || "other").trim() || "other",
+    };
+  }
+
+  function recipeIntegrityReport(recipe = {}) {
+    const issues = new Set();
+    const ingredients = Array.isArray(recipe.ingredients)
+      ? recipe.ingredients
+      : [];
+    const genericIngredientPattern =
+      /^(?:ingredient|ingredients|your selected ingredients|main protein(?: ingredient)?|fresh vegetables(?: and aromatics)?|seasonings?(?: to taste)?|食材|材料|適量|少許|酌量|調味料|配料|(?:這道料理的)?主要(?:蛋白質)?食材|新鮮蔬菜(?:與辛香料)?)$/i;
+
+    if (!ingredients.length) issues.add("missing_ingredients");
+    ingredients.forEach((rawItem) => {
+      const rawName = String(rawItem?.name || "").trim();
+      const ingredient = normalizeIngredient(rawItem);
+      if (!rawName || genericIngredientPattern.test(rawName)) {
+        issues.add("generic_ingredient");
+      }
+      if (
+        ingredient.quantity == null ||
+        ingredient.quantity <= 0 ||
+        !ingredient.unit
+      ) {
+        issues.add("missing_measurement");
+      }
+    });
+    if (!normalizeRecipeSteps(recipe.steps).length) {
+      issues.add("missing_steps");
+    }
+
+    return {
+      safe: issues.size === 0,
+      issues: [...issues],
     };
   }
 
@@ -304,11 +359,72 @@
 
   function ingredientPreparation(item) {
     const preparation = normalizeIngredient(item).preparation;
-    return /^(?:no preparation|none|n\/a|無需處理|不需處理|无需处理)$/i.test(
+    return /^(?:no preparation|none|n\/a|無處理|无需处理|無需處理|不需處理)$/i.test(
       preparation,
     )
       ? ""
       : preparation;
+  }
+
+  function recipeTitleAfterSubstitution(title, from, to) {
+    const currentTitle = String(title || "").trim();
+    const originalName = String(from || "").trim();
+    const replacementName = String(to || "").trim();
+    if (!currentTitle || !originalName || !replacementName) return currentTitle;
+    if (
+      currentTitle
+        .toLocaleLowerCase()
+        .includes(replacementName.toLocaleLowerCase())
+    ) {
+      return currentTitle;
+    }
+
+    const lowerTitle = currentTitle.toLocaleLowerCase();
+    const lowerOriginal = originalName.toLocaleLowerCase();
+    let matched = "";
+    if (lowerTitle.includes(lowerOriginal)) {
+      matched = originalName;
+    } else if (/[^\x00-\x7f]/.test(originalName)) {
+      for (
+        let length = Math.min(originalName.length, currentTitle.length);
+        length >= 2 && !matched;
+        length -= 1
+      ) {
+        for (
+          let start = 0;
+          start + length <= originalName.length;
+          start += 1
+        ) {
+          const candidate = originalName.slice(start, start + length);
+          if (lowerTitle.includes(candidate.toLocaleLowerCase())) {
+            matched = candidate;
+            break;
+          }
+        }
+      }
+    } else {
+      const words = originalName.split(/\s+/).filter(Boolean);
+      for (let length = words.length; length >= 1 && !matched; length -= 1) {
+        for (let start = 0; start + length <= words.length; start += 1) {
+          const candidate = words.slice(start, start + length).join(" ");
+          if (
+            candidate.length >= 3 &&
+            lowerTitle.includes(candidate.toLocaleLowerCase())
+          ) {
+            matched = candidate;
+            break;
+          }
+        }
+      }
+    }
+
+    if (matched) {
+      const index = lowerTitle.indexOf(matched.toLocaleLowerCase());
+      return `${currentTitle.slice(0, index)}${replacementName}${currentTitle.slice(index + matched.length)}`;
+    }
+    return /[^\x00-\x7f]/.test(currentTitle)
+      ? `${currentTitle}（${replacementName}替換版）`
+      : `${currentTitle} (${replacementName} version)`;
   }
 
   function ingredientDetails(item) {
@@ -386,6 +502,27 @@
         amount: "",
       }),
     );
+  }
+
+  function scaleIngredientsForServings(
+    ingredients,
+    plannedServings,
+    recipeServings,
+  ) {
+    const planned = Math.max(0.25, Number(plannedServings) || 1);
+    const original = Math.max(0.25, Number(recipeServings) || 1);
+    const multiplier = planned / original;
+    return (Array.isArray(ingredients) ? ingredients : []).map((rawItem) => {
+      const item = normalizeGroceryItem(rawItem);
+      return normalizeGroceryItem({
+        ...item,
+        quantity:
+          item.quantity == null
+            ? null
+            : Math.round(Number(item.quantity) * multiplier * 100) / 100,
+        amount: "",
+      });
+    });
   }
 
   function groceryDisplayMeasurement(rawItem) {
@@ -479,6 +616,36 @@
     };
   }
 
+  function compareNutritionEstimates(usda, estimate, foods = []) {
+    const differencePercent = (verified, expected) => {
+      const reference = Number(expected);
+      const measured = Number(verified);
+      if (!Number.isFinite(reference) || reference <= 0 || !Number.isFinite(measured))
+        return null;
+      return Math.round((Math.abs(measured - reference) / reference) * 100);
+    };
+    const kcalDifference = differencePercent(usda?.kcal, estimate?.kcal);
+    const proteinDifference = differencePercent(
+      usda?.protein_g,
+      estimate?.protein_g,
+    );
+    const lowConfidenceMatches = (Array.isArray(foods) ? foods : []).filter(
+      (food) =>
+        food?.found &&
+        Number.isFinite(Number(food.match_score)) &&
+        Number(food.match_score) < 70,
+    ).length;
+    return {
+      kcal_difference_percent: kcalDifference,
+      protein_difference_percent: proteinDifference,
+      low_confidence_matches: lowConfidenceMatches,
+      needs_review:
+        (kcalDifference != null && kcalDifference > 35) ||
+        (proteinDifference != null && proteinDifference > 40) ||
+        lowConfidenceMatches > 0,
+    };
+  }
+
   function localDateKey(date = new Date()) {
     const offset = date.getTimezoneOffset() * 60000;
     return new Date(date.getTime() - offset).toISOString().slice(0, 10);
@@ -499,23 +666,79 @@
     }
   }
 
+  function reconcileCookingRecipeReference(snapshot = {}, recipeId = null) {
+    const authoritativeRecipeId = recipeId || null;
+    return {
+      ...snapshot,
+      activeRecipe: snapshot.activeRecipe
+        ? {
+            ...snapshot.activeRecipe,
+            saved_recipe_id: authoritativeRecipeId,
+            cooking_session_persisted: true,
+          }
+        : snapshot.activeRecipe,
+      activeRecipeId: authoritativeRecipeId,
+    };
+  }
+
+  const curatedGrainBowlImage = Object.freeze({
+    url: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/BuddhaBowlLot.jpg/1280px-BuddhaBowlLot.jpg",
+    description_url:
+      "https://commons.wikimedia.org/wiki/File:BuddhaBowlLot.jpg",
+    creator: "PizzaMan",
+    license: "CC BY-SA 4.0",
+    source: "Wikimedia Commons",
+    query: "curated vegetable rice bowl",
+    match_kind: "curated",
+  });
+
+  const curatedSalmonImage = Object.freeze({
+    url: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7c/Salmon%2C_pan-seared_and_glazed%2C_with_Brussels_sprouts_and_root_vegetables_-_Massachusetts.jpg/1280px-Salmon%2C_pan-seared_and_glazed%2C_with_Brussels_sprouts_and_root_vegetables_-_Massachusetts.jpg",
+    description_url:
+      "https://commons.wikimedia.org/wiki/File:Salmon,_pan-seared_and_glazed,_with_Brussels_sprouts_and_root_vegetables_-_Massachusetts.jpg",
+    creator: "Daderot",
+    license: "CC0 1.0",
+    source: "Wikimedia Commons",
+    query: "curated pan-seared salmon photograph",
+    match_kind: "curated",
+  });
+
+  function curatedRecipeImage(recipe = {}) {
+    const text =
+      `${recipe.title || ""} ${recipe.image_query || ""} ${recipe.summary || ""}`;
+    if (/\bsalmon\b|鮭魚|鲑鱼/i.test(text)) {
+      return { ...curatedSalmonImage };
+    }
+    return /\b(?:rice|grain|buddha)\s+bowl\b|\bchickpea\s+bowl\b|(?:蔬菜|鷹嘴豆|鹰嘴豆|素食)[\s\S]{0,12}(?:飯碗|饭碗|餐碗)/i.test(
+      text,
+    )
+      ? { ...curatedGrainBowlImage }
+      : null;
+  }
+
   root.ChefDomain = Object.freeze({
     calculateTarget,
     tickTimers,
     normalizeRecipeSteps,
     buildRecipeTimers,
     normalizeIngredient,
+    recipeIntegrityReport,
     normalizeGroceryItem,
     applyIngredientSubstitution,
     ingredientPreparation,
+    recipeTitleAfterSubstitution,
     ingredientDetails,
     quantityInBaseUnit,
     convertQuantity,
     mergeGroceryItems,
+    scaleIngredientsForServings,
     groceryDisplayMeasurement,
     ingredientWeightInGrams,
     calculateUsdaMealNutrition,
+    compareNutritionEstimates,
     localDateKey,
     safeExternalUrl,
+    reconcileCookingRecipeReference,
+    curatedRecipeImage,
   });
 })(globalThis);

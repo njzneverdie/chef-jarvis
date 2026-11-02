@@ -1,7 +1,7 @@
 .guided-preview {
-  display: grid;
-  grid-template-columns: 1fr 1.1fr;
-  gap: 15px;
+  display: block;
+  width: 100%;
+  min-width: 0;
   margin-top: 18px;
 }
 .ingredient-guide,
@@ -36,10 +36,250 @@
 }
 .step-guide ol {
   margin: 0;
-  padding-left: 20px;
+  padding: 0 2px 6px;
   color: #5d564e;
   font-size: 12px;
-  line-height: 1.7;
+  line-height: 1.5;
+}
+#plan .recipe-plan-layout {
+  display: block;
+}
+#plan .recipe-showcase {
+  display: grid;
+  grid-template-columns: minmax(0, 0.94fr) minmax(380px, 1.06fr);
+  min-height: 520px;
+  overflow: hidden;
+  border-radius: 30px;
+  background: #fbf4e9;
+  box-shadow: 0 22px 60px #594b3520;
+}
+#plan .recipe-showcase .recipe-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(30px, 4vw, 56px);
+}
+.recipe-personalized-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  margin-bottom: 28px;
+  padding: 8px 12px 8px 9px;
+  border: 1px solid #d9d2c5;
+  border-radius: 999px;
+  background: #fffaf2;
+  color: var(--green);
+}
+.recipe-personalized-note > span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--green);
+  color: #fff;
+}
+.recipe-personalized-note b,
+.recipe-personalized-note small {
+  display: block;
+}
+.recipe-personalized-note b {
+  font-size: 10px;
+}
+.recipe-personalized-note small {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 8px;
+}
+#plan .recipe-showcase .recipe-body h2 {
+  max-width: 620px;
+  margin: 9px 0 16px;
+  color: #153b2e;
+  font: clamp(40px, 4.5vw, 66px) / 0.95 var(--serif);
+  letter-spacing: -2px;
+}
+#plan .recipe-showcase .recipe-body h2.long-title {
+  font-size: clamp(30px, 3vw, 44px);
+  line-height: 1;
+  letter-spacing: -1px;
+}
+.recipe-summary {
+  max-width: 610px;
+  margin: 0;
+  color: #554f47;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.recipe-request {
+  width: fit-content;
+  max-width: 100%;
+  margin: 13px 0 0;
+  padding: 8px 10px;
+  border-left: 3px solid #769070;
+  background: #f1eadf;
+  color: #746d64;
+  font-size: 9px;
+  line-height: 1.45;
+}
+.recipe-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 20px;
+}
+.recipe-facts span {
+  padding: 8px 11px;
+  border-radius: 999px;
+  background: #e8eadf;
+  color: var(--green);
+  font-size: 10px;
+}
+#plan .recipe-showcase .macros {
+  gap: 8px;
+  border: 0;
+  margin: 18px 0;
+  padding: 0;
+}
+#plan .recipe-showcase .macros div {
+  padding: 10px 7px;
+  border: 1px solid #ded5c8;
+  border-radius: 12px;
+  background: #fffaf3;
+}
+#plan .recipe-showcase .macros b {
+  color: var(--green);
+  font-size: 13px;
+}
+#plan .recipe-showcase .macros small {
+  display: block;
+  margin-top: 3px;
+  line-height: 1.25;
+}
+.recipe-primary-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 2px;
+}
+.recipe-primary-actions button {
+  flex: 1;
+}
+#plan .recipe-showcase .meal-estimate-note {
+  margin: 13px 0 0;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.45;
+}
+#plan .recipe-showcase .recipe-photo {
+  min-height: 520px;
+  background: linear-gradient(145deg, #dbe5ce, #6c8b6c);
+}
+#plan .recipe-showcase .dish-visual .recipe-image {
+  min-height: 520px;
+}
+#plan .recipe-showcase .dish-visual:not(.has-recipe-image) {
+  place-items: center;
+}
+#plan .recipe-showcase .dish-visual:not(.has-recipe-image) > div {
+  justify-items: center;
+  text-align: center;
+}
+#plan .recipe-showcase .recipe-photo-empty {
+  max-width: 390px;
+  padding: 48px;
+  border: 1px solid #f7f1e4a3;
+  border-radius: 999px;
+  background: #f8f0df1c;
+  box-shadow: 0 24px 70px #10271d2e;
+}
+#plan .recipe-showcase .dish-visual:not(.has-recipe-image) b {
+  max-width: 360px;
+  margin: 18px 0 10px;
+  font-size: clamp(22px, 2.7vw, 35px);
+  line-height: 1.04;
+}
+.step-guide {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.step-guide .section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+  margin-bottom: 18px;
+}
+.step-guide .section-heading h2 {
+  margin-bottom: 0;
+}
+.step-guide .section-heading > p {
+  max-width: 440px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.step-guide ol {
+  display: grid;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(180px, 1fr);
+  gap: 10px;
+  overflow-x: auto;
+  list-style: none;
+  scroll-snap-type: x proximity;
+}
+.step-guide li {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 62px 1fr auto;
+  min-height: 190px;
+  padding: 12px;
+  border: 1px solid #e0d8cc;
+  border-radius: 15px;
+  background: #f7f0e7;
+  scroll-snap-align: start;
+}
+.step-number {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: var(--green);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+}
+.step-visual {
+  display: grid;
+  grid-row: 2;
+  place-items: center;
+  font-size: 38px;
+}
+.step-guide li b {
+  grid-row: 3;
+  align-self: start;
+  color: #3f3b36;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.step-timing {
+  grid-row: 4;
+  margin-top: 9px;
+  color: #a25b31;
+  font-size: 8px;
+  font-weight: 800;
+}
 }
 .current-step {
   background: #dce7d8;
@@ -125,7 +365,67 @@
 }
 @media (max-width: 850px) {
   .guided-preview {
+    display: block;
+  }
+  #plan > .title {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    margin: 8px 0 18px;
+  }
+  #plan > .title h1 {
+    margin: 2px 0 0;
+    font-size: 36px;
+    line-height: 0.9;
+  }
+  #plan > .title .eyebrow {
+    margin-bottom: 4px;
+  }
+  #plan > .title > .dark {
+    align-self: center;
+    padding: 11px 13px;
+    white-space: nowrap;
+  }
+  #plan > .title .plan-persistence-controls {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: #eee8dd;
+  }
+  #plan .recipe-showcase {
     grid-template-columns: 1fr;
+    min-height: 0;
+    border-radius: 22px;
+  }
+  #plan .recipe-showcase .recipe-photo {
+    grid-row: 1;
+    min-height: 300px;
+  }
+  #plan .recipe-showcase .dish-visual .recipe-image {
+    min-height: 300px;
+    max-height: 380px;
+  }
+  #plan .recipe-showcase .recipe-body {
+    grid-row: 2;
+    padding: 27px 22px;
+  }
+  #plan .recipe-showcase .recipe-body h2 {
+    font-size: clamp(38px, 12vw, 52px);
+  }
+  .recipe-personalized-note {
+    margin-bottom: 20px;
+  }
+  .recipe-primary-actions {
+    display: grid;
+  }
+  .step-guide .section-heading {
+    display: grid;
+    gap: 8px;
+  }
+  .step-guide ol {
+    grid-auto-columns: minmax(165px, 72vw);
   }
   .current-step h2 {
     font-size: 26px;
