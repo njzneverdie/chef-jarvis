@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { findVideoLink, importLinkFromURL, videoUploadProblem } from "../src/mobile-domain.mjs";
+import { findVideoLink, importLinkFromURL, importSource, videoUploadProblem } from "../src/mobile-domain.mjs";
 
 test("shared text yields its first YouTube or Instagram link", () => {
   assert.deepEqual(findVideoLink("Look at this! https://youtube.com/shorts/abcdefghijk?si=x wow"), {
@@ -24,4 +24,12 @@ test("picked videos must be at most 5 minutes and 50 MB", () => {
   assert.match(videoUploadProblem({ type: "video", duration: 1000, fileSize: 60e6 }, "en"), /50 MB/);
   assert.doesNotMatch(videoUploadProblem({ type: "video", duration: 1000, fileSize: 60e6 }, "zh-TW"), /[A-Za-z]/);
   assert.match(videoUploadProblem({ type: "image" }, "en"), /video/);
+});
+
+test("a pasted link picks the YouTube or Instagram Reels form", () => {
+  assert.equal(importSource("instagram", ""), "instagram");
+  assert.equal(importSource("youtube", ""), "youtube");
+  assert.equal(importSource(undefined, ""), "youtube");
+  assert.equal(importSource("youtube", "https://www.instagram.com/reel/C1a2B3c4D5e/"), "instagram");
+  assert.equal(importSource("instagram", "https://youtu.be/abcdefghijk"), "youtube");
 });

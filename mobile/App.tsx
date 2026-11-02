@@ -70,6 +70,7 @@ function Shell() {
     Nutrition: <NutritionScreen />,
     Cook: <CookScreen go={go} />,
     Import: <ImportScreen go={go} />,
+    ImportInstagram: <ImportScreen go={go} initialSource="instagram" />,
     Profile: <ProfileScreen key={st.profile?.updated_at || "new"} />,
   };
   return (

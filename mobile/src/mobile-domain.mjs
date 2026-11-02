@@ -185,6 +185,12 @@ export function findVideoLink(text) {
   return null;
 }
 
+// The import screen shows the YouTube or Instagram Reels form. A pasted link
+// decides it; until then the user's choice (or the screen it was opened as) does.
+export function importSource(chosen, text) {
+  return findVideoLink(text)?.platform || (chosen === "instagram" ? "instagram" : "youtube");
+}
+
 export const VIDEO_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 export const VIDEO_UPLOAD_MAX_MS = 300 * 1000;
 
