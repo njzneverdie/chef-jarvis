@@ -47,6 +47,35 @@ function cookingStorageKey() {
   return user ? `chef-jarvis:cooking:${user.id}` : null;
 }
 
+function previousPlansKey() {
+  return user ? `chef-jarvis:previous-plans:${user.id}` : null;
+}
+
+function readPreviousPlans() {
+  try {
+    const key = previousPlansKey();
+    const list = key ? JSON.parse(localStorage.getItem(key) || "[]") : [];
+    return Array.isArray(list) ? list.slice(0, 3) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePreviousPlans(list) {
+  try {
+    const key = previousPlansKey();
+    if (key) localStorage.setItem(key, JSON.stringify(list.slice(0, 3)));
+  } catch {}
+}
+
+// Before a newly generated dish replaces the current one, keep the current
+// dish (never session-only sources) so "Back to previous" can return to it.
+function rememberCurrentPlan(next) {
+  if (!currentPlan || isSessionOnlyRecipe(currentPlan)) return;
+  if (next && String(next.title || "") === String(currentPlan.title || "")) return;
+  writePreviousPlans([{ ...currentPlan }, ...readPreviousPlans()]);
+}
+
 function savedPlansCacheKey() {
   return user ? `chef-jarvis:saved-plans:${user.id}` : null;
 }
@@ -658,6 +687,10 @@ async function beginGuidedCooking(
     ingredients,
     saved_recipe_id: recipeId || recipe.saved_recipe_id || null,
   };
+  // The prep checklist travels with the recipe snapshot, so it is saved
+  // locally and in the cloud session like the rest of the cooking state.
+  if (window.ChefDomain.prepChecklist(activeRecipe, window.I18n.code).length)
+    activeRecipe.prep_state = { done: false, checks: [] };
   activeRecipeId = activeRecipe.saved_recipe_id;
   activeRecipeInstanceId = planInstanceId;
   cookingStepIndex = 0;
@@ -894,7 +927,7 @@ function renderPlan(query) {
     ? `<div class="recipe-photo dish-visual has-recipe-image"><img class="recipe-image" src="${esc(imageUrl)}" alt="${esc(recipe.title)}" loading="lazy">${imageSourceUrl ? `<a class="recipe-image-credit" href="${esc(imageSourceUrl)}" target="_blank" rel="noopener noreferrer">${imageMatchLabel}${esc(displayImage.source || "Wikimedia Commons")} · ${esc(displayImage.creator || "Commons contributor")} · ${esc(displayImage.license || "See source")}</a>` : ""}</div>`
     : `<div class="recipe-photo dish-visual"><div class="recipe-photo-empty"><span>YOUR DISH</span><b>${esc(recipe.title)}</b><small>Ingredients and cooking steps below</small></div></div>`;
   root.innerHTML = `
-    <div class="title"><div><p class="eyebrow">PERSONAL MEAL PLANNER</p><h1>${isAi ? "Your meal is" : "Let’s make something"}<br><em>${isAi ? "ready." : "great."}</em></h1></div><button class="dark" id="new-meal">＋ New meal</button></div>
+    <div class="title"><div><p class="eyebrow">PERSONAL MEAL PLANNER</p><h1>${isAi ? "Your meal is" : "Let’s make something"}<br><em>${isAi ? "ready." : "great."}</em></h1></div><div class="plan-title-actions">${isAi && readPreviousPlans().length ? `<button class="cream" id="previous-plan">${esc(tr(`Back to: ${readPreviousPlans()[0].title}`, `回上一道：${readPreviousPlans()[0].title}`))}</button>` : ""}<button class="dark" id="new-meal">＋ New meal</button></div></div>
     ${integrityWarning}
     <div class="planner recipe-plan-layout">
       <article class="recipe recipe-showcase card"><div class="recipe-body"><div class="recipe-personalized-note"><span>✦</span><div><b>Made for your profile</b><small>Pantry, nutrition and preferences applied</small></div></div><p class="eyebrow">CHEF JARVIS PLAN</p><h2 class="${recipe.title.length > 48 ? "long-title" : ""}">${esc(recipe.title)}</h2><p class="recipe-summary">${esc(recipe.summary)}</p>${sourceNote}<p class="recipe-request">${esc(isAi ? query.userRequest : query || "Tell Jarvis what you would like to cook.")}</p><div class="recipe-facts"><span>◷ ${displayNumber(recipe.minutes)} min</span><span>◌ ${displayNumber(recipe.servings)} servings</span><span>${esc(window.ChefDomain.recipeBadgeText(recipe, window.I18n.code))}</span></div><div class="macros"><div><b>${displayNumber(recipe.kcal)}</b><small>est. kcal · whole meal</small></div><div><b>${displayNumber(recipe.protein_g, "g")}</b><small>est. protein · whole meal</small></div><div><b>${displayNumber(recipe.carbs_g, "g")}</b><small>est. carbs · whole meal</small></div><div><b>${displayNumber(recipe.fat_g, "g")}</b><small>est. fat · whole meal</small></div></div><div class="recipe-primary-actions"><button class="cream" id="jump-to-ingredients">Review ingredients ↓</button><button class="dark" id="start-guided-cook" ${isAi ? integrityDisabled : "disabled"}>Start guided cooking →</button></div><p class="meal-estimate-note"><b>Meal estimate</b> · Whole recipe (${displayNumber(recipe.servings)} servings). Adjust it after changing quantities or swaps.</p></div>${recipeVisual}</article>
@@ -909,6 +942,12 @@ function renderPlan(query) {
       .join("")}</div></article>`;
 
   document.querySelector("#new-meal").onclick = () => show("home");
+  document.querySelector("#previous-plan")?.addEventListener("click", () => {
+    const [previous, ...rest] = readPreviousPlans();
+    if (!previous) return;
+    writePreviousPlans(rest);
+    renderPlan(previous);
+  });
   root
     .querySelector("#regenerate-precise-recipe")
     ?.addEventListener("click", () => {
@@ -2171,7 +2210,7 @@ async function requestPantryIdeas(preferences) {
       apikey: SUPABASE_KEY,
       Authorization: `Bearer ${session.access_token}`,
     },
-    body: JSON.stringify({ mode: "pantry_ideas", language: window.I18n.code, preferences }),
+    body: JSON.stringify({ mode: "pantry_ideas", language: window.I18n.code, preferences, ...cookingSkillField() }),
     signal: AbortSignal.timeout(30000),
   });
   const data = await response.json().catch(() => ({}));
@@ -2200,7 +2239,7 @@ async function generatePlan(request, constraints, preferences, extra) {
           apikey: SUPABASE_KEY,
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ ...extra, request, language: window.I18n.code, constraints, preferences }),
+        body: JSON.stringify({ ...extra, ...cookingSkillField(), request, language: window.I18n.code, constraints, preferences }),
         signal: controller.signal,
       });
       assertGenerationContext(ownerUserId, generationEpoch);
@@ -2620,7 +2659,7 @@ function openMealFeedback(recipe, nutritionLogPromise) {
   const modal = document.createElement("div");
   modal.className = "modal meal-feedback-modal";
   const servingsLimit = 12;
-  modal.innerHTML = `<form class="modal-card feedback-card"><p class="eyebrow">HELP JARVIS LEARN</p><h2>How did this meal taste?</h2><p>One quick rating helps future recipes fit you better.</p><div class="automation-summary"><p class="eyebrow">AUTOMATICALLY COMPLETED</p><div data-auto-nutrition>◌ Recording 1 serving of nutrition…</div><div data-auto-pantry>◌ Checking recipe amounts against your pantry…</div></div><div class="field"><label>Servings you ate</label><input name="servings_eaten" type="number" min="0.25" max="${servingsLimit}" step="0.25" value="1" required><small>Nutrition starts at one serving. Change this if you ate more.</small></div><div class="rating-row" role="radiogroup" aria-label="Meal rating">${[1, 2, 3, 4, 5].map((rating) => `<label><input type="radio" name="rating" value="${rating}" required><span>${rating}★</span></label>`).join("")}</div><div class="field"><label>Optional note</label><input name="note" maxlength="300" placeholder="e.g. Less spicy next time"></div><div class="form-actions"><button type="button" class="cream" data-feedback-skip>Skip rating</button><button type="submit" class="dark">Save feedback →</button></div></form>`;
+  modal.innerHTML = `<form class="modal-card feedback-card"><p class="eyebrow">HELP JARVIS LEARN</p><h2>How did this meal taste?</h2><p>One quick rating helps future recipes fit you better.</p><div class="automation-summary"><p class="eyebrow">AUTOMATICALLY COMPLETED</p><div data-auto-nutrition>◌ Recording 1 serving of nutrition…</div><div data-auto-pantry>◌ Checking recipe amounts against your pantry…</div></div><div class="field"><label>Servings you ate</label><input name="servings_eaten" type="number" min="0.25" max="${servingsLimit}" step="0.25" value="1" required><small>Nutrition starts at one serving. Change this if you ate more.</small></div><fieldset class="feedback-tags"><legend>${tr("How was it? (pick any)", "這道菜如何？（可複選）")}</legend><div class="choice-grid">${window.ChefDomain.feedbackTagOptions.map(([value, en, zh]) => `<label><input type="checkbox" name="tags" value="${value}"><span>${esc(tr(en, zh))}</span></label>`).join("")}</div></fieldset><div class="rating-row" role="radiogroup" aria-label="${esc(tr("Star rating (optional)", "星等（選填）"))}">${[1, 2, 3, 4, 5].map((rating) => `<label><input type="radio" name="rating" value="${rating}"><span>${rating}★</span></label>`).join("")}</div><p class="error hidden" data-feedback-error role="alert"></p><div class="field"><label>Optional note</label><input name="note" maxlength="300" placeholder="e.g. Less spicy next time"></div><div class="form-actions"><button type="button" class="cream" data-feedback-skip>Skip rating</button><button type="submit" class="dark">Save feedback →</button></div></form>`;
   document.body.append(modal);
   window.associateFieldLabels?.(modal);
   const close = bindDismissibleModal(modal);
@@ -2660,22 +2699,34 @@ function openMealFeedback(recipe, nutritionLogPromise) {
   modal.querySelector("form").onsubmit = async (event) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
+    const tags = values.getAll("tags").map(String);
+    // Stars are optional; quick reactions alone map to a rating.
+    const rating = values.get("rating")
+      ? Number(values.get("rating"))
+      : window.ChefDomain.feedbackRatingForTags(tags);
+    if (!rating) {
+      const message = modal.querySelector("[data-feedback-error]");
+      message.textContent = tr("Pick a quick reaction or stars, or tap Skip rating.", "請選一個快速回饋或星等，或按「略過評分」。");
+      message.classList.remove("hidden");
+      return;
+    }
     const saveButton = event.currentTarget.querySelector(
       'button[type="submit"]',
     );
     saveButton.disabled = true;
     saveButton.textContent = "Saving…";
     await updateLoggedServings(values.get("servings_eaten"));
-    const { error } = await sb.from("recipe_feedback").insert({
+    const feedbackRow = {
       user_id: user.id,
       recipe_id: recipe.saved_recipe_id || null,
       recipe_title: String(recipe.title || "Completed meal").slice(0, 160),
-      rating: Number(values.get("rating")),
+      rating,
       note:
         String(values.get("note") || "")
           .trim()
           .slice(0, 300) || null,
-    });
+    };
+    const { error } = await sb.from("recipe_feedback").insert({ ...feedbackRow, tags });
     if (error) {
       saveButton.disabled = false;
       saveButton.textContent = "Save feedback →";
@@ -2727,9 +2778,24 @@ async function completeCooking(recipe) {
   renderCook();
   if (isSessionOnlyRecipe(recipe)) {
     toast(
-      "Dish completed in this session ✓ Nothing was saved or changed, including pantry, nutrition, feedback, and cooking progress. 料理已完成 ✓ 沒有儲存或變更任何資料，包括食材庫、營養、評價與烹飪進度。",
+      tr(
+        "Dish completed in this session ✓ Nothing was saved or changed, including pantry, nutrition, feedback, and cooking progress.",
+        "料理已完成 ✓ 沒有儲存或變更任何資料，包括庫存、營養、評價與烹飪進度。",
+      ),
     );
     return;
+  }
+  // Finished dishes are kept so "Dishes I can make" can reopen them.
+  if (!recipe.saved_recipe_id) {
+    try {
+      const toSave = { ...recipe };
+      delete toSave.prep_state;
+      const saved = await saveGeneratedPlanForLater(toSave, Symbol("completed-dish"));
+      recipe.saved_recipe_id = saved.saved_recipe_id;
+    } catch (error) {
+      if (error?.code === "stale_auth_context") return;
+      console.warn("Could not save the completed recipe", error);
+    }
   }
   const nutritionLogPromise = logCompletedMeal(recipe);
   const feedback = openMealFeedback(recipe, nutritionLogPromise);
@@ -2855,6 +2921,60 @@ function toggleVoiceControl() {
   else startVoiceControl();
 }
 
+// Help under the current Chef Mode step: the tap hint (only when a term or
+// measure is tappable), this step's doneness/rescue tips, and generic fixes.
+function stepHelpMarkup(step, ingredients = []) {
+  const tappable = window.ChefDomain
+    .stepSegments(step.instruction, ingredients, window.I18n.code)
+    .some((segment) => segment.kind !== "text");
+  const tips = [
+    step.doneness ? `<p><b>${tr("Done when: ", "熟度判斷：")}</b>${esc(step.doneness)}</p>` : "",
+    step.rescue ? `<p><b>${tr("If it goes wrong: ", "失敗怎麼救：")}</b>${esc(step.rescue)}</p>` : "",
+  ].join("");
+  const fixes = window.ChefDomain.genericRescueTips(window.I18n.code)
+    .map(([problem, fix]) => `<li><b>${esc(problem)}</b>${tr(": ", "：")}${esc(fix)}</li>`)
+    .join("");
+  return `<div class="step-help">${tappable ? `<p class="step-help-hint">${tr("Tap underlined words for help.", "點有底線的字可看說明。")}</p>` : ""}${tips ? `<details class="step-tips"><summary>${tr("How do I know it is done?", "怎樣算煮好？")}</summary>${tips}</details>` : ""}<details class="step-tips"><summary>${tr("Quick fixes: too salty, burnt…", "常見狀況怎麼救：太鹹、燒焦…")}</summary><ul>${fixes}</ul></details></div>`;
+}
+
+function renderPrepChecklist(root, recipe) {
+  const items = window.ChefDomain.prepChecklist(recipe, window.I18n.code);
+  const checks = new Set(recipe.prep_state.checks || []);
+  const finishPrep = () => {
+    recipe.prep_state = { ...recipe.prep_state, done: true };
+    persistCookingState();
+    renderCook();
+  };
+  if (!items.length) return finishPrep();
+  const allChecked = items.every((item) => checks.has(item.id));
+  root.innerHTML = `<section class="card prep-checklist" aria-labelledby="prep-title">
+    <p class="eyebrow">${tr("BEFORE YOU START", "開煮前準備")}</p>
+    <h1 id="prep-title">${esc(recipe.title)}</h1>
+    <p>${tr("Cut everything and get your tools out first, so nothing burns while you prep.", "先切好食材、拿出器具，煮的時候就不會手忙腳亂。")}</p>
+    <div class="prep-items">${items
+      .map(
+        (item) =>
+          `<label class="${checks.has(item.id) ? "checked" : ""}"><input type="checkbox" data-prep-item="${esc(item.id)}" ${checks.has(item.id) ? "checked" : ""}><span>${esc(item.text)}</span></label>`,
+      )
+      .join("")}</div>
+    <p class="prep-progress" aria-live="polite">${tr(`${checks.size} of ${items.length} ready`, `已完成 ${checks.size} / ${items.length} 項`)}</p>
+    <div class="form-actions"><button type="button" class="cream" id="skip-prep">${tr("Skip (I am ready)", "略過（已準備好）")}</button><button type="button" class="dark" id="start-after-prep" ${allChecked ? "" : "disabled"}>${tr("Start cooking", "開始烹飪")}</button></div>
+  </section>`;
+  root.querySelectorAll("[data-prep-item]").forEach((input) => {
+    input.onchange = () => {
+      const next = new Set(recipe.prep_state.checks || []);
+      if (input.checked) next.add(input.dataset.prepItem);
+      else next.delete(input.dataset.prepItem);
+      recipe.prep_state = { ...recipe.prep_state, checks: [...next] };
+      persistCookingState();
+      renderCook();
+      root.querySelector(`[data-prep-item="${CSS.escape(input.dataset.prepItem)}"]`)?.focus();
+    };
+  });
+  root.querySelector("#skip-prep").onclick = finishPrep;
+  root.querySelector("#start-after-prep").onclick = finishPrep;
+}
+
 function renderCook() {
   markViewRendered("cook");
   const root = document.querySelector("#cook");
@@ -2870,6 +2990,12 @@ function renderCook() {
   if (!steps.length) {
     clearCookingState();
     return renderCook();
+  }
+  // Sessions started before the checklist existed have no prep_state and go
+  // straight to their step.
+  if (recipe.prep_state && !recipe.prep_state.done) {
+    renderPrepChecklist(root, recipe);
+    return;
   }
   const adaptations = recipe.equipment_adaptations?.length
     ? recipe.equipment_adaptations
@@ -2907,7 +3033,7 @@ function renderCook() {
   root.innerHTML = `
     <div class="chef-mode-heading"><div><p class="eyebrow">CHEF MODE · ${activeRecipe ? "ACTIVE RECIPE" : "READY"}</p><h1>${esc(recipe.title)}<br><em>cook with Jarvis.</em></h1></div><div class="chef-voice-actions"><button class="cream" id="chef-voice">🎙 Hands-free</button><button class="cream" id="chef-read">🔊 Read current step</button></div></div>
     ${showVoiceTip ? '<aside class="chef-voice-tip" role="status"><div><b>🎙 Cook hands-free</b><span>Say “next step”, “repeat”, or “start timer” while your hands are busy.</span></div><button type="button" class="cream" id="dismiss-voice-tip">Got it</button></aside>' : ""}
-    <div class="chef-mode-grid"><section class="chef-guide"><div class="chef-step-counter"><span>STEP ${cookingStepIndex + 1} / ${steps.length}</span><div>${steps.map((_, index) => `<i class="${index < cookingStepIndex ? "done" : index === cookingStepIndex ? "now" : ""}"></i>`).join("")}</div></div><article class="current-step chef-current"><span>DO THIS NOW</span><h2>${esc(current)}</h2>${currentTimerMarkup}<p>${esc(progressPersistenceCopy)}</p></article><div class="guide-actions"><button class="cream" id="previous-step" ${cookingStepIndex === 0 ? "disabled" : ""}>← Previous</button><button class="cream" id="repeat-step">↻ Repeat</button><button class="dark" id="complete-step">${cookingStepIndex === steps.length - 1 ? "Finish dish ✓" : "Complete step →"}</button></div><div class="chef-queue"><p class="eyebrow">RECIPE QUEUE</p>${steps.map((step, index) => `<button class="${index === cookingStepIndex ? "current" : index < cookingStepIndex ? "done" : ""}" data-jump-step="${index}"><b>${index < cookingStepIndex ? "✓" : index + 1}</b><span>${esc(step.instruction)}</span></button>`).join("")}</div>${
+    <div class="chef-mode-grid"><section class="chef-guide"><div class="chef-step-counter"><span>STEP ${cookingStepIndex + 1} / ${steps.length}</span><div>${steps.map((_, index) => `<i class="${index < cookingStepIndex ? "done" : index === cookingStepIndex ? "now" : ""}"></i>`).join("")}</div></div><article class="current-step chef-current"><span>DO THIS NOW</span><h2>${stepTextMarkup(current, recipe.ingredients)}</h2>${stepHelpMarkup(currentStep, recipe.ingredients)}${currentTimerMarkup}<p>${esc(progressPersistenceCopy)}</p></article><div class="guide-actions"><button class="cream" id="previous-step" ${cookingStepIndex === 0 ? "disabled" : ""}>← Previous</button><button class="cream" id="repeat-step">↻ Repeat</button><button class="dark" id="complete-step">${cookingStepIndex === steps.length - 1 ? "Finish dish ✓" : "Complete step →"}</button></div><div class="chef-queue"><p class="eyebrow">RECIPE QUEUE</p>${steps.map((step, index) => `<button class="${index === cookingStepIndex ? "current" : index < cookingStepIndex ? "done" : ""}" data-jump-step="${index}"><b>${index < cookingStepIndex ? "✓" : index + 1}</b><span>${esc(step.instruction)}</span></button>`).join("")}</div>${
       adaptations.length
         ? `<div class="chef-adaptation-inline"><p class="eyebrow">YOUR EQUIPMENT OPTION</p>${adaptations
             .slice(0, 2)

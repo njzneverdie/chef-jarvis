@@ -1185,3 +1185,28 @@ h1 em {
 .step-term {all:unset; cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; color:inherit;}
 .step-term:focus-visible {outline:2px solid #c77c44; outline-offset:2px;}
 .step-hint {display:block; margin-top:4px; color:#5d6b63;}
+
+.quick-setup fieldset {border:0; padding:0; margin:12px 0; display:grid; gap:8px;}
+.quick-setup legend {font-weight:700; margin-bottom:6px;}
+.quick-setup .link {margin-top:8px;}
+.quick-setup-note {color:#5d6b63; font-size:14px;}
+
+.prep-checklist {display:grid; gap:12px; max-width:720px;}
+.prep-items {display:grid; gap:8px;}
+.prep-items label {display:flex; gap:10px; align-items:center; min-height:44px; padding:10px 14px; border:1px solid #c9cec3; border-radius:8px; background:#fffaf3; cursor:pointer;}
+.prep-items label.checked {background:#e7ecdf;}
+.prep-items input {width:20px; height:20px;}
+.prep-progress {font-weight:600; margin:0;}
+
+.step-help {display:grid; gap:6px; margin:8px 0;}
+.step-help-hint {font-size:14px; color:#5d6b63; margin:0;}
+.step-tips summary {cursor:pointer; min-height:44px; display:flex; align-items:center; font-weight:600;}
+.step-tips p, .step-tips ul {margin:4px 0 8px;}
+
+.feedback-tags {border:0; padding:0; margin:12px 0;}
+.feedback-tags legend {font-weight:700; margin-bottom:6px;}
+.cooked-dish-list {display:grid; gap:10px;}
+.cooked-dish {display:flex; justify-content:space-between; align-items:center; gap:12px; border-top:1px solid #e4e1d8; padding-top:10px;}
+.cooked-dish small {display:block; color:#5d6b63;}
+
+.plan-title-actions {display:flex; flex-wrap:wrap; gap:10px; align-items:center;}

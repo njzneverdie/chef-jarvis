@@ -51,7 +51,11 @@ function json(body, status = 200, extraHeaders = {}) {
   };
 }
 
-async function installBackendMock(page) {
+// options.profile overrides the signed-in profile (null = no profile row);
+// options.tables returns rows per table; options.writes collects mutations,
+// which are then accepted instead of rejected.
+async function installBackendMock(page, options = {}) {
+  const currentProfile = options.profile === null ? null : { ...profile, ...(options.profile || {}) };
   await page.route("**/auth/v1/token?grant_type=password", (route) =>
     route.fulfill(
       json({
@@ -69,17 +73,28 @@ async function installBackendMock(page) {
   );
   await page.route("**/rest/v1/**", (route) => {
     const request = route.request();
-    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
-      return route.fulfill(json({ message: "Unexpected mutation in read-only audit" }, 409));
-    }
     const url = new URL(request.url());
     const table = url.pathname.split("/").at(-1);
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+      if (!options.writes) {
+        return route.fulfill(json({ message: "Unexpected mutation in read-only audit" }, 409));
+      }
+      let body = null;
+      try { body = request.postDataJSON(); } catch {}
+      options.writes.push({ table, method: request.method(), body });
+      const rows = (Array.isArray(body) ? body : [body || {}]).map((row, index) => ({ id: `00000000-0000-4000-8000-${String(options.writes.length * 100 + index).padStart(12, "0")}`, ...row }));
+      // .single() asks for one object instead of an array.
+      const single = /vnd\.pgrst\.object/.test(request.headers()["accept"] || "");
+      return route.fulfill(json(single ? rows[0] : rows, 201));
+    }
     if (table === "app_profiles") {
+      if (!currentProfile) return route.fulfill(json(null, 200, { "content-range": "*/0" }));
       return route.fulfill(
-        json(profile, 200, { "content-range": "0-0/1" }),
+        json(currentProfile, 200, { "content-range": "0-0/1" }),
       );
     }
-    return route.fulfill(json([], 200, { "content-range": "*/0" }));
+    const rows = options.tables?.[table] || [];
+    return route.fulfill(json(rows, 200, { "content-range": rows.length ? `0-${rows.length - 1}/${rows.length}` : "*/0" }));
   });
 }
 
@@ -161,7 +176,7 @@ test('one sign-in loads the profile once and does not replace navigation', async
 });
 
 test("meal planning submits selected conditions without a text field", async ({ page }) => {
-  await installBackendMock(page);
+  await installBackendMock(page, { profile: { cooking_skill: "beginner" } });
   let body;
   await page.route("**/functions/v1/chef-meal-plan", async route => {
     body = route.request().postDataJSON();
@@ -188,6 +203,7 @@ test("meal planning submits selected conditions without a text field", async ({ 
   expect(body.request).toContain("saved allergies");
   expect(body.preferences.practical).toEqual(["use_pantry"]);
   expect(body.preferences.cuisine).toEqual(["japanese", "korean"]);
+  expect(body.cooking_skill).toBe("beginner");
   await expect(planner.getByRole("button", { name: "Generate", exact: true })).toBeEnabled();
 });
 
@@ -250,4 +266,207 @@ test("pantry accepts several ingredients at once after a preview", async ({ page
     ["eggs", 6, "piece"],
     ["bok choy", null, null],
   ]);
+});
+
+async function signIn(page) {
+  await page.goto("/");
+  await page.getByLabel("Email").fill("chef-audit@example.com");
+  await page.getByLabel("Password").fill("audit-only-password");
+  await page.getByRole("button", { name: "Sign in →" }).click();
+}
+
+test("a new account finishes the three-step quick setup without body data", async ({ page }) => {
+  const writes = [];
+  await installBackendMock(page, { profile: null, writes });
+  await signIn(page);
+  const setup = page.locator("#quick-setup");
+  await expect(setup.getByText("Quick setup · step 1 of 3")).toBeVisible();
+  await setup.getByLabel("Peanut", { exact: true }).check();
+  await setup.getByLabel("Vegetarian", { exact: true }).check();
+  await setup.getByRole("button", { name: "Next" }).click();
+  await expect(setup.getByText("Quick setup · step 2 of 3")).toBeVisible();
+  await setup.getByLabel("Oven", { exact: true }).check();
+  await setup.getByRole("button", { name: "Back" }).click();
+  await expect(setup.getByLabel("Peanut", { exact: true })).toBeChecked();
+  await setup.getByRole("button", { name: "Next" }).click();
+  await expect(setup.getByLabel("Oven", { exact: true })).toBeChecked();
+  await setup.getByRole("button", { name: "Next" }).click();
+  await setup.getByLabel("Some experience", { exact: true }).check();
+  await setup.getByRole("button", { name: "Start cooking" }).click();
+  await expect(setup).toHaveCount(0);
+  const saved = writes.find((write) => write.table === "app_profiles")?.body;
+  expect(saved).toMatchObject({
+    onboarding_completed: true,
+    allergies: ["Peanut"],
+    dietary_preferences: ["Vegetarian"],
+    equipment: ["Oven"],
+    cooking_skill: "some",
+  });
+  expect(saved.height_cm).toBeUndefined();
+});
+
+test("an onboarded account never sees the quick setup", async ({ page }) => {
+  await installBackendMock(page);
+  await signIn(page);
+  await expect(page.locator("#meal-form")).toBeVisible();
+  await expect(page.locator("#quick-setup")).toHaveCount(0);
+});
+
+const measuredPlan = {
+  title: "Garlic chicken rice bowl",
+  image_query: "garlic chicken rice bowl",
+  summary: "A quick chicken rice bowl.",
+  minutes: 25,
+  servings: 1,
+  kcal: 600,
+  protein_g: 45,
+  carbs_g: 60,
+  fat_g: 15,
+  ingredients: [
+    { name: "Chicken breast", usda_query: "chicken breast raw", quantity: 200, unit: "g", preparation: "diced", category: "protein" },
+    { name: "Cooked rice", usda_query: "rice white cooked", quantity: 200, unit: "g", preparation: "no preparation", category: "grain" },
+    { name: "Olive oil", usda_query: "olive oil", quantity: 1, unit: "tbsp", preparation: "no preparation", category: "oil" },
+  ],
+  steps: [
+    { instruction: "Heat 1 tbsp olive oil in a frying pan over medium heat for 1 minute.", timers: [{ label: "Heat oil", kind: "preheat", duration_seconds: 60 }], doneness: "The oil shimmers.", rescue: "Smoking? Take the pan off the heat for a moment." },
+    { instruction: "Sear the diced chicken for 6 minutes until cooked through.", timers: [{ label: "Sear chicken", kind: "cook", duration_seconds: 360 }] },
+    { instruction: "Serve the chicken over the rice.", timers: [] },
+  ],
+  substitutions: [],
+  equipment_adaptations: [],
+  reuse_ideas: [],
+};
+
+async function generateMeasuredPlan(page) {
+  await page.route("**/functions/v1/chef-meal-plan", (route) =>
+    route.fulfill(json({ plan: measuredPlan, meta: {} })),
+  );
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Start guided cooking →" })).toBeEnabled();
+}
+
+const savedRecipeRow = {
+  id: "22222222-2222-4222-8222-222222222222",
+  title: measuredPlan.title,
+  servings: 1,
+  minutes: 25,
+  recipe: { ...measuredPlan, saved_recipe_id: "22222222-2222-4222-8222-222222222222" },
+  nutrition: { estimate: { kcal: 600, protein_g: 45, carbs_g: 60, fat_g: 15 } },
+  created_at: "2026-10-30T10:00:00Z",
+  is_saved: true,
+};
+
+// "Cook later" saves the plan (accepted by the write-capturing mock), which
+// makes guided-cooking progress survive a reload.
+async function openSavedRecipe(page) {
+  await generateMeasuredPlan(page);
+  await page.getByRole("button", { name: "Cook later" }).click();
+  await expect(page.getByText("Not saved yet")).toHaveCount(0);
+}
+
+test("guided cooking starts with a prep checklist that survives a reload", async ({ page }) => {
+  await installBackendMock(page, { writes: [], tables: { recipes: [savedRecipeRow] } });
+  await signIn(page);
+  await openSavedRecipe(page);
+  await page.getByRole("button", { name: "Start guided cooking →" }).click();
+  const prep = page.locator(".prep-checklist");
+  await expect(prep).toBeVisible();
+  await expect(prep.getByText("Chicken breast: diced")).toBeVisible();
+  await expect(prep.getByText("Get out the frying pan")).toBeVisible();
+  await expect(prep.getByRole("button", { name: "Start cooking" })).toBeDisabled();
+  await prep.getByText("Chicken breast: diced").click();
+  await expect(prep.getByText("1 of 3 ready")).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: /Cook$/ }).first().click();
+  const restored = page.locator(".prep-checklist");
+  await expect(restored.getByText("1 of 3 ready")).toBeVisible();
+  for (const label of ["Get out the cutting board and knife", "Get out the frying pan"]) {
+    await restored.getByText(label).click();
+  }
+  await restored.getByRole("button", { name: "Start cooking" }).click();
+  await expect(page.getByText("STEP 1 / 3")).toBeVisible();
+  const step = page.locator(".chef-current");
+  await expect(step.getByText("Tap underlined words for help.")).toBeVisible();
+  await expect(step.locator(".step-term", { hasText: "1 tbsp" })).toBeVisible();
+  await step.getByText("How do I know it is done?").click();
+  await expect(step.getByText("The oil shimmers.")).toBeVisible();
+  await expect(step.getByText("Smoking? Take the pan off the heat for a moment.")).toBeVisible();
+  await step.getByText("Quick fixes: too salty, burnt…").click();
+  await expect(step.getByText("Too salty", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Complete step →" }).click();
+  await expect(page.locator(".chef-current .step-tips", { hasText: "How do I know it is done?" })).toHaveCount(0);
+});
+
+test("finishing a dish saves it and sends one-tap feedback tags without stars", async ({ page }) => {
+  const writes = [];
+  await installBackendMock(page, { writes });
+  await signIn(page);
+  await generateMeasuredPlan(page);
+  await page.getByRole("button", { name: "Start guided cooking →" }).click();
+  await page.locator(".prep-checklist").getByRole("button", { name: "Skip (I am ready)" }).click();
+  await page.getByRole("button", { name: "Complete step →" }).click();
+  await page.getByRole("button", { name: "Complete step →" }).click();
+  await page.getByRole("button", { name: "Finish dish ✓" }).click();
+  const feedback = page.locator(".feedback-card");
+  await expect(feedback).toBeVisible();
+  await feedback.getByRole("button", { name: /Save feedback/ }).click();
+  await expect(feedback.getByText("Pick a quick reaction or stars, or tap Skip rating.")).toBeVisible();
+  await feedback.getByText("Too salty", { exact: true }).click();
+  await feedback.getByText("Delicious", { exact: true }).click();
+  await feedback.getByRole("button", { name: /Save feedback/ }).click();
+  await expect(feedback).toHaveCount(0);
+  const saved = writes.find((write) => write.table === "recipes");
+  const log = writes.find((write) => write.table === "nutrition_logs");
+  const rated = writes.find((write) => write.table === "recipe_feedback");
+  expect(saved.body.title).toBe(measuredPlan.title);
+  expect(saved.body.recipe.prep_state).toBeUndefined();
+  expect(log.body.recipe_id).toBeTruthy();
+  expect(rated.body).toMatchObject({ tags: ["too_salty", "delicious"], rating: 4, recipe_title: measuredPlan.title });
+});
+
+test("Dishes I can make lists cooked meals and reopens the saved recipe", async ({ page }) => {
+  await installBackendMock(page, {
+    tables: {
+      recipes: [savedRecipeRow],
+      nutrition_logs: [
+        { recipe_title: measuredPlan.title, eaten_on: "2026-10-30" },
+        { recipe_title: measuredPlan.title, eaten_on: "2026-10-31" },
+        { recipe_title: "Too hard stew", eaten_on: "2026-10-29" },
+      ],
+      recipe_feedback: [{ recipe_title: "Too hard stew", tags: ["too_hard"], rating: 3, created_at: "2026-10-29T12:00:00Z" }],
+    },
+  });
+  await signIn(page);
+  await page.getByRole("button", { name: /Profile$/ }).first().click();
+  const card = page.locator("#cooked-dishes");
+  await expect(card.getByText("Dishes I can make")).toBeVisible();
+  await expect(card.getByText("Cooked 2× · last 2026-10-31")).toBeVisible();
+  await expect(card.getByText("Too hard stew")).toHaveCount(0);
+  await card.getByRole("button", { name: "Open recipe" }).click();
+  await expect(page.locator("#plan").getByRole("heading", { name: measuredPlan.title })).toBeVisible();
+});
+
+test("Back to previous returns to the dish before the latest one", async ({ page }) => {
+  await installBackendMock(page);
+  const titles = [measuredPlan.title, "Tofu noodle soup"];
+  let calls = 0;
+  await page.route("**/functions/v1/chef-meal-plan", (route) =>
+    route.fulfill(json({ plan: { ...measuredPlan, title: titles[Math.min(calls++, 1)] }, meta: {} })),
+  );
+  await signIn(page);
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
+  await expect(page.locator("#plan").getByRole("heading", { name: measuredPlan.title })).toBeVisible();
+  await expect(page.locator("#previous-plan")).toHaveCount(0);
+  await page.getByRole("button", { name: "＋ New meal" }).click();
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
+  await expect(page.locator("#plan").getByRole("heading", { name: "Tofu noodle soup" })).toBeVisible();
+  await page.getByRole("button", { name: `Back to: ${measuredPlan.title}` }).click();
+  await expect(page.locator("#plan").getByRole("heading", { name: measuredPlan.title })).toBeVisible();
+  await expect(page.locator("#previous-plan")).toHaveCount(0);
+  const stored = await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith("chef-jarvis:previous-plans:")));
+  expect(stored).toHaveLength(1);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByLabel("Email")).toBeVisible();
+  const afterSignOut = await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith("chef-jarvis:previous-plans:")));
+  expect(afterSignOut).toHaveLength(0);
 });

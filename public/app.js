@@ -5,6 +5,15 @@ const app = document.querySelector("#app");
 
 let user = null;
 let profile = null;
+// New copy picks its language directly: zh strings stay fully Chinese and
+// en strings fully English (checked by tests/web-copy-language.test.mjs).
+function tr(en, zh) {
+  return window.I18n?.code === "zh-TW" ? zh : en;
+}
+// Saved skill drives prompt difficulty; omitted when the user has none.
+function cookingSkillField() {
+  return profile?.cooking_skill ? { cooking_skill: profile.cooking_skill } : {};
+}
 let timers = [];
 let authSignup = false;
 let renderedViews = new Set();
@@ -440,6 +449,10 @@ function shell() {
     )
       return;
     if (typeof persistCookingState === "function") persistCookingState();
+    try {
+      if (typeof previousPlansKey === "function" && previousPlansKey())
+        localStorage.removeItem(previousPlansKey());
+    } catch {}
     const { error } = await sb.auth.signOut();
     if (error) return toast(error.message);
     resetChefState();
@@ -616,6 +629,12 @@ function renderHome() {
 
   document.querySelector("#meal-form").onsubmit = async (event) => {
     event.preventDefault();
+    // Without allergies/equipment on file, ask for the three-step setup
+    // instead of failing on the server.
+    if (!profile?.onboarding_completed) {
+      quickSetup();
+      return;
+    }
     const typedInput = document.querySelector("#meal-input");
     lastTypedRequest = typedInput.value.trim();
     typedInput.value = "";
@@ -654,6 +673,7 @@ function renderHome() {
         renderDishClarification(result);
         return;
       }
+      rememberCurrentPlan(result.plan);
       renderPlan(result.plan);
       show("plan");
     } catch (error) {
@@ -756,6 +776,7 @@ function renderPantryIdeas(hasPantry) {
             );
             assertGenerationContext(plan.ownerUserId, plan.generationEpoch);
             if (plan.kind !== "plan") return;
+            rememberCurrentPlan(plan.plan);
             renderPlan(plan.plan);
             show("plan");
           } catch (error) {
@@ -1038,8 +1059,8 @@ function renderProfile() {
       <article class="profile-card">
         <p class="eyebrow">YOUR FOOD PROFILE</p><h1>Cooking that learns<br><em>you.</em></h1>
         <p>Jarvis uses your nutrition targets, health goal, allergies, pantry and food preferences before suggesting a meal or swap.</p>
-        <div class="tags"><span>${esc(profile?.body_composition_goal || "Personal goal")}</span><span>${esc(nutrition())}</span>${dietary.map((value) => `<span>${esc(value)}</span>`).join("")}${allergyLabels.map((value) => `<span>${esc(value)}</span>`).join("")}</div>
-        <div class="profile-actions"><button class="dark" id="edit-profile">Edit my profile</button><button class="cream" id="saved-meals">Saved meal ideas</button><button class="cream" id="export-my-data">Download my data</button></div>
+        <div class="tags"><span>${esc(profile?.body_composition_goal || "Personal goal")}</span><span>${esc(nutrition())}</span>${dietary.map((value) => `<span>${esc(value)}</span>`).join("")}${allergyLabels.map((value) => `<span>${esc(value)}</span>`).join("")}${profile?.cooking_skill ? `<span>${esc(tr(...(window.ChefDomain.cookingSkillOptions.find(([value]) => value === profile.cooking_skill) || ["", "", ""]).slice(1)))}</span>` : ""}</div>
+        <div class="profile-actions"><button class="dark" id="edit-quick-setup">${tr("Allergies, diet & skill", "過敏、飲食與料理經驗")}</button><button class="cream" id="edit-profile">Edit my profile</button><button class="cream" id="saved-meals">Saved meal ideas</button><button class="cream" id="export-my-data">Download my data</button></div>
       </article>
       <article class="card equipment-card">
         <p class="eyebrow">YOUR KITCHEN SETUP</p><h2>Devices Jarvis can use.</h2><p>Equipment selections control the alternatives Chef Mode may offer.</p>
@@ -1050,12 +1071,15 @@ function renderProfile() {
           )
           .join("")}<button class="dark">Save kitchen setup →</button></form>
       </article>
+      <article class="card cooked-dishes" id="cooked-dishes" hidden></article>
       <article class="card account-danger-zone">
         <div><p class="eyebrow">DANGER ZONE</p><h2>Delete account and data.</h2><p>Permanent deletion removes your sign-in and all linked Chef Jarvis product data. <a href="/privacy.html">Read privacy & retention</a></p></div>
         <button class="danger-button" id="delete-account">Delete my account</button>
       </article>
     </div>`;
   document.querySelector("#edit-profile").onclick = () => onboarding(true);
+  document.querySelector("#edit-quick-setup").onclick = () => quickSetup({ edit: true });
+  renderCookedDishes();
   document.querySelector("#saved-meals").onclick = showSaved;
   document.querySelector("#export-my-data").onclick = (event) =>
     exportMyData(event.currentTarget);
@@ -1076,6 +1100,34 @@ function renderProfile() {
       toast("Kitchen setup saved ✓");
     }
   };
+}
+
+// "Dishes I can make": completed meals not last marked too hard.
+async function renderCookedDishes() {
+  const card = document.querySelector("#cooked-dishes");
+  if (!card || !user) return;
+  const owner = user.id;
+  const [logs, feedback, recipes] = await Promise.all([
+    sb.from("nutrition_logs").select("recipe_title,eaten_on").eq("user_id", owner).order("eaten_on", { ascending: false }).limit(300),
+    sb.from("recipe_feedback").select("*").eq("user_id", owner).order("created_at", { ascending: false }).limit(300),
+    sb.from("recipes").select("id,title,servings,minutes,recipe,nutrition,created_at,is_saved").eq("user_id", owner).eq("is_saved", true).limit(100),
+  ]);
+  if (!isCurrentAppUser(owner) || !card.isConnected || logs.error) return;
+  const dishes = window.ChefDomain.cookedDishes(logs.data || [], feedback.data || [], recipes.data || []).slice(0, 12);
+  if (!dishes.length) return;
+  card.hidden = false;
+  card.innerHTML = `<p class="eyebrow">${tr("YOUR REPERTOIRE", "我的拿手菜")}</p><h2>${tr("Dishes I can make", "我會做的菜")}</h2><div class="cooked-dish-list">${dishes
+    .map(
+      (dish, index) =>
+        `<div class="cooked-dish"><div><b>${esc(dish.title)}</b><small>${esc(tr(`Cooked ${dish.count}× · last ${dish.last}`, `做過 ${dish.count} 次・最近 ${dish.last}`))}</small></div>${dish.recipe?.recipe ? `<button type="button" class="cream" data-open-cooked="${index}">${tr("Open recipe", "開啟食譜")}</button>` : ""}</div>`,
+    )
+    .join("")}</div>`;
+  card.querySelectorAll("[data-open-cooked]").forEach((button) => {
+    button.onclick = () => {
+      renderPlan(planFromSavedRow(dishes[Number(button.dataset.openCooked)].recipe));
+      show("plan");
+    };
+  });
 }
 
 async function showSaved() {
@@ -1243,6 +1295,158 @@ function onboarding(edit = false) {
   };
 }
 
+// First-run setup in three steps (allergies & diet, equipment, cooking
+// skill). Body data and nutrition targets stay in the full profile form.
+const quickSetupAllergies = [
+  ["Milk", "Milk", "牛奶"],
+  ["Egg", "Egg", "蛋"],
+  ["Peanut", "Peanut", "花生"],
+  ["Tree nuts", "Tree nuts", "堅果"],
+  ["Shellfish", "Shellfish", "甲殼類"],
+  ["Fish", "Fish", "魚"],
+  ["Soy", "Soy", "大豆"],
+  ["Wheat", "Wheat", "小麥"],
+  ["Sesame", "Sesame", "芝麻"],
+];
+const quickSetupDiets = [
+  ["Vegetarian", "Vegetarian", "蛋奶素"],
+  ["Vegan", "Vegan", "純素"],
+  ["Halal", "Halal", "清真"],
+  ["Gluten-free", "Gluten-free", "無麩質"],
+  ["Lactose-free", "Lactose-free", "無乳糖"],
+];
+const quickSetupEquipment = {
+  Stovetop: "爐具",
+  Oven: "烤箱",
+  "Air fryer": "氣炸鍋",
+  Microwave: "微波爐",
+  "Rice cooker": "電鍋",
+  "Instant Pot": "多功能壓力鍋",
+  Blender: "果汁機",
+};
+const quickSetupSkippedKey = () => `chef-quick-setup-skipped:${user?.id || ""}`;
+
+function quickSetupSkipped() {
+  try {
+    return localStorage.getItem(quickSetupSkippedKey()) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function quickSetup({ edit = false } = {}) {
+  document.querySelector("#quick-setup")?.remove();
+  const saved = profile || {};
+  const allergies = new Set(saved.allergies || []);
+  const diets = new Set(saved.dietary_preferences || []);
+  const equipment = new Set(saved.equipment || []);
+  let skill = saved.cooking_skill || "beginner";
+  let step = 0;
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  modal.id = "quick-setup";
+  const chip = (name, value, label, checked, type = "checkbox") =>
+    `<label><input type="${type}" name="${name}" value="${esc(value)}" ${checked ? "checked" : ""}>${esc(label)}</label>`;
+  const render = () => {
+    const titles = [
+      tr("Allergies or diet?", "有過敏或飲食限制嗎？"),
+      tr("What can you cook with?", "家裡有哪些器材？"),
+      tr("How much do you cook?", "你的料理經驗？"),
+    ];
+    const body = [
+      `<p>${tr("Jarvis never recommends what you choose here. Skip if none.", "這裡選的食材，Jarvis 絕不會推薦。沒有就直接下一步。")}</p>
+       <fieldset><legend>${tr("Allergies", "過敏原")}</legend><div class="choice-grid">${quickSetupAllergies.map(([value, en, zh]) => chip("allergies", value, tr(en, zh), allergies.has(value))).join("")}</div></fieldset>
+       <fieldset><legend>${tr("Dietary needs", "飲食需求")}</legend><div class="choice-grid">${quickSetupDiets.map(([value, en, zh]) => chip("diets", value, tr(en, zh), diets.has(value))).join("")}</div></fieldset>`,
+      `<p>${tr("Recipes only use what you have. Pots and pans on the stove are always assumed.", "食譜只會用你有的器材；瓦斯爐上的鍋具一定會算在內。")}</p>
+       <fieldset><legend>${tr("Equipment", "廚房器材")}</legend><div class="choice-grid">${equipmentChoices().map((value) => chip("equipment", value, tr(value, quickSetupEquipment[value] || value), equipment.has(value))).join("")}</div></fieldset>`,
+      `<p>${tr("Beginners get simpler techniques, fewer pots and clearer cues.", "新手會拿到較簡單的作法、較少鍋具與更清楚的提示。")}</p>
+       <fieldset><legend>${tr("Cooking skill", "料理經驗")}</legend><div class="choice-grid">${window.ChefDomain.cookingSkillOptions.map(([value, en, zh]) => chip("skill", value, tr(en, zh), skill === value, "radio")).join("")}</div></fieldset>`,
+    ][step];
+    modal.innerHTML = `<form class="modal-card quick-setup" aria-labelledby="quick-setup-title">
+      <p class="eyebrow" aria-live="polite">${tr(`Quick setup · step ${step + 1} of 3`, `快速設定・第 ${step + 1} / 3 步`)}</p>
+      <h2 id="quick-setup-title">${titles[step]}</h2>
+      ${body}
+      <p class="error hidden" id="quick-setup-error" role="alert"></p>
+      <div class="form-actions">
+        ${step > 0 ? `<button type="button" class="cream" data-quick-back>${tr("Back", "上一步")}</button>` : ""}
+        <button type="submit" class="dark">${step < 2 ? tr("Next", "下一步") : edit ? tr("Save", "儲存") : tr("Start cooking", "開始使用")}</button>
+      </div>
+      <button type="button" class="link" data-quick-later>${edit ? tr("Cancel", "取消") : tr("Set up later in Profile", "稍後在「我的」設定")}</button>
+      ${edit ? "" : `<p class="quick-setup-note">${tr("Height, weight and nutrition targets are optional in Profile.", "身高、體重與營養目標可稍後在「我的」補填。")}</p>`}
+    </form>`;
+    const form = modal.querySelector("form");
+    const collect = () => {
+      const data = new FormData(form);
+      if (step === 0) {
+        allergies.clear();
+        diets.clear();
+        data.getAll("allergies").forEach((value) => allergies.add(String(value)));
+        data.getAll("diets").forEach((value) => diets.add(String(value)));
+      } else if (step === 1) {
+        equipment.clear();
+        data.getAll("equipment").forEach((value) => equipment.add(String(value)));
+      } else {
+        skill = String(data.get("skill") || skill);
+      }
+    };
+    modal.querySelector("[data-quick-back]")?.addEventListener("click", () => {
+      collect();
+      step -= 1;
+      render();
+    });
+    modal.querySelector("[data-quick-later]").onclick = () => {
+      if (!edit) {
+        try {
+          localStorage.setItem(quickSetupSkippedKey(), "1");
+        } catch {}
+      }
+      modal.remove();
+    };
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      collect();
+      if (step < 2) {
+        step += 1;
+        render();
+        return;
+      }
+      const submit = form.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      // Custom allergies typed in the full form are kept alongside the chips.
+      const known = new Set(quickSetupAllergies.map(([value]) => value));
+      const keptAllergies = (saved.allergies || []).filter((value) => !known.has(value));
+      const knownDiets = new Set(quickSetupDiets.map(([value]) => value));
+      const keptDiets = (saved.dietary_preferences || []).filter((value) => !knownDiets.has(value));
+      const payload = {
+        app_user_id: user.id,
+        onboarding_completed: true,
+        allergies: [...new Set([...keptAllergies, ...allergies])],
+        dietary_preferences: [...new Set([...keptDiets, ...diets])],
+        equipment: [...equipment],
+        cooking_skill: skill,
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await sb
+        .from("app_profiles")
+        .upsert(payload, { onConflict: "app_user_id" });
+      if (error) {
+        const message = modal.querySelector("#quick-setup-error");
+        message.textContent = tr("Your setup could not be saved. Please try again.", "設定沒有儲存成功，請再試一次。");
+        message.classList.remove("hidden");
+        submit.disabled = false;
+        return;
+      }
+      profile = { ...saved, ...payload };
+      modal.remove();
+      shell();
+      toast(tr("Your setup is saved ✓", "設定完成 ✓"));
+    };
+    form.querySelector("input")?.focus();
+  };
+  document.body.append(modal);
+  render();
+}
+
 let profileBootRequest = null;
 
 function boot() {
@@ -1278,7 +1482,7 @@ async function loadAppProfile() {
   }
   profile = result.data || null;
   shell();
-  if (!profile?.onboarding_completed) onboarding();
+  if (!profile?.onboarding_completed && !quickSetupSkipped()) quickSetup();
   return true;
 }
 

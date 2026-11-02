@@ -479,8 +479,8 @@ test("profile load failures do not open onboarding or overwrite saved data", asy
   const app = await readFile(new URL("app.js", publicUrl), "utf8");
   const boot = app.slice(app.indexOf("async function loadAppProfile()"), app.indexOf("async function startApp()"));
   assert.match(boot, /if \(result\.error\)[\s\S]*return false/);
-  assert.match(boot, /if \(!profile\?\.onboarding_completed\) onboarding\(\)/);
-  assert.ok(boot.indexOf("return false") < boot.indexOf("onboarding()"));
+  assert.match(boot, /if \(!profile\?\.onboarding_completed && !quickSetupSkipped\(\)\) quickSetup\(\)/);
+  assert.ok(boot.indexOf("return false") < boot.indexOf("quickSetup()"));
 });
 
 test("dynamic form fields receive programmatic label associations", async () => {
