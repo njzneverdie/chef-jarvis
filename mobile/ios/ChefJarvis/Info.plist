@@ -47,6 +47,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Chef Jarvis reads only the cooking video you choose, uploads it for recipe analysis, and deletes it right after.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Chef Jarvis uses the microphone only when you choose voice cooking commands.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

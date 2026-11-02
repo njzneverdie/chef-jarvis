@@ -13,7 +13,7 @@ import * as Notifications from "expo-notifications";
 import { Session } from "@supabase/supabase-js";
 import { supabase, requireOK, handleAuthLink, edge } from "./client";
 import type { Cooking, Recipe, Row } from "./types";
-import { localizeErrorMessage, persistableCooking } from "./mobile-domain.mjs";
+import { importLinkFromURL, localizeErrorMessage, persistableCooking } from "./mobile-domain.mjs";
 import "./shared-domain";
 export const domain = (globalThis as any).ChefDomain;
 const tables = [
@@ -50,6 +50,7 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
     [localSkill, setLocalSkill] = useState<string | null>(null),
     [onboardingSkipped, setOnboardingSkipped] = useState(false),
     [profileLoadedFor, setProfileLoadedFor] = useState<string | null>(null),
+    [pendingImport, setPendingImport] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const langRef = useRef<"en" | "zh-TW">("en");
@@ -198,8 +199,15 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
           "Open Profile to set a new password. 請至個人設定更新密碼。",
         );
     });
-    const receive = (url: string) =>
-      handleAuthLink(url).catch((e) => setError(e.message));
+    // chefjarvis://import?url=<video link> opens the video import screen.
+    const receive = (url: string) => {
+      const shared = importLinkFromURL(url);
+      if (shared) {
+        setPendingImport(shared);
+        return;
+      }
+      return handleAuthLink(url).catch((e) => setError(e.message));
+    };
     const link = Linking.addEventListener(
       "url",
       ({ url }) => void receive(url),
@@ -481,15 +489,18 @@ export function StoreProvider({ children }: React.PropsWithChildren) {
         saveRecipe,
         signOut,
         endCooking,
-        edge: (n: string, b: Row) =>
+        edge: (n: string, b: Row, timeoutMs?: number) =>
           scoped(() =>
             edge(
               n,
               n === "chef-meal-plan" && (profile?.cooking_skill || localSkill)
                 ? { ...b, cooking_skill: profile?.cooking_skill || localSkill }
                 : b,
+              timeoutMs,
             ),
           ),
+        pendingImport,
+        setPendingImport,
         cookingSkill: profile?.cooking_skill || localSkill,
         profileLoaded: Boolean(renderedOwner) && profileLoadedFor === renderedOwner,
         onboardingSkipped,
