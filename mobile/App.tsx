@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Alert, Pressable, StatusBar, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Alert, AppState, Pressable, StatusBar, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { StoreProvider, useStore } from "./src/store";
 import { Busy, Button, colors, LangContext, s, useT } from "./src/ui";
@@ -14,6 +14,7 @@ import {
 import { CookScreen, useCookingAlarms } from "./src/CookScreen";
 import { Onboarding } from "./src/Onboarding";
 import { ImportScreen } from "./src/VideoImport";
+import { acceptDownload, findRecentDownload, markVideoHandled } from "./src/recentDownloads";
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -41,6 +42,53 @@ function Shell() {
   useEffect(() => {
     if (st.pendingImport && st.session) go("Import");
   }, [st.pendingImport, st.session]);
+  // A cooking video saved in the last few minutes (Instagram's Download) is
+  // offered once when the app opens or comes back. Photos access is only read
+  // here; the import screen is where the system prompt may appear.
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const goRef = useRef((next: string) => {});
+  const pendingRef = useRef(st.pendingImport);
+  pendingRef.current = st.pendingImport;
+  useEffect(() => {
+    const userId = st.userId;
+    if (!st.session || !userId || !st.profile?.onboarding_completed) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = () => {
+      clearTimeout(timer);
+      // Let a shared link open the import screen first.
+      timer = setTimeout(async () => {
+        if (tabRef.current.startsWith("Import") || pendingRef.current) return;
+        try {
+          const { asset } = await findRecentDownload(userId, false);
+          if (!asset || tabRef.current.startsWith("Import")) return;
+          await markVideoHandled(userId, asset.id);
+          Alert.alert(
+            t("Turn the video you just downloaded into a recipe?", "要把剛下載的影片整理成食譜嗎？"),
+            "",
+            [
+              { text: t("No thanks", "不用"), style: "cancel" },
+              {
+                text: t("Make it a recipe", "整理成食譜"),
+                onPress: () => {
+                  acceptDownload(asset);
+                  goRef.current("ImportInstagram");
+                },
+              },
+            ],
+          );
+        } catch {}
+      }, 1500);
+    };
+    check();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") check();
+    });
+    return () => {
+      clearTimeout(timer);
+      sub.remove();
+    };
+  }, [st.session, st.userId, st.profile?.onboarding_completed]);
   // Errors pop up wherever the user is scrolled (the header line alone was
   // easy to miss further down a page).
   useEffect(() => {
@@ -55,6 +103,7 @@ function Shell() {
     setHistory((stack) => (tabs.includes(next) ? [] : [...stack, tab].slice(-5)));
     setTab(next);
   };
+  goRef.current = go;
   const back = () => {
     const previous = history[history.length - 1] || "Home";
     setHistory((stack) => stack.slice(0, -1));

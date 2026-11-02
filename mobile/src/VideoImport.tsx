@@ -1,45 +1,28 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AppState, Linking, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as MediaLibrary from "expo-media-library/legacy";
 import { File } from "expo-file-system";
 import { randomUUID } from "expo-crypto";
 import { Button, Card, Copy, Field, Heading, Label, Page, s, useT } from "./ui";
 import { useStore } from "./store";
 import { supabase, requireOK } from "./client";
+import { findVideoLink, importSource, videoUploadProblem } from "./mobile-domain.mjs";
 import {
-  findVideoLink,
-  importSource,
-  recentDownloadedVideo,
-  videoUploadProblem,
-} from "./mobile-domain.mjs";
+  findRecentDownload,
+  markVideoHandled,
+  takeAcceptedDownload,
+  videoFromAsset,
+  videoType,
+  type PhotoAccess,
+  type PickedVideo,
+} from "./recentDownloads";
 import { RecipeCard } from "./MealScreens";
 import type { Recipe } from "./types";
 
 // The server allows 125 s for video analysis; the app waits a little longer.
 const IMPORT_TIMEOUT_MS = 140_000;
 
-type PickedVideo = {
-  uri: string;
-  mimeType: string;
-  ext: string;
-  seconds: number;
-  downloaded?: boolean;
-};
-
 type Source = "youtube" | "instagram";
-
-// "all": recent downloads are found by themselves; otherwise the user picks.
-type PhotoAccess = "unknown" | "all" | "limited";
-
-function videoType(name: string) {
-  const lower = name.toLowerCase();
-  const ext = lower.endsWith(".mov") ? "mov" : lower.endsWith(".m4v") ? "m4v" : "mp4";
-  return {
-    ext,
-    mimeType: ext === "mov" ? "video/quicktime" : ext === "m4v" ? "video/x-m4v" : "video/mp4",
-  };
-}
 
 export function ImportScreen({
   go,
@@ -57,13 +40,11 @@ export function ImportScreen({
     [needsContent, setNeedsContent] = useState(false),
     [working, setWorking] = useState(false),
     [stage, setStage] = useState(0),
-    [photoAccess, setPhotoAccess] = useState<PhotoAccess>("unknown"),
+    [photoAccess, setPhotoAccess] = useState<PhotoAccess>("all"),
     [cancelled, setCancelled] = useState(false),
     [recipe, setRecipe] = useState<Recipe | null>(null);
   const found = findVideoLink(link);
   const instagram = importSource(chosen, link) === "instagram";
-  // Each downloaded video is imported by itself at most once.
-  const triedAssets = useRef(new Set<string>());
   // Bumped by Cancel; an import that started earlier then drops its result.
   const run = useRef(0);
 
@@ -89,47 +70,31 @@ export function ImportScreen({
     return () => timers.forEach(clearTimeout);
   }, [working]);
 
-  // With an Instagram link and nothing else yet, look for the Reel the user
-  // just saved with Instagram's Download, now and whenever the app comes back.
-  const autoImport = found?.platform === "instagram" && !caption.trim() && !video && !working && !recipe;
+  // In the Instagram form, the Reel the user just saved with Instagram's
+  // Download is imported by itself, no link needed: the one accepted from the
+  // app-wide prompt, or else the newest recent download, checked again
+  // whenever the app comes back to the foreground.
+  const autoImport = instagram && !caption.trim() && !video && !working && !recipe;
   useEffect(() => {
     if (!autoImport) return;
-    void st.run(findDownloadedReel);
+    void st.run(importDownloadedReel);
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") void st.run(findDownloadedReel);
+      if (state === "active") void st.run(importDownloadedReel);
     });
     return () => sub.remove();
-  }, [autoImport, link]);
+  }, [autoImport]);
 
-  async function findDownloadedReel() {
-    if (!st.profile?.onboarding_completed) return;
-    const permission = await MediaLibrary.requestPermissionsAsync(false, ["video"]);
-    if (!permission.granted || permission.accessPrivileges !== "all") {
-      setPhotoAccess("limited");
-      return;
+  async function importDownloadedReel() {
+    if (!st.profile?.onboarding_completed || !st.userId) return;
+    let asset = takeAcceptedDownload();
+    if (!asset) {
+      const result = await findRecentDownload(st.userId, true);
+      setPhotoAccess(result.access);
+      asset = result.asset;
     }
-    setPhotoAccess("all");
-    const page = await MediaLibrary.getAssetsAsync({
-      first: 5,
-      mediaType: MediaLibrary.MediaType.video,
-      sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-    });
-    const asset = recentDownloadedVideo(page.assets);
-    if (!asset || triedAssets.current.has(asset.id)) return;
-    triedAssets.current.add(asset.id);
-    const info = await MediaLibrary.getAssetInfoAsync(asset, { shouldDownloadFromNetwork: true });
-    if (!info.localUri) return;
-    const problem = videoUploadProblem(
-      { type: "video", duration: asset.duration * 1000, fileSize: new File(info.localUri).size },
-      st.lang,
-    );
-    if (problem) throw new Error(problem);
-    const picked = {
-      uri: info.localUri,
-      ...videoType(asset.filename || info.localUri),
-      seconds: Math.round(asset.duration),
-      downloaded: true,
-    };
+    if (!asset) return;
+    await markVideoHandled(st.userId, asset.id);
+    const picked = await videoFromAsset(asset, st.lang);
     setVideo(picked);
     await importRecipe(picked);
   }
@@ -189,7 +154,9 @@ export function ImportScreen({
       st.resumeOnboarding();
       return;
     }
-    if (!found)
+    // An uploaded video needs no link; a link, when known, is kept as the source.
+    const upload = instagram && picked ? picked : null;
+    if (!found && !upload)
       throw new Error(
         t("Paste a YouTube or Instagram video link.", "請貼上 YouTube 或 Instagram 的影片連結。"),
       );
@@ -198,7 +165,7 @@ export function ImportScreen({
     setCancelled(false);
     setRecipe(null);
     try {
-      const uploadPath = instagram && picked ? await uploadVideo(picked) : null;
+      const uploadPath = upload ? await uploadVideo(upload) : null;
       if (current !== run.current) {
         // Cancelled during the upload: nothing was analysed, so drop the file.
         if (uploadPath) await supabase.storage.from("video-imports").remove([uploadPath]);
@@ -211,7 +178,7 @@ export function ImportScreen({
           {
             mode: "video_import",
             language: st.lang,
-            source_url: found.url,
+            ...(found ? { source_url: found.url } : { source: "camera_roll" }),
             ...(instagram && caption.trim() ? { caption: caption.trim() } : {}),
             ...(uploadPath ? { upload_path: uploadPath } : {}),
           },
@@ -266,8 +233,8 @@ export function ImportScreen({
           <Card>
             <Text style={s.title}>
               {t(
-                "In Instagram: Share → Download, then Share → Chef Jarvis",
-                "在 Instagram 按 分享 → 下載，再按 分享 → Chef Jarvis",
+                "In Instagram: Share → Download, then open Chef Jarvis",
+                "在 Instagram 按 分享 → 下載，然後打開 Chef Jarvis",
               )}
             </Text>
             <Copy>
@@ -301,7 +268,11 @@ export function ImportScreen({
         </Copy>
       )}
       <Field
-        label={instagram ? t("Reel link", "Instagram 影片連結") : t("Video link", "影片連結")}
+        label={
+          instagram
+            ? t("Instagram link (optional)", "Instagram 影片連結（可不填）")
+            : t("Video link", "影片連結")
+        }
         value={link}
         onChange={(value) => {
           setLink(value);
@@ -373,7 +344,7 @@ export function ImportScreen({
         <Button quiet title={t("Cancel", "取消")} onPress={cancel} />
       ) : (
         <Button
-          disabled={st.busy || !found}
+          disabled={st.busy || !(found || (instagram && video))}
           title={t("Make it a recipe", "整理成食譜")}
           onPress={() => st.run(() => importRecipe())}
         />
