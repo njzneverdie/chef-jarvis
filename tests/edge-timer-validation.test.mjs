@@ -121,5 +121,5 @@ test("the Edge validator drops one invalid timer instead of rejecting a plan", a
   );
   assert.match(source, /recipeTimersFromInstruction\(instruction\)/);
   assert.match(source, /recipeStepTimerIssues\(plan\.steps\)/);
-  assert.match(source, /return \{ instruction, timers \};/);
+  assert.match(source, /return \{ instruction, timers(?:, \.\.\.optionalStepTips\(step\))? \};/);
 });

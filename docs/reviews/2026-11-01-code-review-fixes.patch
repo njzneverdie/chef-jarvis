@@ -1,0 +1,334 @@
+--- a/supabase/functions/chef-meal-plan/index.ts
++++ b/supabase/functions/chef-meal-plan/index.ts
+@@ -1,5 +1,5 @@
+ import { selectionFallbackPlan } from "../_shared/selection-fallback.js";
+-import { parseMealConstraints, mealConstraintRejectionReason } from "../_shared/meal-planning-constraints.js";
++import { parseMealConstraints, mealConstraintRejectionReason, parseAvoidTitles, withAvoidedTitles } from "../_shared/meal-planning-constraints.js";
+ import { createClient } from "npm:@supabase/supabase-js@2.110.5";
+ import {
+   instructionHasAmbiguousDuration,
+@@ -2631,10 +2631,14 @@
+       request?: unknown;
+       language?: unknown;
+       constraints?: unknown;
++      avoid_titles?: unknown;
+     };
+     language = body.language === "zh-TW" ? "zh-TW" : "en";
+     try { mealConstraints = parseMealConstraints(body.constraints); }
+     catch { return safeRespond({ error: "Invalid meal choices." }, 400); }
++    let avoidTitles: string[] = [];
++    try { avoidTitles = parseAvoidTitles(body.avoid_titles); }
++    catch { return safeRespond({ error: "Invalid meal choices." }, 400); }
+     const meal = typeof body.request === "string" ? body.request.trim() : "";
+     const authorization = request.headers.get("Authorization");
+     if (!authorization?.startsWith("Bearer "))
+@@ -2834,7 +2838,7 @@
+         expires_on: item.expires_on ? String(item.expires_on) : null,
+       }))
+       .filter((item) => item.name) as PantryItem[];
+-    const recentMeals = (recentRecipeRows || []).map((row) => {
++    const recentMeals = withAvoidedTitles((recentRecipeRows || []).map((row) => {
+       const recipe =
+         row.recipe && typeof row.recipe === "object"
+           ? row.recipe as Record<string, unknown>
+@@ -2847,7 +2851,7 @@
+         user_request: String(recipe.userRequest || "").slice(0, 500),
+         fallback: recipe.fallback === true,
+       };
+-    }).filter((item) => item.title) as RecentMeal[];
++    }).filter((item) => item.title), avoidTitles) as RecentMeal[];
+     const apiKey = Deno.env.get("GEMINI_API_KEY") || "";
+     let resolution = baselineDishResolution(meal) as unknown as DishResolution;
+     if (resolution.requestType === "named_dish" && apiKey) {
+--- a/supabase/functions/_shared/themealdb-provider.js
++++ b/supabase/functions/_shared/themealdb-provider.js
+@@ -16,7 +16,14 @@
+     return { outcome: "provider_unavailable", recipe: null };
+   }
+ 
+-  const signal = AbortSignal.timeout(timeoutMs);
++  // An explicit controller keeps the deadline timer referenced on every
++  // runtime (Node's AbortSignal.timeout is unref'd) and is cleared on return.
++  const controller = new AbortController();
++  const timer = setTimeout(
++    () => controller.abort(new DOMException("TheMealDB request timed out", "TimeoutError")),
++    timeoutMs,
++  );
++  const signal = controller.signal;
+   let sawIncompleteSource = false;
+   try {
+     for (const term of dishSearchTerms(resolution)) {
+@@ -54,5 +61,7 @@
+       recipe: null,
+       reason: error instanceof Error ? error.message : "unknown",
+     };
++  } finally {
++    clearTimeout(timer);
+   }
+ }
+--- a/supabase/functions/_shared/meal-planning-constraints.js
++++ b/supabase/functions/_shared/meal-planning-constraints.js
+@@ -11,3 +11,28 @@
+   if (constraints.max_minutes !== null && (!Number.isFinite(plan?.minutes) || plan.minutes > constraints.max_minutes)) return `Recipe total preparation and cooking time must be at most ${constraints.max_minutes} minutes.`;
+   return "";
+ }
++
++// Titles the user just skipped with "Try another". Data only: they extend the
++// server-side recent-meal history used for variety checks, never the prompt rules.
++export function parseAvoidTitles(value) {
++  if (value == null) return [];
++  if (!Array.isArray(value)) throw new Error("Invalid avoided titles");
++  const titles = [];
++  for (const item of value) {
++    if (typeof item !== "string") throw new Error("Invalid avoided titles");
++    const title = item.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
++    if (title && !titles.includes(title)) titles.push(title);
++  }
++  return titles.slice(0, 5);
++}
++export function withAvoidedTitles(recentMeals, avoidTitles) {
++  const recent = Array.isArray(recentMeals) ? recentMeals : [];
++  const skipped = (avoidTitles || []).map((title) => ({
++    title,
++    primary_protein: "",
++    cooking_style: "",
++    user_request: "",
++    fallback: false,
++  }));
++  return [...skipped, ...recent];
++}
+--- a/public/app.js
++++ b/public/app.js
+@@ -480,6 +480,9 @@
+   markViewRendered("home");
+   const plannerZh = window.I18n.code === "zh-TW";
+   const plannerChoices = { ...window.ChefDomain.defaultMealPlanningChoices };
++  // A dish chosen from a clarification (or retried) is one-shot: the main
++  // "Decide my meal" button must go back to the tap-built request afterwards.
++  let lastTypedRequest = "";
+   const plannerGroups = window.ChefDomain.mealPlanningGroups;
+   const plannerGroupMarkup = group => `<fieldset><legend>${esc(plannerZh ? group.zh : group.en)}</legend><div class="planner-choices">${group.options.map(([value, en, zh]) => `<label><input type="radio" name="${group.key}" value="${value}" ${plannerChoices[group.key] === value ? "checked" : ""}><span>${esc(plannerZh ? zh : en)}</span></label>`).join("")}</div></fieldset>`;
+   document.querySelector("#home").innerHTML = `
+@@ -582,14 +585,20 @@
+     retry.type = "button";
+     retry.className = "dish-candidate";
+     retry.textContent = window.I18n.translate("Try again");
+-    retry.onclick = () => form.requestSubmit();
++    retry.onclick = () => {
++      document.querySelector("#meal-input").value = lastTypedRequest;
++      form.requestSubmit();
++    };
+     panel.append(message, retry);
+     form.insertAdjacentElement("afterend", panel);
+   }
+ 
+   document.querySelector("#meal-form").onsubmit = async (event) => {
+     event.preventDefault();
+-    const input = document.querySelector("#meal-input").value.trim() || window.ChefDomain.buildMealPlanningRequest(plannerChoices, window.I18n.code);
++    const typedInput = document.querySelector("#meal-input");
++    lastTypedRequest = typedInput.value.trim();
++    typedInput.value = "";
++    const input = lastTypedRequest || window.ChefDomain.buildMealPlanningRequest(plannerChoices, window.I18n.code);
+     const button = event.currentTarget.querySelector('button[type="submit"]');
+     const status = document.querySelector("#generation-status");
+     const zh = window.I18n.code === "zh-TW";
+--- a/mobile/src/InventoryScreens.tsx
++++ b/mobile/src/InventoryScreens.tsx
+@@ -16,6 +16,22 @@
+ import { supabase, requireOK } from "./client";
+ import { Choice } from "./AccountScreens";
+ import { scheduleMeal, validateMeasuredRecipe } from "./mobile-domain.mjs";
++const zoneLabels: Record<string, [string, string]> = {
++  fridge: ["Fridge", "冷藏"],
++  freezer: ["Freezer", "冷凍"],
++  pantry: ["Pantry", "常溫"],
++};
++const mealLabels: Record<string, [string, string]> = {
++  breakfast: ["Breakfast", "早餐"],
++  lunch: ["Lunch", "午餐"],
++  dinner: ["Dinner", "晚餐"],
++  snack: ["Snack", "點心"],
++};
++const labelFor = (
++  labels: Record<string, [string, string]>,
++  key: string,
++  t: (en: string, zh: string) => string,
++) => (labels[key] ? t(...labels[key]) : key || "");
+ export function PantryScreen() {
+   const st = useStore(),
+     t = useT();
+@@ -54,7 +70,7 @@
+       unit: unit.trim(),
+       storage_zone: zone,
+       expires_on: expires || null,
+-      source: "manual",
++      ...(edit ? {} : { source: "manual" }),
+     };
+     await st.mutate("pantry_items", payload, edit ? "update" : "insert", edit);
+     setName("");
+@@ -130,12 +146,12 @@
+             "食材庫尚無資料，先加入家中現有的食材。",
+           )}
+         />
+-      )}{" "}
++      )}
+       {(st.data.pantry_items || []).map((item: any) => (
+         <Card key={item.id}>
+           <Text style={s.title}>{item.name}</Text>
+           <Copy>
+-            {item.quantity} {item.unit} · {item.storage_zone}
++            {item.quantity} {item.unit} · {labelFor(zoneLabels, item.storage_zone, t)}
+             {item.expires_on ? ` · ${item.expires_on}` : ""}
+           </Copy>
+           <View style={s.row}>
+@@ -147,7 +163,7 @@
+                 setName(item.name);
+                 setQuantity(String(item.quantity || ""));
+                 setUnit(item.unit || "g");
+-                setZone(item.storage_zone);
++                setZone(item.storage_zone || "fridge");
+                 setExpires(item.expires_on || "");
+               }}
+             />
+@@ -218,7 +234,7 @@
+             "從食譜或本週菜單建立購物清單。",
+           )}
+         />
+-      )}{" "}
++      )}
+       {(st.data.shopping_lists || []).map((list: any) => (
+         <Card key={list.id}>
+           <Text style={s.title}>{list.title}</Text>
+@@ -229,7 +245,7 @@
+                 quiet
+                 key={item.id}
+                 disabled={st.busy}
+-                title={`${item.is_checked ? "✓" : "○"}  ${item.quantity ?? ""} ${item.unit || ""} · ${item.ingredient}`}
++                title={`${item.is_checked ? "✓" : "○"}  ${item.quantity ?? ""} ${item.unit || ""} · ${item.ingredient}${item.pantry_item_id ? t(" · in pantry", "・已入庫") : ""}`}
+                 onPress={() => st.run(() => toggle(item))}
+               />
+             ))}
+@@ -238,12 +254,20 @@
+             title={t("Move checked items to pantry", "已購食材加入庫存")}
+             disabled={
+               st.busy ||
+-              !items.some((i) => i.shopping_list_id === list.id && i.is_checked)
++              !items.some(
++                (i) =>
++                  i.shopping_list_id === list.id &&
++                  i.is_checked &&
++                  !i.pantry_item_id,
++              )
+             }
+             onPress={() =>
+               st.run(async () => {
+                 const checked = items.filter(
+-                  (i) => i.shopping_list_id === list.id && i.is_checked,
++                  (i) =>
++                    i.shopping_list_id === list.id &&
++                    i.is_checked &&
++                    !i.pantry_item_id,
+                 );
+                 if (checked.some((i) => !(Number(i.quantity) > 0) || !i.unit))
+                   throw new Error(
+@@ -505,11 +529,11 @@
+             "還沒有安排餐點，先加入一道收藏食譜。",
+           )}
+         />
+-      )}{" "}
++      )}
+       {slots.map((slot) => (
+         <Card key={slot.id}>
+           <Label>
+-            {slot.scheduled_for} · {slot.meal_type}
++            {slot.scheduled_for} · {labelFor(mealLabels, slot.meal_type, t)}
+           </Label>
+           <Text style={s.title}>
+             {(st.data.recipes || []).find((r: any) => r.id === slot.recipe_id)
+@@ -626,7 +650,7 @@
+             "尚未記錄餐點。完成烹飪後也可以新增記錄。",
+           )}
+         />
+-      )}{" "}
++      )}
+       {(st.data.nutrition_logs || []).map((n: any) => (
+         <Card key={n.id}>
+           <Label>{n.eaten_on}</Label>
+--- a/mobile/src/MealScreens.tsx
++++ b/mobile/src/MealScreens.tsx
+@@ -166,8 +166,9 @@
+   const recipe: Recipe | null = st.plannedRecipe;
+   const setRecipe = st.setPlannedRecipe;
+   const [showOptions, setShowOptions] = useState(false),
+-    [clarification, setClarification] = useState<any>(null);
+-  async function generate(text: string) {
++    [clarification, setClarification] = useState<any>(null),
++    [skipped, setSkipped] = useState<string[]>([]);
++  async function generate(text: string, avoid: string[] = []) {
+     if (!st.profile?.onboarding_completed)
+       throw new Error(
+         t("Complete your food profile first.", "請先完成飲食設定。"),
+@@ -180,6 +181,7 @@
+         servings: Number(choices.servings),
+         max_minutes: choices.time === "any" ? null : Number(choices.time),
+       },
++      ...(avoid.length ? { avoid_titles: avoid } : {}),
+     });
+     if (result.clarification_required) {
+       setClarification(result);
+@@ -212,6 +214,25 @@
+           )
+         }
+       />
++      {recipe && (
++        <Button
++          quiet
++          disabled={st.busy}
++          title={t("Try another (same choices)", "換一道（保留目前條件）")}
++          onPress={() =>
++            st.run(async () => {
++              const avoid = [recipe.title, ...skipped]
++                .filter((title, i, all) => title && all.indexOf(title) === i)
++                .slice(0, 5);
++              await generate(
++                domain.buildMealPlanningRequest(choices, st.lang),
++                avoid,
++              );
++              setSkipped(avoid);
++            })
++          }
++        />
++      )}
+       {domain.mealPlanningGroups
+         .filter((group: any) => !group.optional || showOptions)
+         .map((group: any) => (
+@@ -689,7 +710,7 @@
+                 "在規劃頁收藏食譜，建立你的料理清單。",
+               )}
+             />
+-          )}{" "}
++          )}
+           {(st.data.recipes || []).map((row: any) => (
+             <Card key={row.id}>
+               <Text style={s.title}>{row.title}</Text>
+--- a/tests/meal-planning-constraints.test.mjs
++++ b/tests/meal-planning-constraints.test.mjs
+@@ -56,3 +56,18 @@
+     assert.equal(plan, null);
+   }
+ });
++
++test("Try another titles are bounded data that join the variety history first", async () => {
++  const { parseAvoidTitles, withAvoidedTitles } = await import("../supabase/functions/_shared/meal-planning-constraints.js");
++  const { recipeVarietyRejectionReason } = await import("../supabase/functions/_shared/recipe-variety.js");
++  assert.deepEqual(parseAvoidTitles(undefined), []);
++  assert.deepEqual(parseAvoidTitles(["  薑絲牛肉拌飯 ", "薑絲牛肉拌飯", "", "A\nB"]), ["薑絲牛肉拌飯", "A B"]);
++  assert.equal(parseAvoidTitles(Array.from({ length: 9 }, (_, i) => `Dish ${i}`)).length, 5);
++  assert.equal(parseAvoidTitles(["x".repeat(400)])[0].length, 160);
++  for (const value of ["Dish", [1], {}]) assert.throws(() => parseAvoidTitles(value), /Invalid/);
++  const recent = withAvoidedTitles([{ title: "Old", primary_protein: "", cooking_style: "", user_request: "", fallback: false }], ["薑絲牛肉拌飯"]);
++  assert.equal(recent[0].title, "薑絲牛肉拌飯");
++  assert.equal(recent.length, 2);
++  assert.match(recipeVarietyRejectionReason({ title: "薑絲牛肉拌飯" }, recent, "請推薦一道適合我的晚餐"), /too similar/);
++  assert.equal(recipeVarietyRejectionReason({ title: "番茄炒蛋" }, recent, "請推薦一道適合我的晚餐"), "");
++});

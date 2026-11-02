@@ -1,28 +1,30 @@
-const CACHE = "chef-jarvis-20260730-cooking-session-restore-1";
+const CACHE = "chef-jarvis-20261101-ux-fixes";
 const CORE = [
   "/",
   "/index.html",
-  "/styles.css?v=20260730-cooking-session-restore-1",
-  "/guided-cooking.css?v=20260730-cooking-session-restore-1",
-  "/chef-mode.css?v=20260730-cooking-session-restore-1",
-  "/shopping-list.css?v=20260730-cooking-session-restore-1",
-  "/usda-reference.css?v=20260730-cooking-session-restore-1",
-  "/personalized-swaps.css?v=20260730-cooking-session-restore-1",
-  "/plan-persistence.css?v=20260730-cooking-session-restore-1",
-  "/shopping-page.css?v=20260730-cooking-session-restore-1",
-  "/product-features.css?v=20260730-cooking-session-restore-1",
-  "/i18n.js?v=20260730-cooking-session-restore-1",
-  "/domain.js?v=20260730-cooking-session-restore-1",
-  "/boot.js?v=20260730-cooking-session-restore-1",
+  "/privacy.html",
+  "/styles.css?v=20261101-ux-fixes",
+  "/guided-cooking.css?v=20261101-ux-fixes",
+  "/chef-mode.css?v=20261101-ux-fixes",
+  "/shopping-list.css?v=20261101-ux-fixes",
+  "/usda-reference.css?v=20261101-ux-fixes",
+  "/personalized-swaps.css?v=20261101-ux-fixes",
+  "/plan-persistence.css?v=20261101-ux-fixes",
+  "/shopping-page.css?v=20261101-ux-fixes",
+  "/product-features.css?v=20261101-ux-fixes",
+  "/i18n.js?v=20261101-ux-fixes",
+  "/domain.js?v=20261101-ux-fixes",
+  "/boot.js?v=20261101-ux-fixes",
   "/vendor/supabase-2.110.5.min.js",
-  "/app.js?v=20260730-cooking-session-restore-1",
-  "/chef-mode.js?v=20260730-cooking-session-restore-1",
-  "/manifest.webmanifest?v=20260730-cooking-session-restore-1",
+  "/app.js?v=20261101-ux-fixes",
+  "/chef-mode.js?v=20261101-ux-fixes",
+  "/privacy.js?v=20261101-ux-fixes",
+  "/manifest.webmanifest?v=20261101-ux-fixes",
   "/fonts/dm-serif-display-latin-400.woff2",
   "/fonts/dm-serif-display-latin-400-italic.woff2",
   "/fonts/manrope-latin-400-800.woff2",
-  "/chef-jarvis-app-icon-v2-192.png?v=20260730-cooking-session-restore-1",
-  "/chef-jarvis-app-icon-v2-apple-180.png?v=20260730-cooking-session-restore-1",
+  "/chef-jarvis-app-icon-v2-192.png?v=20261101-ux-fixes",
+  "/chef-jarvis-app-icon-v2-apple-180.png?v=20261101-ux-fixes",
 ];
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -69,14 +71,25 @@ self.addEventListener("fetch", (event) => {
   )
     return;
   if (request.mode === "navigate") {
+    const isAppShellNavigation =
+      url.pathname === "/" || url.pathname === "/index.html";
     event.respondWith(
       fetch(request)
         .then((response) => {
           const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put("/index.html", copy));
+          caches
+            .open(CACHE)
+            .then((cache) =>
+              cache.put(isAppShellNavigation ? "/index.html" : request, copy),
+            );
           return response;
         })
-        .catch(() => caches.match("/index.html")),
+        .catch(async () => {
+          const cached = await caches.match(
+            isAppShellNavigation ? "/index.html" : request,
+          );
+          return cached || caches.match("/index.html");
+        }),
     );
     return;
   }

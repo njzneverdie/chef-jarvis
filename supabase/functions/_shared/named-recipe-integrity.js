@@ -46,7 +46,7 @@ function recipeContentTexts(plan) {
         ? item.step_updates.map((update) => update?.instruction)
         : []),
     ]),
-    ...steps.map((step) => step?.instruction),
+    ...steps.flatMap((step) => [step?.instruction, step?.doneness, step?.rescue]),
   ].map(normalizeRestrictionText).filter(Boolean);
 }
 
@@ -522,10 +522,13 @@ function cleanVerifierTerm(value) {
 }
 
 const repairablePatterns = [
+  /^Recipe must make exactly \d+ servings\.$/,
+  /^Recipe total preparation and cooking time must be at most \d+ minutes\.$/,
   /^steps\[\d+\]\.instruction must state an exact duration/,
   /^steps\[\d+\]\.instruction must use one exact duration/,
   /^ingredients\[\d+\]\.(?:quantity|unit|preparation|category) /,
   /^substitutions\[\d+\]\./,
+  /^Recipe uses equipment the user does not have: /,
 ];
 
 export function recipeValidationDisposition(error) {

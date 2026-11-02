@@ -76,7 +76,9 @@ new MutationObserver((mutations) => {
 queueMicrotask(() => associateFieldLabels(document));
 
 function languageToggleMarkup() {
-  return `<button class="language-toggle" id="language-toggle" type="button" aria-label="Switch language">文/A · ${window.I18n.toggleLabel()}</button>`;
+  const visibleLabel = `文/A · ${window.I18n.toggleLabel()}`;
+  const actionLabel = window.I18n.translate("Switch language");
+  return `<button class="language-toggle" id="language-toggle" type="button" aria-label="${visibleLabel} — ${actionLabel}">${visibleLabel}</button>`;
 }
 
 function connectionStatusMarkup() {
@@ -206,6 +208,17 @@ function nutrition() {
     : "Complete your profile";
 }
 
+function accountServiceErrorMessage(error) {
+  const message = String(error?.message || error || "").trim();
+  if (
+    error instanceof TypeError ||
+    /failed to fetch|networkerror|network request failed/i.test(message)
+  ) {
+    return "Chef Jarvis cannot reach the account service right now. Please try again later.";
+  }
+  return message || "Chef Jarvis could not complete that account request. Please try again.";
+}
+
 function authScreen(signup = false) {
   authSignup = signup;
   app.className = "";
@@ -225,7 +238,7 @@ function authScreen(signup = false) {
           <p>${signup ? "Create an account, confirm the email we send you, then enter your private cooking profile." : "Sign in to your saved meals, pantry and nutrition plan."}</p>
           <div class="field"><label>Email</label><input type="email" name="email" autocomplete="email" placeholder="you@example.com"></div>
           <div class="field"><label>Password</label><input type="password" name="password" autocomplete="${signup ? "new-password" : "current-password"}" placeholder="${signup ? "At least 8 characters" : "Your password"}"></div>
-          <p class="error hidden" id="auth-error"></p>
+          <p class="error hidden" id="auth-error" role="status" aria-live="polite" aria-atomic="true"></p>
           <button type="submit" class="auth-submit">${signup ? "Create account & send confirmation →" : "Sign in →"}</button>
           ${signup ? "" : '<button type="button" class="auth-toggle" id="forgot-password">Forgot your password?</button>'}
           <button type="button" class="auth-toggle" id="auth-toggle">${signup ? "Already have an account? Sign in" : "New to Chef Jarvis? Create an account"}</button>
@@ -263,16 +276,21 @@ function authScreen(signup = false) {
 
     button.textContent = "Please wait…";
     button.disabled = true;
-    const result = signup
-      ? await sb.auth.signUp({
-          email,
-          password,
-          options: { emailRedirectTo: window.location.origin },
-        })
-      : await sb.auth.signInWithPassword({ email, password });
+    let result;
+    try {
+      result = signup
+        ? await sb.auth.signUp({
+            email,
+            password,
+            options: { emailRedirectTo: window.location.origin },
+          })
+        : await sb.auth.signInWithPassword({ email, password });
+    } catch (error) {
+      result = { error };
+    }
 
     if (result.error) {
-      errorElement.textContent = result.error.message;
+      errorElement.textContent = accountServiceErrorMessage(result.error);
       errorElement.classList.remove("hidden");
       button.textContent = signup
         ? "Create account & send confirmation →"
@@ -306,11 +324,16 @@ async function requestPasswordReset() {
     errorElement.classList.remove("hidden");
     return;
   }
-  const { error } = await sb.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin,
-  });
+  let error;
+  try {
+    ({ error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    }));
+  } catch (requestError) {
+    error = requestError;
+  }
   errorElement.textContent = error
-    ? error.message
+    ? accountServiceErrorMessage(error)
     : "Password reset email sent. Open the link in that email to continue.";
   errorElement.classList.remove("hidden");
 }
@@ -324,7 +347,7 @@ function showPasswordUpdate() {
       <p class="eyebrow">SECURE YOUR ACCOUNT</p>
       <h2>Choose a new password.</h2>
       <div class="field"><label>New password</label><input name="password" type="password" minlength="8" autocomplete="new-password" required></div>
-      <p class="error hidden" id="password-update-error"></p>
+      <p class="error hidden" id="password-update-error" role="status" aria-live="polite" aria-atomic="true"></p>
       <div class="form-actions"><button type="button" class="cream" id="cancel-password-update">Cancel</button><button class="dark">Update password →</button></div>
     </form>`;
   document.body.append(modal);
@@ -455,15 +478,34 @@ function show(id) {
 
 function renderHome() {
   markViewRendered("home");
+  const plannerZh = window.I18n.code === "zh-TW";
+  const plannerDefaults = () => JSON.parse(JSON.stringify(window.ChefDomain.defaultMealPlanningChoices));
+  let plannerChoices = plannerDefaults();
+  // A dish chosen from a clarification (or retried) is one-shot: the main
+  // "Decide my meal" button must go back to the tap-built request afterwards.
+  let lastTypedRequest = "";
+  const plannerGroups = window.ChefDomain.mealPlanningGroups;
+  const plannerSelected = (group, value) => group.multi ? plannerChoices[group.key].includes(value) : plannerChoices[group.key] === value;
+  const plannerGroupMarkup = group => `<fieldset><legend>${esc(plannerZh ? group.zh : group.en)}${group.multi ? `<small>${plannerZh ? "（可複選）" : " (pick any)"}</small>` : ""}</legend><div class="planner-choices">${group.options.map(([value, en, zh]) => `<label><input type="${group.multi ? "checkbox" : "radio"}" name="${group.key}" value="${value}" ${plannerSelected(group, value) ? "checked" : ""}><span>${esc(plannerZh ? zh : en)}</span></label>`).join("")}</div></fieldset>`;
+  const plannerSectionMarkup = section => `<details class="planner-section"><summary>${esc(plannerZh ? section.zh : section.en)}</summary>${plannerGroups.filter(group => group.section === section.key).map(plannerGroupMarkup).join("")}</details>`;
+  const plannerSummaryText = () => window.ChefDomain.mealPlanningSummary(plannerChoices, window.I18n.code);
   document.querySelector("#home").innerHTML = `
     <div class="hero">
       <div class="hero-copy">
         <p class="eyebrow">YOUR KITCHEN, MADE EASIER</p>
         <h1>Good cooking,<br><em>made personal.</em></h1>
-        <p class="lede">Tell Jarvis what you want to make. It will keep your pantry, preferences, allergies, and nutrition target in view.</p>
-        <form class="ask" id="meal-form"><span>✦</span><input id="meal-input" required maxlength="500" placeholder="Tell Jarvis what you want to cook…"><button aria-label="Generate">→</button></form>
+        <p class="lede">${plannerZh ? "不用想菜名、不用打字。Jarvis 會依你的飲食設定幫你決定。" : "No dish in mind? Let Jarvis decide, using your pantry and food profile."}</p>
+        <form class="meal-choice-form" id="meal-form">
+          <input type="hidden" id="meal-input">
+          <p class="planner-summary" id="planner-summary" aria-live="polite">${esc(plannerSummaryText())}</p>
+          <button type="submit" class="dark" aria-label="Generate">${plannerZh ? "幫我決定這一餐" : "Decide my meal"}</button>
+          ${plannerGroups.filter(group => !group.optional).map(plannerGroupMarkup).join("")}
+          <p class="planner-more">${plannerZh ? "更多條件（都可不選，可自由搭配）" : "More options (all optional, mix freely)"}</p>
+          ${window.ChefDomain.mealPlanningSections.filter(section => section.key !== "basics").map(plannerSectionMarkup).join("")}
+          <button type="button" class="link" id="planner-clear">${plannerZh ? "清除選擇" : "Clear choices"}</button>
+          <p>${plannerZh ? "預設推薦 1 人份晚餐，30 分鐘內完成；過敏原、飲食限制與器材自動套用個人設定，與選項衝突時以個人設定為準。" : "Default: dinner for one, within 30 minutes. Saved allergies, dietary restrictions and equipment always apply and win over any pick."}</p>
+        </form>
         <p class="generation-status" id="generation-status" role="status" aria-live="polite" hidden></p>
-        <div class="chips"><button data-prompt-en="High-protein dinner for two" data-prompt-zh="兩人份高蛋白晚餐">High-protein dinner for 2</button><button data-prompt-en="Use my pantry ingredients first" data-prompt-zh="優先使用我的庫存食材">Use my pantry</button><button data-prompt-en="30-minute meal prep" data-prompt-zh="30 分鐘備餐">30-minute meal prep</button></div>
       </div>
       <article class="tonight"><div><small>YOUR DAILY TARGET</small><h2>${esc(nutrition())}</h2><p>${esc((profile?.body_composition_goal || "personalized").replace("_", " "))} plan · pantry and preferences applied</p><button class="cream" data-go="plan">Plan a meal →</button></div></article>
     </div>
@@ -481,15 +523,26 @@ function renderHome() {
   document
     .querySelectorAll("[data-go]")
     .forEach((element) => (element.onclick = () => show(element.dataset.go)));
-  document.querySelectorAll("[data-prompt-en]").forEach(
-    (element) =>
-      (element.onclick = () => {
-        document.querySelector("#meal-input").value =
-          window.I18n.code === "zh-TW"
-            ? element.dataset.promptZh
-            : element.dataset.promptEn;
-      }),
-  );
+  const syncPlannerSummary = () => {
+    document.querySelector("#planner-summary").textContent = plannerSummaryText();
+  };
+  document.querySelector("#meal-form").onchange = event => {
+    if (event.target.matches('input[type="radio"]')) {
+      plannerChoices[event.target.name] = event.target.value;
+    } else if (event.target.matches('input[type="checkbox"]')) {
+      plannerChoices[event.target.name] = [...document.querySelectorAll(`#meal-form input[type="checkbox"][name="${event.target.name}"]:checked`)].map(input => input.value);
+    } else return;
+    document.querySelector("#meal-input").value = "";
+    syncPlannerSummary();
+  };
+  document.querySelector("#planner-clear").onclick = () => {
+    plannerChoices = plannerDefaults();
+    document.querySelectorAll("#meal-form input[type=radio], #meal-form input[type=checkbox]").forEach(input => {
+      const group = plannerGroups.find(item => item.key === input.name);
+      if (group) input.checked = plannerSelected(group, input.value);
+    });
+    syncPlannerSummary();
+  };
   function renderDishClarification(result) {
     document.querySelector("#dish-clarification")?.remove();
     const form = document.querySelector("#meal-form");
@@ -553,15 +606,21 @@ function renderHome() {
     retry.type = "button";
     retry.className = "dish-candidate";
     retry.textContent = window.I18n.translate("Try again");
-    retry.onclick = () => form.requestSubmit();
+    retry.onclick = () => {
+      document.querySelector("#meal-input").value = lastTypedRequest;
+      form.requestSubmit();
+    };
     panel.append(message, retry);
     form.insertAdjacentElement("afterend", panel);
   }
 
   document.querySelector("#meal-form").onsubmit = async (event) => {
     event.preventDefault();
-    const input = document.querySelector("#meal-input").value.trim();
-    const button = event.currentTarget.querySelector("button");
+    const typedInput = document.querySelector("#meal-input");
+    lastTypedRequest = typedInput.value.trim();
+    typedInput.value = "";
+    const input = lastTypedRequest || window.ChefDomain.buildMealPlanningRequest(plannerChoices, window.I18n.code);
+    const button = event.currentTarget.querySelector('button[type="submit"]');
     const status = document.querySelector("#generation-status");
     const zh = window.I18n.code === "zh-TW";
     const statusTimers = [];
@@ -589,7 +648,7 @@ function renderHome() {
     try {
       document.querySelector("#dish-clarification")?.remove();
       document.querySelector("#dish-generation-error")?.remove();
-      const result = await generatePlan(input);
+      const result = await generatePlan(input, { servings: Number(plannerChoices.servings), max_minutes: plannerChoices.time === "any" ? null : Number(plannerChoices.time) }, lastTypedRequest ? undefined : window.ChefDomain.buildMealPlanningPreferences(plannerChoices));
       assertGenerationContext(result.ownerUserId, result.generationEpoch);
       if (result.kind === "clarification") {
         renderDishClarification(result);
@@ -604,7 +663,7 @@ function renderHome() {
     } finally {
       statusTimers.forEach(clearTimeout);
       status.hidden = true;
-      button.textContent = "→";
+      button.textContent = zh ? "幫我決定這一餐" : "Decide my meal";
       button.classList.remove("busy");
       button.disabled = false;
     }
@@ -662,12 +721,67 @@ async function renderDailyNutritionProgress() {
     .join("");
 }
 
+function renderPantryIdeas(hasPantry) {
+  const section = document.querySelector("#pantry-ideas");
+  if (!section) return;
+  section.hidden = !hasPantry;
+  if (!hasPantry) return;
+  const zh = window.I18n.code === "zh-TW";
+  const choices = window.ChefDomain.defaultMealPlanningChoices;
+  section.innerHTML = `<p class="eyebrow">${zh ? "用現有食材" : "COOK FROM YOUR PANTRY"}</p><h2>${zh ? "用現有食材做什麼？" : "What can I make?"}</h2><p>${zh ? "Jarvis 會依你的庫存推薦料理，優先用掉快到期的食材。" : "Jarvis suggests dishes from your pantry, using items that expire soonest first."}</p><button type="button" class="dark" id="pantry-ideas-load">${zh ? "看看能做什麼" : "See what I can make"}</button><div class="pantry-ideas-list" id="pantry-ideas-list" aria-live="polite"></div>`;
+  const listEl = section.querySelector("#pantry-ideas-list");
+  section.querySelector("#pantry-ideas-load").onclick = async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    listEl.textContent = zh ? "正在整理你的庫存…" : "Looking through your pantry…";
+    try {
+      const result = await requestPantryIdeas(window.ChefDomain.buildMealPlanningPreferences(choices));
+      const ideas = Array.isArray(result.ideas) ? result.ideas : [];
+      if (!ideas.length) {
+        listEl.textContent = zh ? "庫存目前沒有可用的食材（或只有你避開的食材），請先新增食材。" : "Your pantry has no usable items (or only items you avoid). Add ingredients first.";
+        return;
+      }
+      listEl.innerHTML = `${result.fallback ? `<p>${zh ? "智慧推薦暫時無法使用，以下是依庫存整理的簡單建議。" : "Smart suggestions are unavailable right now; these are simple ideas from your pantry."}</p>` : ""}${ideas.map((idea, index) => `<article class="pantry-idea"><h3>${esc(idea.title)} · ${esc(idea.minutes)} ${zh ? "分鐘" : "min"}</h3><p>${esc(idea.reason)}</p><p>${zh ? "使用：" : "Uses: "}${idea.uses.map((name) => esc(name) + (idea.expiring.includes(name) ? (zh ? "（快到期）" : " (expiring)") : "")).join(zh ? "、" : ", ")}</p><p>${idea.missing.length ? `${zh ? "還需要：" : "Also need: "}${idea.missing.map(esc).join(zh ? "、" : ", ")}` : zh ? "不用另外採買。" : "Nothing else to buy."}</p><button type="button" class="cream" data-idea-index="${index}">${zh ? "做這道" : "Make this"}</button></article>`).join("")}`;
+      listEl.querySelectorAll("[data-idea-index]").forEach((ideaButton) => {
+        ideaButton.onclick = async () => {
+          const idea = ideas[Number(ideaButton.dataset.ideaIndex)];
+          ideaButton.disabled = true;
+          ideaButton.textContent = zh ? "正在準備食譜…" : "Preparing your recipe…";
+          try {
+            const plan = await generatePlan(
+              window.ChefDomain.buildMealPlanningRequest(choices, window.I18n.code),
+              { servings: Number(choices.servings), max_minutes: choices.time === "any" ? null : Number(choices.time) },
+              window.ChefDomain.buildMealPlanningPreferences(choices),
+              { pantry_idea: { title: idea.title, uses: idea.uses } },
+            );
+            assertGenerationContext(plan.ownerUserId, plan.generationEpoch);
+            if (plan.kind !== "plan") return;
+            renderPlan(plan.plan);
+            show("plan");
+          } catch (error) {
+            if (error?.code === "stale_auth_context") return;
+            toast(error.message);
+            ideaButton.disabled = false;
+            ideaButton.textContent = zh ? "做這道" : "Make this";
+          }
+        };
+      });
+    } catch (error) {
+      listEl.textContent = error.message;
+    } finally {
+      button.disabled = false;
+      button.textContent = zh ? "重新推薦" : "Suggest again";
+    }
+  };
+}
+
 async function renderPantry() {
   const panel = document.querySelector("#pantry");
   if (!panel) return;
   panel.innerHTML = `
     <div class="title"><div><p class="eyebrow">KITCHEN INVENTORY</p><h1>What’s in your<br><em>kitchen?</em></h1></div></div>
-    <form class="add-row" id="pantry-form"><input name="item" required maxlength="120" placeholder="Add an ingredient, e.g. chicken breast"><button class="dark">Add ingredient</button></form>
+    <form class="add-row" id="pantry-form"><input name="item" required maxlength="500" placeholder="Add ingredients, e.g. chicken breast 300g, eggs 6"><select name="expiry" aria-label="Use by"><option value="">No use-by date</option><option value="3">Use within 3 days</option><option value="7">Use within 1 week</option><option value="14">Use within 2 weeks</option><option value="30">Use within 1 month</option></select><button class="dark">Add ingredient</button></form>
+    <section class="card pantry-ideas" id="pantry-ideas" hidden></section>
     <div class="pantry-grid" id="pantry-list"><p>Loading your pantry…</p></div>`;
   const { data, error } = await sb
     .from("pantry_items")
@@ -683,7 +797,7 @@ async function renderPantry() {
       ? data
           .map(
             (item) =>
-              `<article class="card pantry-item"><p class="eyebrow">${esc(item.storage_zone)}</p><h3>${esc(item.name)}</h3><p>${finiteNumber(item.quantity, "")} ${esc(item.unit || "")} · ${item.expires_on ? `Best by ${esc(item.expires_on)}` : "No expiry set"}</p><button type="button" class="pantry-remove" data-remove-id="${esc(item.id)}" aria-label="Remove ingredient" title="Remove ingredient">Remove</button></article>`,
+              `<article class="card pantry-item"><p class="eyebrow">${esc(item.storage_zone)}</p><h3>${esc(item.name)}</h3><p>${finiteNumber(item.quantity, "")} ${esc(window.ChefDomain.unitLabel(item.unit, window.I18n.code, item.quantity))} · ${item.expires_on ? `Best by ${esc(item.expires_on)}` : "No expiry set"}</p><button type="button" class="pantry-remove" data-remove-id="${esc(item.id)}" aria-label="Remove ingredient" title="Remove ingredient">Remove</button></article>`,
           )
           .join("")
       : '<article class="card pantry-item"><h3>Your pantry is empty.</h3><p>Add what you have. Jarvis reads this list before creating every meal.</p></article>';
@@ -692,6 +806,7 @@ async function renderPantry() {
     return;
   }
   markViewRendered("pantry");
+  renderPantryIdeas(data.length > 0);
 
   list.querySelectorAll("[data-remove-id]").forEach((button) => {
     button.onclick = async () => {
@@ -718,17 +833,38 @@ async function renderPantry() {
       new FormData(form).get("item") || "",
     ).trim();
     if (!name) return;
-    const { error: insertError } = await sb.from("pantry_items").insert({
-      user_id: user.id,
-      app_user_id: user.id,
-      name,
-      storage_zone: "fridge",
-      source: "manual",
-    });
+    // "鯛魚 300g、蛋 6顆" adds several rows; items without an amount keep the
+    // previous name-only behavior.
+    const entries = window.ChefDomain.parsePantryEntries(name);
+    if (!entries.length) return;
+    const expiryDays = Number(new FormData(form).get("expiry") || 0);
+    const expiresOn = expiryDays
+      ? window.ChefDomain.localDateKey(new Date(Date.now() + expiryDays * 86400000))
+      : null;
+    const zh = window.I18n.code === "zh-TW";
+    if (
+      entries.length > 1 &&
+      !window.confirm(
+        `${zh ? `將新增 ${entries.length} 項：` : `Add ${entries.length} items: `}${entries
+          .map((entry) => entry.explicit ? `${entry.name} ${entry.quantity} ${window.ChefDomain.unitLabel(entry.unit, window.I18n.code, entry.quantity)}` : entry.name)
+          .join(zh ? "、" : ", ")}`,
+      )
+    ) return;
+    const { error: insertError } = await sb.from("pantry_items").insert(
+      entries.map((entry) => ({
+        user_id: user.id,
+        app_user_id: user.id,
+        name: entry.name,
+        ...(entry.explicit ? { quantity: entry.quantity, unit: entry.unit } : {}),
+        ...(expiresOn ? { expires_on: expiresOn } : {}),
+        storage_zone: "fridge",
+        source: "manual",
+      })),
+    );
     if (insertError) toast(insertError.message);
     else {
       form.reset();
-      toast("Added to your pantry ✓");
+      toast(entries.length > 1 ? (zh ? `已新增 ${entries.length} 項到庫存 ✓` : `Added ${entries.length} items to your pantry ✓`) : "Added to your pantry ✓");
       renderPantry();
     }
   };
@@ -1107,7 +1243,21 @@ function onboarding(edit = false) {
   };
 }
 
-async function boot() {
+let profileBootRequest = null;
+
+function boot() {
+  const accountId = user?.id;
+  if (!accountId) return Promise.resolve(false);
+  if (profileBootRequest?.accountId === accountId) return profileBootRequest.promise;
+  const request = { accountId, promise: null };
+  request.promise = loadAppProfile().finally(() => {
+    if (profileBootRequest === request) profileBootRequest = null;
+  });
+  profileBootRequest = request;
+  return request.promise;
+}
+
+async function loadAppProfile() {
   const expectedUserId = user?.id;
   if (!expectedUserId) return false;
   const result = await sb

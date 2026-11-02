@@ -31,6 +31,9 @@ test("release asset discovery covers every deployed public file and critical she
     "manifest.webmanifest",
     "sw.js",
     "i18n.js",
+    "privacy.js",
+    "privacy.html",
+    "robots.txt",
     "boot.js",
     "domain.js",
     "app.js",
@@ -76,11 +79,12 @@ test("deployment verifier compares public hashes and Edge versions", async () =>
   assert.match(verifier, /discoverReleasePublicFiles\(publicUrl\)/);
   assert.doesNotMatch(verifier, /const publicFiles = \[[^\]]/);
   assert.match(verifier, /createHash\("sha256"\)/);
+  assert.match(verifier, /cause\?\.code/);
   assert.match(verifier, /method:\s*"OPTIONS"/);
   assert.match(verifier, /x-chef-jarvis-function-version/i);
   assert.match(
     verifier,
-    /const requiredMealPlanVersion = "2026-07-23\.named-recipe\.23"/,
+    /const requiredMealPlanVersion = "2026-11-01\.beginner-help\.31"/,
   );
   assert.match(
     verifier,
@@ -88,7 +92,7 @@ test("deployment verifier compares public hashes and Edge versions", async () =>
   );
   assert.match(
     mealPlan,
-    /const FUNCTION_VERSION = "2026-07-23\.named-recipe\.23"/,
+    /const FUNCTION_VERSION = "2026-11-01\.beginner-help\.31"/,
   );
   assert.equal(
     JSON.parse(packageJson).scripts["verify:deployment"],

@@ -103,7 +103,8 @@ async function installRecipeMutationTrap(page) {
 }
 
 async function submitMeal(page, request) {
-  await page.locator("#meal-input").fill(request);
+  // Named-response contract fixtures inject the internal request; users use radios.
+  await page.locator("#meal-input").evaluate((input, value) => { input.value = value; }, request);
   await page.getByRole("button", { name: "Generate" }).click();
 }
 

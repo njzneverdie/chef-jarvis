@@ -1,0 +1,7 @@
+node_modules/
+.expo/
+dist/
+ios/Pods/
+ios/build/
+ios/.xcode.env.local
+.env.local

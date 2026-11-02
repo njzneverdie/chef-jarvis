@@ -4,15 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#17392d" />
+    <meta name="description" content="Learn what Chef Jarvis stores, how long data is retained, which external services are used, and how to export or delete your data." />
     <title>Chef Jarvis — Privacy and data retention</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=20261101-ux-fixes" />
   </head>
   <body>
+    <button class="language-toggle privacy-language-toggle" id="language-toggle" type="button">文/A · 中文</button>
     <main class="privacy-page">
       <a href="/">← Chef Jarvis</a>
       <p class="eyebrow">PRIVACY & DATA RETENTION</p>
       <h1>Your data,<br /><em>your choice.</em></h1>
-      <p>Last updated: July 18, 2026</p>
+      <p>Last updated: October 30, 2026</p>
 
       <h2>What Chef Jarvis stores</h2>
       <p>
@@ -45,11 +47,19 @@
         requests when a recipe photo is shown.
       </p>
 
+      <h2>iOS voice commands and local storage / iOS 語音與本機儲存</h2>
+      <p>Voice commands are optional and start only when you choose them. With your permission, Apple's speech recognition service may process your audio. Chef Jarvis does not retain audio recordings or upload them to its own backend. You can revoke microphone and speech-recognition permissions in iOS Settings.</p>
+      <p>語音指令為選用功能，僅在你主動啟用後運作。取得授權後，Apple 的語音辨識服務可能處理你的音訊。Chef Jarvis 不保存錄音，也不將錄音上傳至自己的後端；你可在 iOS 設定撤回麥克風與語音辨識權限。</p>
+      <p>The iOS app stores sign-in credentials in Keychain, language choice and eligible cooking progress in its local app storage, and timer alerts through iOS local notifications. Session-only sourced recipes are kept in memory. Signing out clears local cooking progress and scheduled cooking alerts. Data you export through the share sheet is controlled by you and the destination you select.</p>
+      <p>iOS App 將登入憑證存放於鑰匙圈，語言與可保存的烹飪進度存放於本機 App 儲存空間，計時提醒透過 iOS 本機通知排程。僅限本次使用的來源食譜保留於記憶體中。登出會清除本機烹飪進度與計時通知；透過分享功能匯出的資料，由你與所選目的地管理。</p>
+
       <h2>Your choices</h2>
       <p>
         You can download a JSON export from Profile before deletion. Do not put
         secrets or unrelated sensitive personal information in a meal request.
       </p>
     </main>
+    <script src="/i18n.js?v=20261101-ux-fixes"></script>
+    <script src="/privacy.js?v=20261101-ux-fixes"></script>
   </body>
 </html>

@@ -18,17 +18,29 @@ const edgeFunctions = [
   "chef-delete-account",
 ];
 const versionHeader = "x-chef-jarvis-function-version";
-const requiredMealPlanVersion = "2026-07-23.named-recipe.23";
+const requiredMealPlanVersion = "2026-11-01.beginner-help.31";
 
 const sha256 = (value) =>
   createHash("sha256").update(value).digest("hex");
 
 async function fetchChecked(url, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    const cause = error?.cause;
+    const diagnostic = [cause?.code, cause?.message]
+      .filter(Boolean)
+      .join(": ");
+    throw new Error(
+      diagnostic ? `${error.message} (${diagnostic})` : error.message,
+      { cause: error },
+    );
+  }
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);
   }

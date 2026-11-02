@@ -16,7 +16,14 @@ export async function fetchTheMealDbRecipe({
     return { outcome: "provider_unavailable", recipe: null };
   }
 
-  const signal = AbortSignal.timeout(timeoutMs);
+  // An explicit controller keeps the deadline timer referenced on every
+  // runtime (Node's AbortSignal.timeout is unref'd) and is cleared on return.
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new DOMException("TheMealDB request timed out", "TimeoutError")),
+    timeoutMs,
+  );
+  const signal = controller.signal;
   let sawIncompleteSource = false;
   try {
     for (const term of dishSearchTerms(resolution)) {
@@ -54,5 +61,7 @@ export async function fetchTheMealDbRecipe({
       recipe: null,
       reason: error instanceof Error ? error.message : "unknown",
     };
+  } finally {
+    clearTimeout(timer);
   }
 }

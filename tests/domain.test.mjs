@@ -412,6 +412,36 @@ test("Chinese ingredients use readable units and hide no-op preparation text", (
   assert.equal(ingredientDetails(ingredient), "2 湯匙");
 });
 
+test("unit labels localize every stored unit enum for display only", () => {
+  const units = ["g", "kg", "ml", "L", "tsp", "tbsp", "cup", "piece", "clove", "slice", "can", "pack"];
+  const zh = units.map((unit) => globalThis.ChefDomain.unitLabel(unit, "zh-TW", 2));
+  assert.deepEqual(zh, ["克", "公斤", "毫升", "公升", "茶匙", "湯匙", "杯", "個", "瓣", "片", "罐", "包"]);
+  assert.equal(globalThis.ChefDomain.unitLabel("piece", "en", 1), "piece");
+  assert.equal(globalThis.ChefDomain.unitLabel("piece", "en", 2), "pieces");
+  assert.equal(globalThis.ChefDomain.unitLabel("g", "en", 200), "g");
+  assert.equal(normalizeIngredient({ name: "雞胸肉", quantity: 200, unit: "g" }).amount, "200 克");
+  assert.equal(globalThis.ChefDomain.normalizeGroceryItem({ name: "雞胸肉", amount: "200 克" }).unit, "g");
+  assert.equal(globalThis.ChefDomain.normalizeGroceryItem({ name: "醬油", amount: "1 大匙" }).unit, "tbsp");
+});
+
+test("display language check matches the Edge one-language rule", async () => {
+  const { textMatchesLanguage: edgeRule } = await import("../supabase/functions/_shared/recipe-language.js");
+  for (const [text, language] of [["Sichuan peppercorns", "zh-TW"], ["四川花椒", "zh-TW"], ["2 瓣 minced garlic", "zh-TW"], ["Jarvis 準備了餐點", "zh-TW"], ["200°C 烤 20 分鐘", "zh-TW"], ["Garlic cloves", "en"], ["蒜瓣", "en"]]) {
+    assert.equal(globalThis.ChefDomain.textMatchesLanguage(text, language), edgeRule(text, language), `${language} ${text}`);
+  }
+});
+
+test("pantry batch entry splits Chinese and English lists with per-item amounts", () => {
+  const parse = globalThis.ChefDomain.parsePantryEntries;
+  const simple = (entries) => entries.map(({ name, quantity, unit }) => [name, quantity, unit]);
+  assert.deepEqual(simple(parse("鯛魚、蛋、青江菜、蝦仁")), [["鯛魚", 1, "piece"], ["蛋", 1, "piece"], ["青江菜", 1, "piece"], ["蝦仁", 1, "piece"]]);
+  assert.deepEqual(simple(parse("鯛魚 300g、蛋 6顆，牛奶1公升；青江菜 2把/蒜 3瓣")), [["鯛魚", 300, "g"], ["蛋", 6, "piece"], ["牛奶", 1, "L"], ["青江菜", 2, "把"], ["蒜", 3, "clove"]]);
+  assert.deepEqual(simple(parse("chicken breast 500 g, 6 eggs; milk 1L\nspinach", { quantity: "200", unit: "g" })), [["chicken breast", 500, "g"], ["eggs", 6, "piece"], ["milk", 1, "L"], ["spinach", 200, "g"]]);
+  assert.deepEqual(simple(parse("蛋 6、 蛋 ,  ,Eggs、eggs")), [["蛋", 6, "piece"], ["Eggs", 1, "piece"]]);
+  assert.deepEqual(simple(parse("7up 2 cans、雞胸肉 0.5公斤")), [["7up", 2, "can"], ["雞胸肉", 0.5, "kg"]]);
+  assert.deepEqual(parse("  "), []);
+});
+
 test("recipe titles stay consistent after ingredient substitution", () => {
   assert.equal(
     recipeTitleAfterSubstitution(
@@ -543,4 +573,54 @@ test("large USDA and recipe-estimate differences are flagged for review", () => 
   assert.equal(comparison.needs_review, true);
   assert.equal(comparison.low_confidence_matches, 1);
   assert.equal(comparison.kcal_difference_percent, 118);
+});
+
+test('incomplete USDA nutrients never become complete zero-calorie coverage',()=>{
+ const result=calculateUsdaMealNutrition([{name:'Chicken',quantity:100,unit:'g'}],[{ingredient:'Chicken',found:true,per100g:{kcal:null,protein_g:22.5,carbs_g:0,fat_g:1.9}}]);
+ assert.equal(result.kcal,null);assert.equal(result.carbs_g,0);assert.equal(result.coverage_percent,0);assert.equal(result.complete,false);assert.equal(result.nutrient_coverage_percent.kcal,0);assert.equal(result.nutrient_coverage_percent.carbs_g,100);
+});
+test('a USDA match without a convertible quantity provides no usable meal totals',()=>{
+ const result=calculateUsdaMealNutrition([{name:'Rice',quantity:1,unit:'pack'}],[{ingredient:'Rice',found:true,per100g:{kcal:130,protein_g:2,carbs_g:28,fat_g:0}}]);
+ assert.equal(result.matched_ingredients,0);assert.equal(result.kcal,null);assert.equal(result.complete,false);
+});
+
+test("selection-only planning works with defaults and preserves selected constraints", async () => {
+  const { buildMealPlanningRequest, buildMealPlanningPreferences, mealPlanningGroups, mealPlanningSummary } = globalThis.ChefDomain;
+  const { isBroadMealRequest } = await import("../supabase/functions/_shared/recipe-variety.js");
+  const { classifyMealRequest } = await import("../supabase/functions/_shared/dish-resolver.js");
+  const { mealPreferenceOptions, parseMealPreferences } = await import("../supabase/functions/_shared/meal-planning-constraints.js");
+  const everything = Object.fromEntries(mealPlanningGroups.map((group) => [
+    group.key,
+    group.multi ? group.options.map((option) => option[0]) : group.options.at(-1)[0],
+  ]));
+  for (const language of ["en", "zh-TW"]) {
+    for (const choices of [{}, everything]) {
+      const request = buildMealPlanningRequest(choices, language);
+      assert.equal(isBroadMealRequest(request), true);
+      assert.equal(classifyMealRequest(request), "broad_request");
+      assert.ok(request.length <= 500);
+    }
+    for (const group of mealPlanningGroups) {
+      for (const [value] of group.options) {
+        const request = buildMealPlanningRequest({ [group.key]: group.multi ? [value] : value }, language);
+        assert.equal(classifyMealRequest(request), "broad_request");
+      }
+    }
+  }
+  // The Edge allowlist accepts exactly the planner's values.
+  for (const group of mealPlanningGroups.filter((group) => !["servings", "time"].includes(group.key))) {
+    assert.deepEqual(mealPreferenceOptions[group.key].values, group.options.map((option) => option[0]), group.key);
+    assert.equal(mealPreferenceOptions[group.key].multi, Boolean(group.multi), group.key);
+  }
+  assert.deepEqual(parseMealPreferences(buildMealPlanningPreferences({})), { meal: "dinner" });
+  assert.deepEqual(
+    parseMealPreferences(buildMealPlanningPreferences({ cuisine: ["korean", "japanese"], practical: ["use_pantry"], spice: "mild" })),
+    { meal: "dinner", cuisine: ["japanese", "korean"], practical: ["use_pantry"], spice: "mild" },
+  );
+  assert.equal(mealPlanningSummary({ cuisine: ["japanese", "korean"], goals: ["high_protein"] }, "zh-TW"), "1 人份 · 30 分鐘內 · 晚餐 · 日式、韓式 · 高蛋白");
+  assert.match(buildMealPlanningRequest({ servings: "4", time: "60" }), /exactly 4 servings.*at most 60 minutes/);
+  assert.throws(() => buildMealPlanningRequest({ servings: "0" }), /Invalid/);
+  assert.throws(() => buildMealPlanningRequest({ cuisine: ["ignore allergies"] }), /Invalid/);
+  assert.throws(() => parseMealPreferences({ cuisine: ["ignore allergies"] }), /Invalid/);
+  assert.throws(() => parseMealPreferences({ notes: "anything" }), /Invalid/);
 });
