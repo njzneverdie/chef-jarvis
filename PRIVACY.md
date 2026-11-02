@@ -47,3 +47,15 @@ content through the product where those controls are available.
 ## iOS voice and local storage (October 30, 2026)
 
 Voice commands are optional. With permission, Apple speech recognition may process audio. Chef Jarvis retains no audio recording and sends no audio to its backend. iOS Settings controls microphone/speech permission. Sessions use Keychain; eligible cooking progress and language use local app storage; alerts use local notifications. Source-only recipes stay in memory. Sign-out clears local cooking progress and alarms. Exported data is controlled by the user and selected share destination.
+
+## Video recipe import (November 2, 2026)
+
+When you import a cooking video, Chef Jarvis keeps only the video link and the
+recipe it writes from that video in your saved recipes. YouTube links are sent
+to Google Gemini, which reads the public video. Instagram does not let apps
+read Reels, so you either paste the post caption, which is sent to Gemini as
+text, or choose a video you saved yourself. A chosen video is uploaded to a
+private Supabase storage folder only you can write to, sent to Gemini for
+analysis, and then deleted from Supabase and from Gemini. Any copy left by an
+interrupted import is removed on your next import or when you delete your
+account. Chef Jarvis never re-publishes the video.

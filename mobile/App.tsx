@@ -13,6 +13,7 @@ import {
 } from "./src/InventoryScreens";
 import { CookScreen, useCookingAlarms } from "./src/CookScreen";
 import { Onboarding } from "./src/Onboarding";
+import { ImportScreen } from "./src/VideoImport";
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -36,6 +37,10 @@ function Shell() {
     [tab, setTab] = useState("Home"),
     [history, setHistory] = useState<string[]>([]);
   useCookingAlarms();
+  // A video link shared into the app opens the import screen.
+  useEffect(() => {
+    if (st.pendingImport && st.session) go("Import");
+  }, [st.pendingImport, st.session]);
   // Errors pop up wherever the user is scrolled (the header line alone was
   // easy to miss further down a page).
   useEffect(() => {
@@ -64,6 +69,7 @@ function Shell() {
     Week: <WeekScreen go={go} />,
     Nutrition: <NutritionScreen />,
     Cook: <CookScreen go={go} />,
+    Import: <ImportScreen go={go} />,
     Profile: <ProfileScreen key={st.profile?.updated_at || "new"} />,
   };
   return (

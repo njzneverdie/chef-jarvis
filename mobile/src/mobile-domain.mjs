@@ -156,3 +156,46 @@ export function expiryAfterDays(days, today = new Date()) {
   const pad = (value) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
+
+// chefjarvis://import?url=<link> (from the share extension or a shortcut)
+// carries a video link to the import screen; any other URL returns null.
+export function importLinkFromURL(url) {
+  try {
+    const parsed = new URL(url);
+    const target = `${parsed.host}${parsed.pathname}`.replace(/\/+$/, "");
+    if (parsed.protocol !== "chefjarvis:" || target !== "import") return null;
+    return findVideoLink(parsed.searchParams.get("url") || "")?.url || null;
+  } catch {
+    return null;
+  }
+}
+
+// Finds the first YouTube or Instagram link in pasted or shared text, which
+// often carries extra words around the link.
+export function findVideoLink(text) {
+  const candidates = String(text || "").match(/(?:https?:\/\/)?(?:www\.|m\.)?(?:youtube\.com|youtu\.be|instagram\.com)\/[^\s"'<>]+/gi) || [];
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(/^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`);
+      const host = url.hostname.toLowerCase().replace(/^(www\.|m\.)/, "");
+      const platform = host === "instagram.com" ? "instagram" : "youtube";
+      return { platform, url: url.toString() };
+    } catch {}
+  }
+  return null;
+}
+
+export const VIDEO_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
+export const VIDEO_UPLOAD_MAX_MS = 300 * 1000;
+
+// Picked videos must fit the private upload bucket and the 5-minute cap.
+export function videoUploadProblem(asset, language) {
+  const zh = language === "zh-TW";
+  if (!asset || asset.type !== "video")
+    return zh ? "請選擇一支影片。" : "Choose a video.";
+  if (Number(asset.duration) > VIDEO_UPLOAD_MAX_MS)
+    return zh ? "影片最長 5 分鐘。" : "Videos can be up to 5 minutes long.";
+  if (Number(asset.fileSize) > VIDEO_UPLOAD_MAX_BYTES)
+    return zh ? "影片檔案太大，請先剪短再選。" : "Videos can be up to 50 MB. Trim it and try again.";
+  return "";
+}

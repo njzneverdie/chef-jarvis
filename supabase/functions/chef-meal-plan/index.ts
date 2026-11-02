@@ -64,10 +64,25 @@ import {
   normalizeDishVerificationResponse,
   providerSourceIdentityRejectionReason,
 } from "../_shared/named-recipe-integrity.js";
+import {
+  parseCaption,
+  parseImportVerdict,
+  parseUploadPath,
+  parseVideoSource,
+  VIDEO_IMPORT_BUCKET,
+  VIDEO_IMPORT_MAX_BYTES,
+  VIDEO_IMPORT_MAX_SECONDS,
+  videoImportInputs,
+  videoImportMessage,
+  videoImportPrompt,
+  videoImportsRemaining,
+} from "../_shared/video-import.js";
 
 const PROMPT_VERSION = "2026-11-01.4";
-const FUNCTION_VERSION = "2026-11-01.beginner-help.31";
+const FUNCTION_VERSION = "2026-11-02.video-import.32";
 const EDGE_DEADLINE_MS = 42_000;
+// Video analysis needs longer; still below the 150 s free-plan wall clock.
+const VIDEO_IMPORT_DEADLINE_MS = 125_000;
 const REFUND_RESERVE_MS = 1_500;
 const MAX_RECIPE_REPAIRS = 2;
 
@@ -214,7 +229,7 @@ type RecipeImage = {
   query: string;
   match_kind: "exact" | "representative" | "curated";
 };
-type RecipeSourceType = "external" | "adapted" | "ai_generated";
+type RecipeSourceType = "external" | "adapted" | "ai_generated" | "video_import";
 type RecipePersistence = "session_only" | "permanent";
 type MealPlan = {
   title: string;
@@ -240,6 +255,7 @@ type MealPlan = {
   source_persistence?: RecipePersistence;
   canonical_dish_name?: string;
   original_request?: string;
+  import_estimates?: { ingredients: number[]; steps: number[] };
   difficulty?: number;
   pots_used?: number;
   cleanup?: "low" | "medium" | "high";
@@ -2688,6 +2704,357 @@ function rpcQuery<T>(
     AbortablePromise<SupabaseResult<T>>;
 }
 
+const VIDEO_IMPORT_MODEL = "gemini-3.5-flash";
+const GEMINI_BASE = "https://generativelanguage.googleapis.com";
+
+class VideoImportFailure extends Error {
+  constructor(readonly code: string, readonly status: number) {
+    super(code);
+  }
+}
+
+// Resumable File API upload; the file auto-expires after 48 h and is deleted
+// explicitly as soon as the recipe is extracted.
+async function uploadVideoToGemini(
+  apiKey: string,
+  bytes: Uint8Array,
+  mimeType: string,
+  timeoutMs: number,
+) {
+  const start = await fetch(`${GEMINI_BASE}/upload/v1beta/files`, {
+    method: "POST",
+    headers: {
+      "x-goog-api-key": apiKey,
+      "X-Goog-Upload-Protocol": "resumable",
+      "X-Goog-Upload-Command": "start",
+      "X-Goog-Upload-Header-Content-Length": String(bytes.byteLength),
+      "X-Goog-Upload-Header-Content-Type": mimeType,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ file: { display_name: "chef-jarvis-import" } }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const uploadUrl = start.headers.get("x-goog-upload-url");
+  if (!start.ok || !uploadUrl) throw new Error("Gemini upload start failed.");
+  const finish = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      "Content-Length": String(bytes.byteLength),
+      "X-Goog-Upload-Offset": "0",
+      "X-Goog-Upload-Command": "upload, finalize",
+    },
+    body: bytes,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!finish.ok) throw new Error("Gemini upload failed.");
+  const payload = await finish.json() as { file?: { name?: string; uri?: string; state?: string } };
+  if (!payload.file?.name || !payload.file?.uri) throw new Error("Gemini upload returned no file.");
+  return { name: payload.file.name, uri: payload.file.uri, state: payload.file.state || "" };
+}
+
+async function waitForGeminiFile(
+  apiKey: string,
+  file: { name: string; state: string },
+  deadlineAt: number,
+) {
+  let state = file.state;
+  while (state !== "ACTIVE") {
+    if (state === "FAILED") throw new VideoImportFailure("video_unavailable", 422);
+    if (Date.now() > deadlineAt - 60_000) throw new Error("Video processing deadline exhausted.");
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    const response = await fetch(`${GEMINI_BASE}/v1beta/${file.name}`, {
+      headers: { "x-goog-api-key": apiKey },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) throw new Error("Gemini file status failed.");
+    state = String((await response.json() as { state?: unknown }).state || "");
+  }
+}
+
+async function deleteGeminiFile(apiKey: string, name: string) {
+  await fetch(`${GEMINI_BASE}/v1beta/${name}`, {
+    method: "DELETE",
+    headers: { "x-goog-api-key": apiKey },
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => undefined);
+}
+
+async function requestGeminiVideoRecipe(
+  apiKey: string,
+  parts: unknown[],
+  timeoutMs: number,
+  isYouTube: boolean,
+) {
+  if (timeoutMs <= 0) throw new Error("Video import deadline exhausted.");
+  const response = await fetch(
+    `${GEMINI_BASE}/v1beta/models/${VIDEO_IMPORT_MODEL}:generateContent`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts }],
+        generationConfig: { ...recipeGenerationConfig(0.3), maxOutputTokens: 8000 },
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    },
+  );
+  // Private, unlisted or removed YouTube videos are refused by Gemini.
+  if (isYouTube && (response.status === 400 || response.status === 403 || response.status === 404))
+    throw new VideoImportFailure("video_unavailable", 422);
+  if (!response.ok) throw new Error(`Gemini ${VIDEO_IMPORT_MODEL} video request failed.`);
+  return textFromGemini(await response.json());
+}
+
+function videoImportSchemaText(language: "en" | "zh-TW") {
+  const zh = language === "zh-TW";
+  return `Return ONLY valid JSON. When is_recipe is false return exactly {"is_recipe":false}. Otherwise return {"is_recipe":true,"estimated_ingredients":[zero-based ingredient index],"estimated_steps":[zero-based step index],"title":"string","image_query":"exact finished dish name in English","summary":"at most 2 short sentences","minutes":number,"servings":number,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,"ingredients":[{"name":"string","usda_query":"specific English USDA search name","quantity":number,"unit":"g|kg|ml|L|tsp|tbsp|cup|piece|clove|slice|can|pack","preparation":"string","category":"protein|produce|grain|dairy|seasoning|oil|other"}],"steps":[{"instruction":"string","timers":[{"label":"string","kind":"preheat|cook|bake|simmer|boil|steam|rest|marinate|chill|proof|cool","duration_seconds":number}],"doneness":"optional short cue","rescue":"optional short fix"}],"difficulty":1,"pots_used":number,"cleanup":"low|medium|high","equipment_needed":["short tool name"],"substitutions":[],"equipment_adaptations":[],"reuse_ideas":[]}.
+Rules:
+- Every user-facing string is in ${zh ? "Traditional Chinese (Taiwan) with Chinese units and no Latin letters" : "English with no Chinese characters"}; only image_query and usda_query stay English. unit and category are fixed English enum values.
+- List every ingredient separately with one exact positive quantity (never ranges, "to taste" or "some") and a specific purchasable name${zh ? " such as \"去骨雞腿肉\"" : " such as \"boneless chicken thigh\""}. preparation states the cut, or ${zh ? "\"無需處理\"" : "\"no preparation\""}.
+- Every heat or waiting step states one exact duration in Arabic numerals${zh ? " with 分鐘 or 秒" : ""} and has a matching timer; prep, plating and serving steps use timers []. A timer is allowed only when its own instruction states that exact duration.
+- Never include an ingredient the user is allergic to, dislikes or cannot eat. When the dish uses one, substitute a safe ingredient that keeps the dish recognizable and say so in one clause of the summary.
+- Only require equipment from profile.equipment when it is non-empty; stovetop pots and pans are always available.
+- substitutions, equipment_adaptations and reuse_ideas must be empty arrays. At most 40 steps and 60 ingredients.`;
+}
+
+type VideoImportContext = {
+  body: Record<string, unknown>;
+  userId: string;
+  admin: ReturnType<typeof createClient>;
+  apiKey: string;
+  profile: Profile;
+  language: "en" | "zh-TW";
+  requestId: string;
+  requestStartedAt: number;
+  deadlineAt: number;
+  cookingSkill: string | null;
+  consumeQuota: () => Promise<Response | null>;
+  releaseQuota: () => Promise<void>;
+  keepQuota: () => void;
+  respond: (body: unknown, status?: number) => Response;
+};
+
+async function handleVideoImport(ctx: VideoImportContext): Promise<Response> {
+  const { admin, apiKey, language, userId, deadlineAt } = ctx;
+  const meta = (outcome: string) => ({
+    request_id: ctx.requestId,
+    outcome,
+    duration_ms: Date.now() - ctx.requestStartedAt,
+  });
+  const fail = (code: string, status: number) => {
+    console.log("chef_video_import", meta(code));
+    return ctx.respond(
+      { error: videoImportMessage(code, language), code, meta: meta(code) },
+      status,
+    );
+  };
+  const source = parseVideoSource(ctx.body.source_url);
+  let caption = "";
+  let uploadPath: string | null = null;
+  try {
+    caption = parseCaption(ctx.body.caption);
+    uploadPath = parseUploadPath(ctx.body.upload_path, userId);
+  } catch {
+    return fail("invalid_link", 400);
+  }
+  const bucket = admin.storage.from(VIDEO_IMPORT_BUCKET);
+  const removeUpload = async () => {
+    if (!uploadPath) return;
+    const path = uploadPath;
+    uploadPath = null;
+    await bucket.remove([path]).catch(() => undefined);
+  };
+  let geminiFileName = "";
+  try {
+    // Leftovers from interrupted imports never outlive the user's next import.
+    const { data: leftovers } = await bucket.list(userId, { limit: 50 });
+    const staleBefore = Date.now() - 10 * 60 * 1000;
+    const stale = (leftovers || [])
+      .filter((item) => `${userId}/${item.name}` !== uploadPath)
+      .filter((item) => !item.created_at || Date.parse(item.created_at) < staleBefore)
+      .map((item) => `${userId}/${item.name}`);
+    if (stale.length) await bucket.remove(stale).catch(() => undefined);
+
+    const inputs = videoImportInputs({ source, caption, uploadPath }) as {
+      error?: string;
+      video?: { kind: "youtube" | "upload"; uri?: string; path?: string } | null;
+      caption?: string;
+    };
+    if (inputs.error) return fail(inputs.error, inputs.error === "needs_content" ? 422 : 400);
+    if (!apiKey) return fail("unavailable", 503);
+
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { count, error: countError } = await admin
+      .from("recipes")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("recipe->>source_type", "video_import")
+      .gte("created_at", since);
+    if (countError) return fail("unavailable", 503);
+    if (videoImportsRemaining(count ?? Number.NaN) <= 0) return fail("daily_limit", 429);
+
+    const quotaRejection = await ctx.consumeQuota();
+    if (quotaRejection) return quotaRejection;
+
+    const endOffset = { endOffset: `${VIDEO_IMPORT_MAX_SECONDS}s` };
+    let videoPart: Record<string, unknown> | null = null;
+    if (inputs.video?.kind === "youtube") {
+      videoPart = { fileData: { fileUri: inputs.video.uri }, videoMetadata: endOffset };
+    } else if (inputs.video?.kind === "upload" && inputs.video.path) {
+      const { data: blob, error: downloadError } = await bucket.download(inputs.video.path);
+      if (downloadError || !blob) throw new VideoImportFailure("video_unavailable", 422);
+      if (blob.size > VIDEO_IMPORT_MAX_BYTES) throw new VideoImportFailure("video_unavailable", 422);
+      const mimeType = inputs.video.path.toLowerCase().endsWith(".mov") ? "video/quicktime" : "video/mp4";
+      const file = await uploadVideoToGemini(
+        apiKey,
+        new Uint8Array(await blob.arrayBuffer()),
+        mimeType,
+        deadlineTimeout(deadlineAt, 30_000, REFUND_RESERVE_MS),
+      );
+      geminiFileName = file.name;
+      await removeUpload();
+      await waitForGeminiFile(apiKey, file, deadlineAt);
+      videoPart = { fileData: { fileUri: file.uri, mimeType }, videoMetadata: endOffset };
+    }
+
+    const prompt = [
+      videoImportPrompt({ source, hasVideo: Boolean(videoPart), caption, language }),
+      recipeContextPromptEnvelope({ profile: ctx.profile, pantry: [], recentMeals: [] }),
+      cookingSkillPrompt(ctx.cookingSkill),
+      videoImportSchemaText(language),
+    ].join("\n\n");
+    const parts = videoPart ? [videoPart, { text: prompt }] : [{ text: prompt }];
+    let rawText = await requestGeminiVideoRecipe(
+      apiKey,
+      parts,
+      deadlineTimeout(deadlineAt, 75_000, REFUND_RESERVE_MS),
+      inputs.video?.kind === "youtube",
+    );
+
+    const readJson = (text: string) => {
+      const clean = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+      const start = clean.indexOf("{");
+      const end = clean.lastIndexOf("}");
+      return JSON.parse(start >= 0 && end > start ? clean.slice(start, end + 1) : clean) as Record<string, unknown>;
+    };
+    let raw = readJson(rawText);
+    if (raw.is_recipe !== true) {
+      await ctx.releaseQuota();
+      return fail("not_a_recipe", 422);
+    }
+
+    const checkPlan = (candidate: Record<string, unknown>) => {
+      let plan = validatePlan(candidate);
+      plan = withoutRestrictedTips(plan, ctx.profile) as MealPlan;
+      const restriction = recipeRestrictionRejectionReason(plan, ctx.profile);
+      if (restriction) throw new VideoImportFailure("restricted", 422);
+      const equipment = equipmentRejectionReason(plan, ctx.profile.equipment);
+      if (equipment) throw new Error(equipment);
+      return plan;
+    };
+    let plan: MealPlan;
+    try {
+      plan = checkPlan(raw);
+    } catch (error) {
+      // One text-only repair: the video already shaped the dish; the repair
+      // only fixes schema, timer, allergen or equipment problems.
+      const repairPrompt = buildRecipeRepairPrompt({
+        canonicalName: String(raw.title || ""),
+        rawText,
+        validationMessage: error instanceof VideoImportFailure
+          ? "The recipe uses an ingredient the user must avoid; substitute it safely."
+          : error instanceof Error ? error.message : "invalid recipe",
+        schemaText: videoImportSchemaText(language),
+      });
+      rawText = await requestGeminiRecipe(
+        apiKey,
+        VIDEO_IMPORT_MODEL,
+        JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [{ text: `${recipeContextPromptEnvelope({ profile: ctx.profile, pantry: [], recentMeals: [] })}\n\n${repairPrompt}` }],
+          }],
+          generationConfig: recipeGenerationConfig(0),
+        }),
+        deadlineTimeout(deadlineAt, 20_000, REFUND_RESERVE_MS),
+      );
+      raw = { ...readJson(rawText), estimated_ingredients: raw.estimated_ingredients, estimated_steps: raw.estimated_steps };
+      plan = checkPlan(raw);
+    }
+
+    const broad = { requestType: "broad_request" } as DishResolution;
+    const mismatch = languageMismatchPaths(plan, language, broad);
+    if (mismatch.length) {
+      const localizeMs = deadlineTimeout(deadlineAt, 12_000, REFUND_RESERVE_MS);
+      plan = checkPlan(await localizePlanStrings(apiKey, plan, mismatch, language, localizeMs) as unknown as Record<string, unknown>);
+      if (languageMismatchPaths(plan, language, broad).length)
+        throw new Error("Recipe language validation failed.");
+    }
+
+    const verdict = parseImportVerdict(raw, plan);
+    const imported = attachCuratedRecipeImage({
+      ...plan,
+      substitutions: [],
+      source_type: "video_import",
+      source_provider: source!.platform === "youtube" ? "YouTube" : "Instagram",
+      source_title: "",
+      source_url: source!.url,
+      source_persistence: "permanent",
+      original_request: source!.url,
+      import_estimates: {
+        ingredients: verdict.estimated_ingredients,
+        steps: verdict.estimated_steps,
+      },
+    } as MealPlan, plan.title);
+
+    const { data: row, error: insertError } = await admin
+      .from("recipes")
+      .insert({
+        user_id: userId,
+        app_user_id: userId,
+        title: imported.title,
+        servings: imported.servings,
+        minutes: imported.minutes,
+        recipe: imported,
+        nutrition: {
+          estimate: {
+            kcal: imported.kcal,
+            protein_g: imported.protein_g,
+            carbs_g: imported.carbs_g,
+            fat_g: imported.fat_g,
+          },
+        },
+        adaptations: [],
+        is_saved: true,
+      } as never)
+      .select("id")
+      .single();
+    if (insertError || !row) throw new Error("Imported recipe could not be saved.");
+    ctx.keepQuota();
+    console.log("chef_video_import", {
+      ...meta("imported"),
+      platform: source!.platform,
+      with_video: Boolean(videoPart),
+      estimated_ingredients: verdict.estimated_ingredients.length,
+    });
+    return ctx.respond({
+      plan: { ...imported, saved_recipe_id: (row as { id: string }).id },
+      meta: meta("imported"),
+    });
+  } catch (error) {
+    await ctx.releaseQuota();
+    if (error instanceof VideoImportFailure) return fail(error.code, error.status);
+    console.error("chef_video_import_failed", {
+      ...meta("failed"),
+      reason: error instanceof Error ? error.message.slice(0, 200) : "unknown",
+    });
+    return fail("unavailable", 503);
+  } finally {
+    await removeUpload();
+    if (geminiFileName) await deleteGeminiFile(apiKey, geminiFileName);
+  }
+}
+
 Deno.serve(async (request) => {
   const origin = request.headers.get("Origin");
   let responseProfile: Profile | null = null;
@@ -2716,7 +3083,7 @@ Deno.serve(async (request) => {
     return safeRespond({ error: "Origin not allowed." }, 403);
 
   const requestStartedAt = Date.now();
-  const deadlineAt = requestStartedAt + EDGE_DEADLINE_MS;
+  let deadlineAt = requestStartedAt + EDGE_DEADLINE_MS;
   const requestId = crypto.randomUUID();
   let language: "en" | "zh-TW" = "en";
   let admin: ReturnType<typeof createClient> | null = null;
@@ -2773,9 +3140,14 @@ Deno.serve(async (request) => {
       mode?: unknown;
       pantry_idea?: unknown;
       cooking_skill?: unknown;
+      source_url?: unknown;
+      caption?: unknown;
+      upload_path?: unknown;
     };
     language = body.language === "zh-TW" ? "zh-TW" : "en";
     const pantryIdeasMode = body.mode === "pantry_ideas";
+    const videoImportMode = body.mode === "video_import";
+    if (videoImportMode) deadlineAt = requestStartedAt + VIDEO_IMPORT_DEADLINE_MS;
     let cookingSkill: string | null = null;
     try { cookingSkill = parseCookingSkill(body.cooking_skill); }
     catch { return safeRespond({ error: "Invalid meal choices." }, 400); }
@@ -2840,7 +3212,7 @@ Deno.serve(async (request) => {
     admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    if (!pantryIdeasMode && (!meal || meal.length > 500))
+    if (!pantryIdeasMode && !videoImportMode && (!meal || meal.length > 500))
       return safeRespond(
         {
           error:
@@ -3063,6 +3435,32 @@ Deno.serve(async (request) => {
       profile,
       new Date().toISOString().slice(0, 10),
     );
+    if (videoImportMode) {
+      return await handleVideoImport({
+        body,
+        userId: user.id,
+        admin,
+        apiKey,
+        profile,
+        language,
+        requestId,
+        requestStartedAt,
+        deadlineAt,
+        cookingSkill,
+        consumeQuota: consumeMealPlanQuota,
+        releaseQuota: async () => {
+          if (quotaRequestId && quotaUserId) {
+            const refundRequestId = quotaRequestId;
+            quotaRequestId = null;
+            await refundQuotaSafely(admin!, quotaUserId, refundRequestId, deadlineAt);
+          }
+        },
+        keepQuota: () => {
+          quotaRequestId = null;
+        },
+        respond: safeRespond,
+      });
+    }
     if (pantryIdeasMode) {
       const ideasMeta = (outcome: string) => ({
         request_id: requestId,

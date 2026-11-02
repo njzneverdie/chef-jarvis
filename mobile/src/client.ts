@@ -64,13 +64,13 @@ export function requireOK<T extends { error: any }>(result: T): T {
   if (result.error) throw result.error;
   return result;
 }
-export async function edge(name: string, body: Row) {
+export async function edge(name: string, body: Row, timeoutMs = 55000) {
   const {
     data: { session },
   } = requireOK(await supabase.auth.getSession());
   if (!session) throw new Error("Please sign in again. 請重新登入。");
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 55000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${backendURL}/functions/v1/${name}`, {
       method: "POST",
