@@ -61,6 +61,8 @@ test("Instagram needs a caption or an uploaded video; YouTube is read directly",
   assert.equal(videoImportInputs({ source: ig, caption: "", uploadPath: "u/f.mp4" }).video.kind, "upload");
   assert.equal(videoImportInputs({ source: yt, caption: "", uploadPath: null }).video.kind, "youtube");
   assert.equal(videoImportInputs({ source: null, caption: "", uploadPath: null }).error, "invalid_link");
+  assert.equal(videoImportInputs({ source: null, caption: "", uploadPath: "u/f.mp4" }).error, "invalid_link");
+  assert.equal(videoImportInputs({ source: null, caption: "", uploadPath: "u/f.mp4", sourceKind: "camera_roll" }).video.kind, "upload");
 });
 
 test("estimate indexes are bounded to the validated recipe", () => {

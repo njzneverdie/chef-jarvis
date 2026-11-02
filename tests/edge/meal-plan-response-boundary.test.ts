@@ -953,3 +953,24 @@ Deno.test("video import: a dish that keeps a saved allergen after repair is neve
   assertEquals(state.refundCalls, 1);
   assertEquals(state.insertedRecipes.length, 0);
 });
+
+Deno.test("video import: a saved video without any link is imported from the camera roll", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  resetScenario({ videoRecipe: videoRecipe() });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const uploadPath = `${USER_ID}/33333333-3333-4444-8555-666666666666.mov`;
+  const { status, body } = await importVideo({ source: "camera_roll", upload_path: uploadPath });
+  assertEquals(status, 200);
+  assertEquals(body.plan.source_type, "video_import");
+  assertEquals(body.plan.source_url, "");
+  assertEquals(state.geminiUploads, 1);
+  assert(state.storageRemoved.includes(uploadPath));
+});
+
+Deno.test("video import: no link and no camera-roll upload is still refused", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  resetScenario({ videoRecipe: videoRecipe() });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const { status, body } = await importVideo({ source: "camera_roll" });
+  assertEquals(status, 400);
+  assertEquals(body.code, "invalid_link");
+  assertEquals(state.consumeCalls, 0);
+});
