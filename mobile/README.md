@@ -24,6 +24,8 @@ npx expo prebuild --platform ios --no-install
 LANG=en_US.UTF-8 pod install --project-directory=ios
 ```
 
+The share extension `ios/ChefJarvisShare` (target `ChefJarvisShare`, bundle ID `com.njzneverdie.chefjarvis.share`) puts Chef Jarvis in the share sheet of Instagram, YouTube and Safari. It takes the first YouTube or Instagram link and opens `chefjarvis://import?url=<link>`. It lives only in the native project: `expo prebuild` regenerates `ios/` and would drop it, so re-add it afterwards (or avoid prebuild). On a real iPhone, select your Personal Team for both the ChefJarvis and ChefJarvisShare targets.
+
 A Release simulator build embeds JS and does not need Metro. See `scripts/build-ios-simulator.sh`. Simulator signing is local/ad-hoc and does not require paid membership. For a real iPhone, select your own Personal Team under Signing & Capabilities. `with-local-notifications.cjs` removes APNs entitlements (registered first because Expo mods unwind in reverse); kitchen timers use local notifications. A Release build was signed, installed and launched on the connected iPhone with the user’s Personal Team. App Store distribution will require Apple Developer enrollment and a finalized bundle ID (currently `com.njzneverdie.chefjarvis`). No App Store submission has been attempted.
 
 ## Feature coverage
