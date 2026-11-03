@@ -63,5 +63,17 @@ target 'ChefJarvis' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
+
+    # expo-updates runs its resource script through `bash -c` unquoted, which
+    # breaks when the checkout path has spaces ("chef jarvis by chatgpt").
+    installer.pods_project.targets.each do |target|
+      next unless target.name == 'EXUpdates'
+      target.shell_script_build_phases.each do |phase|
+        phase.shell_script = phase.shell_script.gsub(
+          'bash -l -c "$PODS_TARGET_SRCROOT/../scripts/create-updates-resources-ios.sh"',
+          'bash -l -c "\"$PODS_TARGET_SRCROOT/../scripts/create-updates-resources-ios.sh\""',
+        )
+      end
+    end
   end
 end

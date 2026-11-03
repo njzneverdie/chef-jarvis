@@ -51,13 +51,30 @@
         {
           "photosPermission": "Chef Jarvis reads the cooking video you choose, or the one you just downloaded from Instagram, uploads it for recipe analysis, and deletes it right after.",
           "savePhotosPermission": false,
-          "granularPermissions": ["video"]
+          "granularPermissions": [
+            "video"
+          ]
         }
       ],
       "./plugins/with-standalone-run.cjs"
     ],
     "assetBundlePatterns": [
       "**/*"
-    ]
+    ],
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/00137d52-19fb-4b2c-941a-88c559b9187a",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "requestHeaders": {
+        "expo-channel-name": "preview"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "00137d52-19fb-4b2c-941a-88c559b9187a"
+      }
+    },
+    "owner": "njzneverdies"
   }
 }
