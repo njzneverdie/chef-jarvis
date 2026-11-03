@@ -239,7 +239,7 @@ test("meal generation exposes progress and has a bounded client wait", async () 
   ]);
   assert.match(app, /id="generation-status"/);
   assert.match(app, /詳細食譜可能需要約 30 秒/);
-  assert.match(chefMode, /const timeout = setTimeout\(\(\) => controller\.abort\(\), 50000\)/);
+  assert.match(chefMode, /const timeout = setTimeout\(\(\) => controller\.abort\(\), 90000\)/);
   assert.match(chefMode, /食譜產生時間過久，請再試一次。/);
 });
 
