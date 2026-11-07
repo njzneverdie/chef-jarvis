@@ -994,7 +994,7 @@ test("the repair model receives the original recipe contract with the repair env
   );
   assert.match(
     edge,
-    /failureStage = "repair_request";[\s\S]*contents: \[\{[\s\S]*role: "user",[\s\S]*parts: \[\{ text: `\$\{prompt\}\\n\\n\$\{repairPrompt\}` \}\]/,
+    /failureStage = "repair_request";[\s\S]*contents: \[\{[\s\S]*role: "user",[\s\S]*parts: \[\{ text: `\$\{prompt\}\$\{webReferenceText\}\\n\\n\$\{repairPrompt\}` \}\]/,
   );
   assert.match(edge, /const MAX_RECIPE_REPAIRS = 2;/);
   assert.match(
@@ -1078,13 +1078,10 @@ test("chef-meal-plan routes every JSON return through one request-scoped allerge
     modelsFailedStart,
     handler.indexOf("} catch (error)", modelsFailedStart),
   );
-  assert.match(modelsFailed, /const response = safeRespond\(\{[\s\S]*?plan,/);
-  assert.match(modelsFailed, /outcome: "fallback_models_failed"/);
-  assert.ok(
-    modelsFailed.indexOf("const response = safeRespond") <
-      modelsFailed.indexOf('console.log("chef_meal_plan_completed"'),
-    "the models-failed fallback must gate before logging completion",
-  );
+  // A failed generation returns a retryable error, never a canned plan.
+  assert.match(modelsFailed, /return safeRespond\(\s*\{[\s\S]*?code: "generation_failed"/);
+  assert.match(modelsFailed, /outcome: "generation_failed"/);
+  assert.doesNotMatch(modelsFailed, /fallbackPlan\(/);
 });
 
 test("a missing or malformed profile row fails closed before generation", async () => {
@@ -1147,7 +1144,7 @@ test("the Edge function uses provider-first flow and never named fallback", asyn
   assert.match(edge, /namedDishRejectionReason/);
   assert.match(edge, /clarification_required: true/);
   assert.match(edge, /named_recipe_unavailable/);
-  assert.match(edge, /EDGE_DEADLINE_MS = 42_000/);
+  assert.match(edge, /EDGE_DEADLINE_MS = 75_000/);
   assert.match(edge, /deadlineTimeout/);
   assert.doesNotMatch(edge, /requestGeminiRecipe\([\s\S]{0,500}remainingTimeout/);
   assert.match(edge, /refundQuotaSafely/);

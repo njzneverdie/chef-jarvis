@@ -22,11 +22,13 @@ type StubState = {
   pantryIdeas: unknown;
   equipment: string[];
   geminiRecipe: Record<string, unknown> | null;
+  webReferenceText: string;
+  webRecipe: Record<string, unknown> | null;
   geminiCalls: Array<{ model: string; kind: string }>;
   consumeCalls: number;
   refundCalls: number;
   videoImportCount: number;
-  videoRecipe: Record<string, unknown> | null;
+  videoRecipe: Record<string, unknown> | string | null;
   videoRepairRecipe: Record<string, unknown> | null;
   videoParts: unknown[][];
   storageRemoved: string[];
@@ -45,6 +47,8 @@ const state: StubState = {
   pantryIdeas: null,
   equipment: [],
   geminiRecipe: null,
+  webReferenceText: "",
+  webRecipe: null,
   geminiCalls: [],
   consumeCalls: 0,
   refundCalls: 0,
@@ -170,7 +174,9 @@ function stubGemini(url: URL, init?: RequestInit): Response {
   const videoPrompt = videoParts.find((part) => typeof part.text === "string")?.text || "";
   if (videoPrompt.includes("You turn a short cooking video")) {
     state.videoParts.push(videoParts);
-    return json({ candidates: [{ content: { parts: [{ text: JSON.stringify(state.videoRecipe) }] } }] });
+    // A string stands for raw model text, such as broken JSON.
+    const text = typeof state.videoRecipe === "string" ? state.videoRecipe : JSON.stringify(state.videoRecipe);
+    return json({ candidates: [{ content: { parts: [{ text }] } }] });
   }
   if (videoPrompt.includes("Repair only the rejected fields") && state.videoRepairRecipe) {
     return json({ candidates: [{ content: { parts: [{ text: JSON.stringify(state.videoRepairRecipe) }] } }] });
@@ -191,10 +197,20 @@ function stubGemini(url: URL, init?: RequestInit): Response {
     ? "resolver"
     : prompt.includes("Independently verify whether the recipe is exactly")
     ? "verifier"
+    : prompt.startsWith("Search the web for one real, published home-cooking recipe")
+    ? "web_reference"
     : "generation";
   state.geminiCalls.push({ model, kind });
   state.geminiPrompts.push(prompt);
   thinkingLevels.push(requestBody.generationConfig?.thinkingConfig?.thinkingLevel);
+  if (kind === "web_reference") {
+    return state.webReferenceText
+      ? json({ candidates: [{ content: { parts: [{ text: state.webReferenceText }] } }] })
+      : json({ error: "stubbed search unavailable" }, 503);
+  }
+  if (kind === "generation" && state.webRecipe && prompt.includes("A web search found this published recipe")) {
+    return json({ candidates: [{ content: { parts: [{ text: JSON.stringify(state.webRecipe) }] } }] });
+  }
   if (state.geminiMode === "named_verifier_fallback") {
     if (kind === "resolver") {
       return json({
@@ -351,6 +367,8 @@ function resetScenario(overrides: Partial<StubState> = {}) {
   state.geminiDeleted = [];
   state.geminiUploads = 0;
   state.insertedRecipes = [];
+  state.webReferenceText = "";
+  state.webRecipe = null;
   Object.assign(state, overrides);
   completions.length = 0;
 }
@@ -385,17 +403,19 @@ Deno.test("unconfigured fallback fails closed when it would expose a saved aller
   assertEquals(state.consumeCalls, 0);
 });
 
-Deno.test("models-failed fallback refunds quota before responding", { sanitizeOps: false, sanitizeResources: false }, async () => {
+Deno.test("models-failed generation reports a retryable failure and refunds quota", { sanitizeOps: false, sanitizeResources: false }, async () => {
   resetScenario({ geminiMode: "fail" });
   Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
   const { status, body } = await requestPlan(BROAD_MEAL);
-  assertEquals(status, 200);
-  assert(body.plan, "expected the labeled broad fallback");
-  assertEquals(body.fallback, true);
+  assertEquals(status, 503);
+  assertEquals(body.plan, undefined, "a canned template never replaces the user's request");
+  assertEquals(body.code, "generation_failed");
+  assertEquals(body.retryable, true);
+  assertMatch(String(body.error), /try again/i);
   assertEquals(state.consumeCalls, 1);
   assertEquals(state.refundCalls, 1);
   assertEquals(completions.length, 1);
-  assertEquals(completions[0].outcome, "fallback_models_failed");
+  assertEquals(completions[0].outcome, "generation_failed");
 });
 
 Deno.test("an unsafe metered response refunds quota and never logs completion", { sanitizeOps: false, sanitizeResources: false }, async () => {
@@ -403,11 +423,11 @@ Deno.test("an unsafe metered response refunds quota and never logs completion", 
   resetScenario({ geminiMode: "fail", allergies: [fallbackAllergen] });
   Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
   const { status, body } = await requestPlan(BROAD_MEAL);
-  assertEquals(status, 500);
+  assertEquals(status, 503);
   assertEquals(body.plan, undefined);
   assertEquals(state.consumeCalls, 1);
   assertEquals(state.refundCalls, 1, "the reserved quota must be refunded");
-  assertEquals(completions.length, 0, "an unsafe response must not log completion");
+  assert(!JSON.stringify(body).includes(fallbackAllergen), "no allergen text is returned");
 });
 
 let successRecipe: Record<string, unknown> | null = null;
@@ -601,15 +621,15 @@ Deno.test("selected constraints reject invalid input and return a compatible mea
   assertEquals(result.body.plan.ingredients[0].quantity, 150);
 });
 
-Deno.test("models-failed selection returns a matching fallback and refunds AI quota", { sanitizeOps: false, sanitizeResources: false }, async () => {
+Deno.test("models-failed selection never returns the canned salad and refunds AI quota", { sanitizeOps: false, sanitizeResources: false }, async () => {
   resetScenario({ geminiMode: "fail" });
   Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
-  const result = await requestPlan("Recommend a healthy dinner", { servings: 4, max_minutes: 15 });
-  assertEquals(result.status, 200);
-  assertEquals(result.body.plan.servings, 4);
-  assert(result.body.plan.minutes <= 15);
-  assertEquals(result.body.plan.fallback, true);
-  assertEquals(result.body.plan.ingredients[0].quantity, 600);
+  const result = await requestPlan("Recommend a healthy dinner", { servings: 4, max_minutes: 15 }, { language: "zh-TW" });
+  assertEquals(result.status, 503);
+  assertEquals(result.body.plan, undefined);
+  assertEquals(result.body.code, "generation_failed");
+  assertMatch(String(result.body.error), /請再按一次/);
+  assert(!JSON.stringify(result.body).includes("鷹嘴豆"));
   assertEquals(state.consumeCalls, 1);
   assertEquals(state.refundCalls, 1);
 });
@@ -681,15 +701,9 @@ Deno.test("a zh-TW plan that stays mixed after localization is never returned", 
   resetScenario({ geminiMode: "recipe", geminiRecipe: successRecipe, translations: stillMixed });
   Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
   const { status, body } = await requestPlan(BROAD_MEAL, undefined, { language: "zh-TW" });
-  assertEquals(status, 200);
-  const visible = [
-    body.plan.title,
-    body.plan.summary,
-    ...body.plan.ingredients.flatMap((item: { name: string; preparation: string }) => [item.name, item.preparation]),
-    ...body.plan.steps.flatMap((step: { instruction: string; timers: Array<{ label: string }> }) => [step.instruction, ...step.timers.map((timer) => timer.label)]),
-  ].join(" ");
-  assert(!/[A-Za-z]/.test(visible.replace(/\bJarvis\b/g, "")), `mixed text must not be returned: ${visible}`);
-  assertEquals(body.fallback, true);
+  assertEquals(status, 503);
+  assertEquals(body.plan, undefined, "mixed text must not be returned");
+  assertEquals(body.meta.failure_reason, "mixed_language");
   assertEquals(state.refundCalls, 1);
 });
 
@@ -808,9 +822,66 @@ Deno.test("a recipe needing an appliance the user lacks is never returned", { sa
   });
   Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
   const { status, body } = await requestPlan(BROAD_MEAL);
-  assertEquals(status, 200);
-  assertEquals(body.fallback, true);
+  assertEquals(status, 503);
+  assertEquals(body.plan, undefined);
   assert(state.geminiPrompts.some((prompt) => prompt.includes("Recipe uses equipment the user does not have: oven.")), "the first attempt is repaired");
+  const secondModelRepairs = state.geminiCalls.filter((call) => call.model === "gemini-3.5-flash" && call.kind === "generation").length;
+  assertEquals(secondModelRepairs, 2, "the second model gets one repair too");
+  assertEquals(state.geminiCalls.filter((call) => call.kind === "web_reference").length, 1, "the web is searched once");
+});
+
+Deno.test("when the first attempt fails, a web-searched recipe is adapted with the user's pantry", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  assert(successRecipe, "previous scenario must capture a valid recipe");
+  resetScenario({
+    pantry: pantryRows,
+    geminiMode: "recipe",
+    geminiRecipe: { ...successRecipe, equipment_needed: ["oven"] },
+    equipment: ["Stovetop", "Frying pan"],
+    webReferenceText: "Cabbage and chicken soup. Source: example recipe site. 300 g chicken breast...",
+    webRecipe: { ...successRecipe, servings: 1, minutes: 30, title: "Web-based chicken soup" },
+  });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const { status, body } = await requestPlan("Recommend a meal", { servings: 1, max_minutes: 30 }, {
+    preferences: { meal: "dinner" },
+  });
+  assertEquals(status, 200);
+  assertEquals(body.plan.title, "Web-based chicken soup");
+  assertEquals(body.fallback, undefined);
+  const searchIndex = state.geminiCalls.findIndex((call) => call.kind === "web_reference");
+  assert(searchIndex > 0, "the web is searched only after the fast attempt fails");
+  const searchPrompt = state.geminiPrompts[searchIndex];
+  assertMatch(searchPrompt, /"pantry_available":\["雞胸肉","高麗菜","雞蛋"\]/);
+  assertEquals(state.refundCalls, 0);
+});
+
+Deno.test("a chosen pantry idea must really use its pantry items and skips the variety check", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  const recipe = {
+    title: "雞胸肉高麗菜湯", image_query: "chicken cabbage soup", summary: "清爽的湯。", minutes: 25, servings: 1,
+    kcal: 300, protein_g: 35, carbs_g: 10, fat_g: 8,
+    ingredients: [
+      { name: "去骨去皮雞胸肉", usda_query: "chicken breast boneless skinless raw", quantity: 150, unit: "g", preparation: "切片", category: "protein" },
+      { name: "高麗菜", usda_query: "cabbage raw", quantity: 150, unit: "g", preparation: "切塊", category: "produce" },
+      { name: "水", usda_query: "water", quantity: 500, unit: "ml", preparation: "無需處理", category: "other" },
+      { name: "食鹽", usda_query: "salt table", quantity: 1, unit: "g", preparation: "無需處理", category: "seasoning" },
+    ],
+    steps: [
+      { instruction: "水煮滾後放入雞胸肉片煮 8 分鐘。", timers: [{ label: "煮雞胸肉", kind: "boil", duration_seconds: 480 }] },
+      { instruction: "加入高麗菜再煮 5 分鐘，加食鹽調味後上桌。", timers: [{ label: "煮高麗菜", kind: "simmer", duration_seconds: 300 }] },
+    ],
+    substitutions: [], equipment_adaptations: [], reuse_ideas: [],
+  };
+  const withoutCabbage = { ...recipe, ingredients: recipe.ingredients.filter((item) => item.name !== "高麗菜"), steps: [recipe.steps[0], { ...recipe.steps[1], instruction: "加食鹽調味後再煮 5 分鐘上桌。" }] };
+  resetScenario({ pantry: pantryRows, geminiMode: "recipe", geminiRecipe: withoutCabbage, recentTitles: ["雞胸肉高麗菜湯"] });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const idea = { preferences: { meal: "dinner" }, pantry_idea: { title: "雞胸肉高麗菜湯", uses: ["雞胸肉", "高麗菜"] }, language: "zh-TW" };
+  const missing = await requestPlan("推薦一餐", { servings: 1, max_minutes: 30 }, idea);
+  assertEquals(missing.status, 503);
+  assertEquals(missing.body.meta.failure_reason, "pantry_unused");
+  assert(state.geminiPrompts.some((prompt) => prompt.includes("Recipe must use the chosen pantry items: 高麗菜.")), "the model is asked to repair");
+  resetScenario({ pantry: pantryRows, geminiMode: "recipe", geminiRecipe: recipe, recentTitles: ["雞胸肉高麗菜湯"] });
+  const ok = await requestPlan("推薦一餐", { servings: 1, max_minutes: 30 }, idea);
+  assertEquals(ok.status, 200);
+  assertEquals(ok.body.plan.title, "雞胸肉高麗菜湯", "a recent title never blocks the chosen idea");
 });
 
 // ---- Video recipe import -------------------------------------------------
@@ -973,4 +1044,70 @@ Deno.test("video import: no link and no camera-roll upload is still refused", { 
   assertEquals(status, 400);
   assertEquals(body.code, "invalid_link");
   assertEquals(state.consumeCalls, 0);
+});
+
+Deno.test("video import: fractional servings and minutes are rounded for the integer columns", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  resetScenario({ videoRecipe: videoRecipe({ servings: 2.5, minutes: 12.5 }) });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const { status, body } = await importVideo({ source_url: "https://youtu.be/abcdefghijk" });
+  assertEquals(status, 200);
+  assertEquals(body.plan.servings, 2.5);
+  assertEquals(state.insertedRecipes[0].servings, 3);
+  assertEquals(state.insertedRecipes[0].minutes, 13);
+});
+
+Deno.test("video import: broken JSON from the video call gets one repair instead of failing", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  resetScenario({ videoRecipe: '{"is_recipe": true, "title": "Garlic Butter Noodles",', videoRepairRecipe: videoRecipe({ estimated_ingredients: [2], estimated_steps: [] }) });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const { status, body } = await importVideo({ source_url: "https://youtu.be/abcdefghijk" });
+  assertEquals(status, 200);
+  assertEquals(body.plan.title, "Garlic Butter Noodles");
+  assertEquals(body.plan.import_estimates, { ingredients: [2], steps: [] });
+  assertEquals(state.insertedRecipes.length, 1);
+});
+
+Deno.test("video import: after a repair the estimate marks follow the ingredient, not its old position", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  const original = videoRecipe({ estimated_ingredients: [2], estimated_steps: [] });
+  const ingredients = original.ingredients as Record<string, unknown>[];
+  const repaired = videoRecipe({
+    title: "Garlic Oil Noodles", image_query: "garlic oil noodles", summary: "Quick noodles tossed in garlic oil.",
+    ingredients: [ingredients[2], ingredients[0], { ...ingredients[1], name: "Olive oil", usda_query: "olive oil", category: "other" }],
+    steps: JSON.parse(JSON.stringify(original.steps).replaceAll("unsalted butter", "olive oil").replaceAll("butter", "oil")),
+  });
+  delete (repaired as Record<string, unknown>).estimated_ingredients;
+  delete (repaired as Record<string, unknown>).estimated_steps;
+  resetScenario({ allergies: ["butter"], videoRecipe: original, videoRepairRecipe: repaired });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const { status, body } = await importVideo({ source_url: "https://youtu.be/abcdefghijk" });
+  assertEquals(status, 200);
+  assertEquals(body.plan.ingredients[0].name, "Garlic");
+  assertEquals(body.plan.import_estimates.ingredients, [0], "Garlic moved from index 2 to 0");
+});
+
+Deno.test("a chosen English pantry idea counts plurals and extra words as used", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  const recipe = {
+    title: "Chicken thigh and egg rice bowl", image_query: "chicken egg rice bowl", summary: "A quick rice bowl.", minutes: 25, servings: 1,
+    kcal: 600, protein_g: 40, carbs_g: 60, fat_g: 18,
+    ingredients: [
+      { name: "Boneless chicken thigh", usda_query: "chicken thigh boneless raw", quantity: 150, unit: "g", preparation: "sliced", category: "protein" },
+      { name: "Egg", usda_query: "egg whole raw", quantity: 1, unit: "piece", preparation: "beaten", category: "protein" },
+      { name: "Cooked white rice", usda_query: "rice white cooked", quantity: 150, unit: "g", preparation: "no preparation", category: "grain" },
+      { name: "Table salt", usda_query: "salt table", quantity: 1, unit: "g", preparation: "no preparation", category: "seasoning" },
+    ],
+    steps: [
+      { instruction: "Pan-fry the chicken thigh for 8 minutes until cooked through.", timers: [{ label: "Fry chicken", kind: "cook", duration_seconds: 480 }] },
+      { instruction: "Add the beaten egg, stir for 1 minute, season with salt and serve over the rice.", timers: [{ label: "Cook egg", kind: "cook", duration_seconds: 60 }] },
+    ],
+    substitutions: [], equipment_adaptations: [], reuse_ideas: [],
+  };
+  const englishPantry = [
+    { name: "Kirkland chicken thighs", quantity: 500, unit: "g", expires_on: null },
+    { name: "Eggs", quantity: 6, unit: "piece", expires_on: null },
+  ];
+  resetScenario({ pantry: englishPantry, geminiMode: "recipe", geminiRecipe: recipe });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const idea = { preferences: { meal: "dinner" }, pantry_idea: { title: "Chicken thigh and egg rice bowl", uses: ["Kirkland chicken thighs", "Eggs"] }, language: "en" };
+  const ok = await requestPlan("Recommend a meal", { servings: 1, max_minutes: 30 }, idea);
+  assertEquals(ok.status, 200);
+  assert(!state.geminiPrompts.some((prompt) => prompt.includes("Recipe must use the chosen pantry items")), "no repair for a used item");
 });

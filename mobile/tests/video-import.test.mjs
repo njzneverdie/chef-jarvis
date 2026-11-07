@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { findVideoLink, importLinkFromURL, importSource, recentDownloadedVideo, videoUploadProblem } from "../src/mobile-domain.mjs";
+import { findVideoLink, importLinkFromURL, importSource, isImportableVideoLink, recentDownloadedVideo, videoUploadProblem } from "../src/mobile-domain.mjs";
 
 test("shared text yields its first YouTube or Instagram link", () => {
   assert.deepEqual(findVideoLink("Look at this! https://youtube.com/shorts/abcdefghijk?si=x wow"), {
@@ -46,4 +46,13 @@ test("only a video saved in the last 10 minutes is picked up automatically", () 
   assert.equal(recentDownloadedVideo([video(11)], now), null);
   assert.equal(recentDownloadedVideo([video(1, 301)], now), null);
   assert.equal(recentDownloadedVideo([], now), null);
+});
+
+test("only links the server can parse stand in for an uploaded video", () => {
+  assert.equal(isImportableVideoLink("https://www.instagram.com/reel/C1a2B3c4D5e/"), true);
+  assert.equal(isImportableVideoLink("https://youtube.com/shorts/abcdefghijk?si=x"), true);
+  assert.equal(isImportableVideoLink("https://youtu.be/abcdefghijk"), true);
+  assert.equal(isImportableVideoLink("https://www.instagram.com/share/AbCdEf123/"), false);
+  assert.equal(isImportableVideoLink("https://www.instagram.com/some.chef/"), false);
+  assert.equal(isImportableVideoLink("not a link"), false);
 });
