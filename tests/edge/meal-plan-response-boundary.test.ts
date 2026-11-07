@@ -28,7 +28,7 @@ type StubState = {
   consumeCalls: number;
   refundCalls: number;
   videoImportCount: number;
-  videoRecipe: Record<string, unknown> | null;
+  videoRecipe: Record<string, unknown> | string | null;
   videoRepairRecipe: Record<string, unknown> | null;
   videoParts: unknown[][];
   storageRemoved: string[];
@@ -174,7 +174,9 @@ function stubGemini(url: URL, init?: RequestInit): Response {
   const videoPrompt = videoParts.find((part) => typeof part.text === "string")?.text || "";
   if (videoPrompt.includes("You turn a short cooking video")) {
     state.videoParts.push(videoParts);
-    return json({ candidates: [{ content: { parts: [{ text: JSON.stringify(state.videoRecipe) }] } }] });
+    // A string stands for raw model text, such as broken JSON.
+    const text = typeof state.videoRecipe === "string" ? state.videoRecipe : JSON.stringify(state.videoRecipe);
+    return json({ candidates: [{ content: { parts: [{ text }] } }] });
   }
   if (videoPrompt.includes("Repair only the rejected fields") && state.videoRepairRecipe) {
     return json({ candidates: [{ content: { parts: [{ text: JSON.stringify(state.videoRepairRecipe) }] } }] });
@@ -1042,4 +1044,70 @@ Deno.test("video import: no link and no camera-roll upload is still refused", { 
   assertEquals(status, 400);
   assertEquals(body.code, "invalid_link");
   assertEquals(state.consumeCalls, 0);
+});
+
+Deno.test("video import: fractional servings and minutes are rounded for the integer columns", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  resetScenario({ videoRecipe: videoRecipe({ servings: 2.5, minutes: 12.5 }) });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const { status, body } = await importVideo({ source_url: "https://youtu.be/abcdefghijk" });
+  assertEquals(status, 200);
+  assertEquals(body.plan.servings, 2.5);
+  assertEquals(state.insertedRecipes[0].servings, 3);
+  assertEquals(state.insertedRecipes[0].minutes, 13);
+});
+
+Deno.test("video import: broken JSON from the video call gets one repair instead of failing", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  resetScenario({ videoRecipe: '{"is_recipe": true, "title": "Garlic Butter Noodles",', videoRepairRecipe: videoRecipe({ estimated_ingredients: [2], estimated_steps: [] }) });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const { status, body } = await importVideo({ source_url: "https://youtu.be/abcdefghijk" });
+  assertEquals(status, 200);
+  assertEquals(body.plan.title, "Garlic Butter Noodles");
+  assertEquals(body.plan.import_estimates, { ingredients: [2], steps: [] });
+  assertEquals(state.insertedRecipes.length, 1);
+});
+
+Deno.test("video import: after a repair the estimate marks follow the ingredient, not its old position", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  const original = videoRecipe({ estimated_ingredients: [2], estimated_steps: [] });
+  const ingredients = original.ingredients as Record<string, unknown>[];
+  const repaired = videoRecipe({
+    title: "Garlic Oil Noodles", image_query: "garlic oil noodles", summary: "Quick noodles tossed in garlic oil.",
+    ingredients: [ingredients[2], ingredients[0], { ...ingredients[1], name: "Olive oil", usda_query: "olive oil", category: "other" }],
+    steps: JSON.parse(JSON.stringify(original.steps).replaceAll("unsalted butter", "olive oil").replaceAll("butter", "oil")),
+  });
+  delete (repaired as Record<string, unknown>).estimated_ingredients;
+  delete (repaired as Record<string, unknown>).estimated_steps;
+  resetScenario({ allergies: ["butter"], videoRecipe: original, videoRepairRecipe: repaired });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const { status, body } = await importVideo({ source_url: "https://youtu.be/abcdefghijk" });
+  assertEquals(status, 200);
+  assertEquals(body.plan.ingredients[0].name, "Garlic");
+  assertEquals(body.plan.import_estimates.ingredients, [0], "Garlic moved from index 2 to 0");
+});
+
+Deno.test("a chosen English pantry idea counts plurals and extra words as used", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  const recipe = {
+    title: "Chicken thigh and egg rice bowl", image_query: "chicken egg rice bowl", summary: "A quick rice bowl.", minutes: 25, servings: 1,
+    kcal: 600, protein_g: 40, carbs_g: 60, fat_g: 18,
+    ingredients: [
+      { name: "Boneless chicken thigh", usda_query: "chicken thigh boneless raw", quantity: 150, unit: "g", preparation: "sliced", category: "protein" },
+      { name: "Egg", usda_query: "egg whole raw", quantity: 1, unit: "piece", preparation: "beaten", category: "protein" },
+      { name: "Cooked white rice", usda_query: "rice white cooked", quantity: 150, unit: "g", preparation: "no preparation", category: "grain" },
+      { name: "Table salt", usda_query: "salt table", quantity: 1, unit: "g", preparation: "no preparation", category: "seasoning" },
+    ],
+    steps: [
+      { instruction: "Pan-fry the chicken thigh for 8 minutes until cooked through.", timers: [{ label: "Fry chicken", kind: "cook", duration_seconds: 480 }] },
+      { instruction: "Add the beaten egg, stir for 1 minute, season with salt and serve over the rice.", timers: [{ label: "Cook egg", kind: "cook", duration_seconds: 60 }] },
+    ],
+    substitutions: [], equipment_adaptations: [], reuse_ideas: [],
+  };
+  const englishPantry = [
+    { name: "Kirkland chicken thighs", quantity: 500, unit: "g", expires_on: null },
+    { name: "Eggs", quantity: 6, unit: "piece", expires_on: null },
+  ];
+  resetScenario({ pantry: englishPantry, geminiMode: "recipe", geminiRecipe: recipe });
+  Deno.env.set("GEMINI_API_KEY", "stub-gemini-key");
+  const idea = { preferences: { meal: "dinner" }, pantry_idea: { title: "Chicken thigh and egg rice bowl", uses: ["Kirkland chicken thighs", "Eggs"] }, language: "en" };
+  const ok = await requestPlan("Recommend a meal", { servings: 1, max_minutes: 30 }, idea);
+  assertEquals(ok.status, 200);
+  assert(!state.geminiPrompts.some((prompt) => prompt.includes("Recipe must use the chosen pantry items")), "no repair for a used item");
 });

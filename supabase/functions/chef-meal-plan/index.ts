@@ -2306,6 +2306,23 @@ function validateGeneratedPlan(
 
 // Pantry names are free text in any language; only names written in the
 // output language's script can be matched against the localized ingredients.
+// Matching is loose on purpose: a false "unused" ends the request, so one
+// shared word (plural or not) or two shared CJK characters count as used.
+const PANTRY_FILLER_WORDS = new Set([
+  "and", "the", "with", "fresh", "frozen", "organic", "raw", "large", "small",
+  "medium", "whole", "boneless", "skinless", "chopped", "sliced", "dried",
+]);
+function pantryWordStem(word: string) {
+  if (word.endsWith("ies") && word.length > 4) return `${word.slice(0, -3)}y`;
+  if (word.endsWith("oes") && word.length > 4) return word.slice(0, -2);
+  if (word.endsWith("s") && !word.endsWith("ss") && word.length > 3) return word.slice(0, -1);
+  return word;
+}
+function pantryWords(text: string) {
+  return text.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u)
+    .filter((word) => word.length >= 3 && !PANTRY_FILLER_WORDS.has(word))
+    .map(pantryWordStem);
+}
 function chosenPantryItemsMissing(
   plan: MealPlan,
   uses: string[],
@@ -2315,10 +2332,20 @@ function chosenPantryItemsMissing(
   const names = plan.ingredients.map((item) =>
     `${item.name} ${item.usda_query || ""}`.toLocaleLowerCase()
   );
+  // Before localization the ingredient names may still be English; a CJK
+  // pantry name can only be checked once some ingredient is written in CJK.
+  if (language === "zh-TW" && !plan.ingredients.some((item) => cjk.test(item.name))) return [];
+  const words = new Set(names.flatMap(pantryWords));
   return uses.filter((use) => {
     const needle = use.trim().toLocaleLowerCase();
     if (!needle || cjk.test(needle) !== (language === "zh-TW")) return false;
-    return !names.some((name) => name.includes(needle));
+    if (names.some((name) => name.includes(needle))) return false;
+    if (cjk.test(needle)) {
+      const chars = [...needle.replace(/[^\u3400-\u9fff]/g, "")];
+      const pairs = chars.slice(0, -1).map((char, index) => char + chars[index + 1]);
+      return !pairs.some((pair) => names.some((name) => name.includes(pair)));
+    }
+    return !pantryWords(needle).some((word) => words.has(word));
   });
 }
 
@@ -3020,8 +3047,15 @@ async function handleVideoImport(ctx: VideoImportContext): Promise<Response> {
       const end = clean.lastIndexOf("}");
       return JSON.parse(start >= 0 && end > start ? clean.slice(start, end + 1) : clean) as Record<string, unknown>;
     };
-    let raw = readJson(rawText);
-    if (raw.is_recipe !== true) {
+    // Broken JSON from the long video call still gets the one repair below
+    // instead of wasting the analysis.
+    let raw: Record<string, unknown> | null = null;
+    try {
+      raw = readJson(rawText);
+    } catch {
+      raw = null;
+    }
+    if (raw && raw.is_recipe !== true) {
       await ctx.releaseQuota();
       return fail("not_a_recipe", 422);
     }
@@ -3037,12 +3071,14 @@ async function handleVideoImport(ctx: VideoImportContext): Promise<Response> {
     };
     let plan: MealPlan;
     try {
+      if (!raw) throw new Error("The response was not valid JSON. Return the complete recipe as one JSON object.");
       plan = checkPlan(raw);
     } catch (error) {
       // One text-only repair: the video already shaped the dish; the repair
       // only fixes schema, timer, allergen or equipment problems.
+      const original = raw;
       const repairPrompt = buildRecipeRepairPrompt({
-        canonicalName: String(raw.title || ""),
+        canonicalName: String(original?.title || ""),
         rawText,
         validationMessage: error instanceof VideoImportFailure
           ? "The recipe uses an ingredient the user must avoid; substitute it safely."
@@ -3061,7 +3097,33 @@ async function handleVideoImport(ctx: VideoImportContext): Promise<Response> {
         }),
         deadlineTimeout(deadlineAt, 20_000, REFUND_RESERVE_MS),
       );
-      raw = { ...readJson(rawText), estimated_ingredients: raw.estimated_ingredients, estimated_steps: raw.estimated_steps };
+      const repaired = readJson(rawText);
+      if (!original && repaired.is_recipe !== true) {
+        await ctx.releaseQuota();
+        return fail("not_a_recipe", 422);
+      }
+      // The repair may add, drop or reorder rows, so the original estimate
+      // indexes are carried over by ingredient name and step text, unless the
+      // repair returned its own.
+      const remap = (key: "ingredients" | "steps", field: "name" | "instruction", estimates: unknown) => {
+        if (Array.isArray(repaired[`estimated_${key}`])) return repaired[`estimated_${key}`];
+        const before = Array.isArray(original?.[key]) ? original?.[key] as Record<string, unknown>[] : [];
+        const after = Array.isArray(repaired[key]) ? repaired[key] as Record<string, unknown>[] : [];
+        const text = (row: unknown) =>
+          row && typeof row === "object" ? String((row as Record<string, unknown>)[field] || "").trim().toLowerCase() : "";
+        const marked = new Set(
+          (Array.isArray(estimates) ? estimates : [])
+            .filter((index): index is number => Number.isInteger(index))
+            .map((index) => text(before[index]))
+            .filter(Boolean),
+        );
+        return after.map((row, index) => marked.has(text(row)) ? index : -1).filter((index) => index >= 0);
+      };
+      raw = {
+        ...repaired,
+        estimated_ingredients: remap("ingredients", "name", original?.estimated_ingredients),
+        estimated_steps: remap("steps", "instruction", original?.estimated_steps),
+      };
       plan = checkPlan(raw);
     }
 
@@ -3090,14 +3152,20 @@ async function handleVideoImport(ctx: VideoImportContext): Promise<Response> {
       },
     } as MealPlan, plan.title);
 
+    // The response egress gate runs only after the insert, so run it here
+    // first: a plan it would reject must never reach the user's Saved list.
+    // It throws on rejection, which refunds the quota and saves nothing.
+    mealPlanResponseAllergenGate({ plan: imported }, ctx.profile);
+
     const { data: row, error: insertError } = await admin
       .from("recipes")
       .insert({
         user_id: userId,
         app_user_id: userId,
         title: imported.title,
-        servings: imported.servings,
-        minutes: imported.minutes,
+        // The recipe JSON keeps one decimal; these columns are integers.
+        servings: Math.max(1, Math.round(imported.servings)),
+        minutes: Number.isFinite(imported.minutes) ? Math.round(imported.minutes) : null,
         recipe: imported,
         nutrition: {
           estimate: {
