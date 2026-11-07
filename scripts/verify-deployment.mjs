@@ -18,7 +18,7 @@ const edgeFunctions = [
   "chef-delete-account",
 ];
 const versionHeader = "x-chef-jarvis-function-version";
-const requiredMealPlanVersion = "2026-11-03.honest-failure.34";
+const requiredMealPlanVersion = "2026-11-07.review-fixes.35";
 
 const sha256 = (value) =>
   createHash("sha256").update(value).digest("hex");

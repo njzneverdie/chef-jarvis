@@ -79,7 +79,7 @@ import {
 } from "../_shared/video-import.js";
 
 const PROMPT_VERSION = "2026-11-01.4";
-const FUNCTION_VERSION = "2026-11-03.honest-failure.34";
+const FUNCTION_VERSION = "2026-11-07.review-fixes.35";
 // Room for a fast attempt, a web search for a real recipe and a stronger
 // attempt built on it. Clients wait 90 s; the free-plan wall clock is 150 s.
 const EDGE_DEADLINE_MS = 75_000;
