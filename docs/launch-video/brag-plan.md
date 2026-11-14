@@ -1,20 +1,18 @@
 # Chef Jarvis launch video plan (/brag-slim)
 
-- Angle: most recipe apps start with the dish; Chef Jarvis starts with the person cooking it (README copy).
-- Tone: default, warm and playful, in the app's own cream / forest green / caramel palette, DM Serif Display + Manrope.
-- Format: 1920x1080, 30 fps, 20 s, 120 BPM, every cut on the beat.
-- Music: synthesized for this video (F major, Fmaj7 Dm7 Bbmaj7 C), effects pitched to the same key and grid.
+- Source: the native iOS app on `agent/web-recipe-fallback` (PR #19), built as a Release simulator build and driven in the iOS Simulator. Every phone screen in the video is a real screenshot of that build, including a meal Jarvis generated live (蒜香奶油煎蝦仁佐義大利麵).
+- Angle: you never have to think of a dish name; Jarvis decides, then carries you from plan to groceries to cooking. New in this version: turn a YouTube or Instagram cooking video into a recipe.
+- Format: 1080x1920 vertical, 30 fps, 22 s, 120 BPM, every cut on the beat. Music synthesized for this video.
 
 | Time | Scene |
 | --- | --- |
-| 0 to 2 s | Hook: 大多數食譜，從菜開始。 |
-| 2 to 4 s | Mascot pops in, profile chips land on the beat: Chef Jarvis，從你開始。 |
-| 4 to 7 s | Home screen, typing 兩人份高蛋白宮保雞丁, click send |
-| 7 to 11 s | Recipe card: Kung Pao chicken, macros count up, Jarvis explains the profile-aware adjustments |
-| 11 to 14 s | Grocery list ticks off, quantities to the gram |
-| 14 to 17.5 s | Chef Mode: step advances, three timers run in parallel (countdown sped up for the video) |
-| 17.5 to 20 s | Outro: mascot, 好好下廚，為你量身打造。 chef-jarvis.pages.dev |
+| 0 to 2 s | Hook: 今晚吃什麼？不用想了。 |
+| 2 to 4.5 s | Planning screen, tap 2 人份 and 幫我決定這一餐 |
+| 4.5 to 9 s | Generated recipe: macros, measured ingredients, steps |
+| 9 to 11 s | Goal-aware swap suggestion and leftover reuse idea |
+| 11 to 14 s | Shopping list built in one tap, items ticked off |
+| 14 to 17 s | Guided cooking with a running kitchen timer |
+| 17 to 19.5 s | New: import a recipe from a YouTube or Instagram video |
+| 19.5 to 22 s | Outro: Chef Jarvis, 把今天，好好煮一餐。 |
 
-Data shown is the demo data from the repo screenshots (docs/screenshots). The account avatar and sidebar email were replaced with neutral stand-ins.
-
-Photos: Kung Pao chicken by Anagoria (CC BY 3.0) and BuddhaBowlLot by PizzaMan (CC BY-SA 4.0), both from Wikimedia Commons, the same curated sources the app uses.
+No account email or personal data appears on screen. Tap rings are added in the edit to show where each tap landed.
