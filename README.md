@@ -41,6 +41,12 @@ Its primary product principle is **personalized healthy swaps**:
 | Language and images | English / Traditional Chinese UI plus exact, representative, or curated Wikimedia imagery with explicit attribution           |
 | Privacy and control | JSON data export, published retention policy, and permanent authenticated account deletion                                      |
 
+## Launch video
+
+[![Chef Jarvis launch video](docs/launch-video/brag.jpg)](docs/launch-video/brag.mp4)
+
+A 20-second launch video made with [/brag](https://github.com/latent-spaces/brag). Plan and share copy live in [docs/launch-video](docs/launch-video/).
+
 ## Product preview
 
 | Personalized home                                                                 | Exact recipe and grocery list                                                              | Guided Chef Mode                                                                  |
