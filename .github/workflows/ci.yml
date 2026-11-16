@@ -34,7 +34,11 @@ jobs:
       - uses: actions/checkout@v5
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.x
+          # Pinned, not v2.x: a floating version turns PRs red for reasons that
+          # have nothing to do with the change. Keep this in step with the deno
+          # version in package.json's test:edge, and upgrade both in one
+          # deliberate commit.
+          deno-version: v2.9.6
       # Same suite and flags as npm run test:edge, without the npx deno-bin
       # download. --node-modules-dir=none is required because this repo has a
       # package.json (Playwright, serve) but the edge functions are Supabase
