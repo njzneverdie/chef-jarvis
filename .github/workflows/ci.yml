@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: Syntax check and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26.x
+      # No npm ci: check and test import only node: builtins, so the install
+      # would just pull Playwright and serve for nothing.
+      - run: npm run check
+      - run: npm test
+
+  edge:
+    name: Edge function tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      # Same suite as npm run test:edge, without the npx deno-bin download.
+      - run: deno test --no-lock -A tests/edge/
