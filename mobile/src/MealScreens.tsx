@@ -23,6 +23,9 @@ import {
   validateMeasuredRecipe,
 } from "./mobile-domain.mjs";
 import type { Recipe } from "./types";
+// The server may search the web for a real recipe before giving up (75 s).
+const MEAL_PLAN_TIMEOUT_MS = 90_000;
+
 export function HomeScreen({ go }: { go: (tab: string) => void }) {
   const st = useStore(),
     t = useT();
@@ -229,7 +232,7 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
         max_minutes: choices.time === "any" ? null : Number(choices.time),
       },
       ...(avoid.length ? { avoid_titles: avoid } : {}),
-    });
+    }, MEAL_PLAN_TIMEOUT_MS);
     if (result.clarification_required) {
       setClarification(result);
       return;

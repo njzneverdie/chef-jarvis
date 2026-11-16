@@ -529,6 +529,7 @@ const repairablePatterns = [
   /^ingredients\[\d+\]\.(?:quantity|unit|preparation|category) /,
   /^substitutions\[\d+\]\./,
   /^Recipe uses equipment the user does not have: /,
+  /^Recipe must use the chosen pantry items: /,
 ];
 
 export function recipeValidationDisposition(error) {
@@ -545,6 +546,11 @@ export function recipeValidationReasonCode(error) {
   const message = error instanceof Error ? error.message : String(error || "");
   if (error instanceof SyntaxError || /JSON|Unexpected (?:end|token)/i.test(message))
     return "invalid_json";
+  if (/^Recipe must make exactly \d+ servings/.test(message)) return "servings_mismatch";
+  if (/^Recipe total preparation and cooking time/.test(message)) return "time_limit";
+  if (/^Meal (?:is too similar|repeats the recent)/.test(message)) return "variety_repeat";
+  if (/^Recipe must use the chosen pantry items/.test(message)) return "pantry_unused";
+  if (/^Recipe language validation failed/.test(message)) return "mixed_language";
   if (/^substitutions\[|substitution/i.test(message))
     return "substitution_contract";
   if (/Named recipe core identity ingredient/i.test(message))
@@ -585,6 +591,7 @@ const namedFailureStagePriority = {
   repair_request: 2,
   initial_validation: 3,
   repair_validation: 4,
+  language_localization: 4,
   identity_verification: 5,
 };
 

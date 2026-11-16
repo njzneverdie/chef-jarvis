@@ -185,6 +185,30 @@ export function findVideoLink(text) {
   return null;
 }
 
+// Mirrors the server's parseVideoSource paths. A link the server cannot use
+// (an instagram.com/share/... or profile link) must not stand in for a video
+// the user already uploaded.
+export function isImportableVideoLink(value) {
+  let url;
+  try {
+    url = new URL(String(value || ""));
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase().replace(/^(www\.|m\.)/, "");
+  const parts = url.pathname.split("/").filter(Boolean);
+  const youtubeId = /^[A-Za-z0-9_-]{11}$/;
+  if (host === "youtube.com" || host === "music.youtube.com") {
+    if (parts[0] === "watch") return youtubeId.test(url.searchParams.get("v") || "");
+    return ["shorts", "live", "embed"].includes(parts[0]) && youtubeId.test(parts[1] || "");
+  }
+  if (host === "youtu.be") return youtubeId.test(parts[0] || "");
+  if (host === "instagram.com") {
+    return ["reel", "reels", "p", "tv"].includes(parts[0]) && /^[A-Za-z0-9_-]{5,64}$/.test(parts[1] || "");
+  }
+  return false;
+}
+
 // The import screen shows the YouTube or Instagram Reels form. A pasted link
 // decides it; until then the user's choice (or the screen it was opened as) does.
 export function importSource(chosen, text) {

@@ -2228,7 +2228,7 @@ async function generatePlan(request, constraints, preferences, extra) {
   assertGenerationContext(ownerUserId, generationEpoch);
   const controller = new AbortController();
   pendingGenerationControllers.add(controller);
-  const timeout = setTimeout(() => controller.abort(), 50000);
+  const timeout = setTimeout(() => controller.abort(), 90000);
   try {
     let response;
     try {

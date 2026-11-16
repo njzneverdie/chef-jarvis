@@ -6,7 +6,7 @@ import { randomUUID } from "expo-crypto";
 import { Button, Card, Copy, Field, Heading, Label, Page, s, useT } from "./ui";
 import { useStore } from "./store";
 import { supabase, requireOK } from "./client";
-import { findVideoLink, importSource, videoUploadProblem } from "./mobile-domain.mjs";
+import { findVideoLink, importSource, isImportableVideoLink, videoUploadProblem } from "./mobile-domain.mjs";
 import {
   findRecentDownload,
   markVideoHandled,
@@ -47,6 +47,12 @@ export function ImportScreen({
   const instagram = importSource(chosen, link) === "instagram";
   // Bumped by Cancel; an import that started earlier then drops its result.
   const run = useRef(0);
+  // Cancel also ends the wait itself, so the app-wide busy state clears at
+  // once instead of when the abandoned request finally settles.
+  const stopWaiting = useRef<(() => void) | null>(null);
+  // The foreground listener fires again when the Photos permission alert
+  // closes; only one automatic import may run at a time.
+  const autoImporting = useRef(false);
 
   // A link shared into the app (chefjarvis://import?url=…) fills the field.
   useEffect(() => {
@@ -86,17 +92,23 @@ export function ImportScreen({
 
   async function importDownloadedReel() {
     if (!st.profile?.onboarding_completed || !st.userId) return;
-    let asset = takeAcceptedDownload();
-    if (!asset) {
-      const result = await findRecentDownload(st.userId, true);
-      setPhotoAccess(result.access);
-      asset = result.asset;
+    if (autoImporting.current) return;
+    autoImporting.current = true;
+    try {
+      let asset = takeAcceptedDownload();
+      if (!asset) {
+        const result = await findRecentDownload(st.userId, true);
+        setPhotoAccess(result.access);
+        asset = result.asset;
+      }
+      if (!asset) return;
+      await markVideoHandled(st.userId, asset.id);
+      const picked = await videoFromAsset(asset, st.lang);
+      setVideo(picked);
+      await importRecipe(picked);
+    } finally {
+      autoImporting.current = false;
     }
-    if (!asset) return;
-    await markVideoHandled(st.userId, asset.id);
-    const picked = await videoFromAsset(asset, st.lang);
-    setVideo(picked);
-    await importRecipe(picked);
   }
 
   function choose(next: Source) {
@@ -144,9 +156,24 @@ export function ImportScreen({
 
   function cancel() {
     run.current += 1;
+    stopWaiting.current?.();
+    stopWaiting.current = null;
     setWorking(false);
     setVideo(null);
     setCancelled(true);
+  }
+
+  // Resolves with CANCELLED as soon as Cancel is tapped; the work itself keeps
+  // going in the background and its late result or error is ignored.
+  const CANCELLED = Symbol("cancelled");
+  function untilCancelled<T>(work: Promise<T>): Promise<T | typeof CANCELLED> {
+    work.catch(() => undefined);
+    return Promise.race([
+      work,
+      new Promise<typeof CANCELLED>((resolve) => {
+        stopWaiting.current = () => resolve(CANCELLED);
+      }),
+    ]);
   }
 
   async function importRecipe(picked: PickedVideo | null = video) {
@@ -165,25 +192,35 @@ export function ImportScreen({
     setCancelled(false);
     setRecipe(null);
     try {
-      const uploadPath = upload ? await uploadVideo(upload) : null;
-      if (current !== run.current) {
-        // Cancelled during the upload: nothing was analysed, so drop the file.
-        if (uploadPath) await supabase.storage.from("video-imports").remove([uploadPath]);
+      const uploading: Promise<string | null> = upload ? uploadVideo(upload) : Promise.resolve(null);
+      const uploadPath = await untilCancelled(uploading);
+      if (uploadPath === CANCELLED || current !== run.current) {
+        // Cancelled during the upload: nothing was analysed, so drop the file
+        // once the upload has finished.
+        void uploading
+          .then(async (path) => {
+            if (path) await supabase.storage.from("video-imports").remove([path]);
+          })
+          .catch(() => undefined);
         return;
       }
+      // An uploaded video does not need a link; a link the server cannot
+      // parse would only get the video refused.
+      const sendLink = found && (!uploadPath || isImportableVideoLink(found.url));
       let result: any;
       try {
-        result = await st.edge(
+        result = await untilCancelled(st.edge(
           "chef-meal-plan",
           {
             mode: "video_import",
             language: st.lang,
-            ...(found ? { source_url: found.url } : { source: "camera_roll" }),
+            ...(sendLink ? { source_url: found.url } : { source: "camera_roll" }),
             ...(instagram && caption.trim() ? { caption: caption.trim() } : {}),
             ...(uploadPath ? { upload_path: uploadPath } : {}),
           },
           IMPORT_TIMEOUT_MS,
-        );
+        ));
+        if (result === CANCELLED) return;
       } catch (error: any) {
         // Instagram needs the caption or the video; the inline hint says so
         // without a pop-up covering the screen.
