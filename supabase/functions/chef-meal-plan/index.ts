@@ -2822,7 +2822,7 @@ class VideoImportFailure extends Error {
 // explicitly as soon as the recipe is extracted.
 async function uploadVideoToGemini(
   apiKey: string,
-  bytes: Uint8Array,
+  bytes: Uint8Array<ArrayBuffer>,
   mimeType: string,
   timeoutMs: number,
 ) {
