@@ -185,8 +185,31 @@ export function findVideoLink(text) {
   return null;
 }
 
+// The import screen shows the YouTube or Instagram Reels form. A pasted link
+// decides it; until then the user's choice (or the screen it was opened as) does.
+export function importSource(chosen, text) {
+  return findVideoLink(text)?.platform || (chosen === "instagram" ? "instagram" : "youtube");
+}
+
 export const VIDEO_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 export const VIDEO_UPLOAD_MAX_MS = 300 * 1000;
+
+// After Instagram's own Download, the Reel is the newest video in Photos.
+// Media-library assets carry creationTime in ms and duration in seconds; only a
+// video saved in the last few minutes counts, so an older private clip is
+// never picked (or uploaded) by itself.
+export const RECENT_DOWNLOAD_MS = 10 * 60 * 1000;
+export function recentDownloadedVideo(assets, now = Date.now()) {
+  return (
+    (assets || []).find(
+      (asset) =>
+        asset?.mediaType === "video" &&
+        Number(asset.creationTime) >= now - RECENT_DOWNLOAD_MS &&
+        Number(asset.creationTime) <= now + 60 * 1000 &&
+        Number(asset.duration) * 1000 <= VIDEO_UPLOAD_MAX_MS,
+    ) || null
+  );
+}
 
 // Picked videos must fit the private upload bucket and the 5-minute cap.
 export function videoUploadProblem(asset, language) {

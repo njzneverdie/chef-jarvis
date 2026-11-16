@@ -79,7 +79,7 @@ import {
 } from "../_shared/video-import.js";
 
 const PROMPT_VERSION = "2026-11-01.4";
-const FUNCTION_VERSION = "2026-11-02.video-import.32";
+const FUNCTION_VERSION = "2026-11-02.video-import.33";
 const EDGE_DEADLINE_MS = 42_000;
 // Video analysis needs longer; still below the 150 s free-plan wall clock.
 const VIDEO_IMPORT_DEADLINE_MS = 125_000;
@@ -2875,7 +2875,12 @@ async function handleVideoImport(ctx: VideoImportContext): Promise<Response> {
       .map((item) => `${userId}/${item.name}`);
     if (stale.length) await bucket.remove(stale).catch(() => undefined);
 
-    const inputs = videoImportInputs({ source, caption, uploadPath }) as {
+    const inputs = videoImportInputs({
+      source,
+      caption,
+      uploadPath,
+      sourceKind: ctx.body.source === "camera_roll" ? "camera_roll" : "link",
+    }) as {
       error?: string;
       video?: { kind: "youtube" | "upload"; uri?: string; path?: string } | null;
       caption?: string;
@@ -2996,11 +3001,11 @@ async function handleVideoImport(ctx: VideoImportContext): Promise<Response> {
       ...plan,
       substitutions: [],
       source_type: "video_import",
-      source_provider: source!.platform === "youtube" ? "YouTube" : "Instagram",
+      source_provider: !source ? "" : source.platform === "youtube" ? "YouTube" : "Instagram",
       source_title: "",
-      source_url: source!.url,
+      source_url: source?.url || "",
       source_persistence: "permanent",
-      original_request: source!.url,
+      original_request: source?.url || "camera_roll",
       import_estimates: {
         ingredients: verdict.estimated_ingredients,
         steps: verdict.estimated_steps,
@@ -3033,7 +3038,7 @@ async function handleVideoImport(ctx: VideoImportContext): Promise<Response> {
     ctx.keepQuota();
     console.log("chef_video_import", {
       ...meta("imported"),
-      platform: source!.platform,
+      platform: source?.platform || "camera_roll",
       with_video: Boolean(videoPart),
       estimated_ingredients: verdict.estimated_ingredients.length,
     });
@@ -3143,6 +3148,7 @@ Deno.serve(async (request) => {
       source_url?: unknown;
       caption?: unknown;
       upload_path?: unknown;
+      source?: unknown;
     };
     language = body.language === "zh-TW" ? "zh-TW" : "en";
     const pantryIdeasMode = body.mode === "pantry_ideas";

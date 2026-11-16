@@ -254,8 +254,14 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
       <Button
         quiet
         disabled={st.busy}
-        title={t("Import a recipe from a video", "從短影片匯入食譜")}
+        title={t("Import from a YouTube video", "從 YouTube 影片匯入食譜")}
         onPress={() => go("Import")}
+      />
+      <Button
+        quiet
+        disabled={st.busy}
+        title={t("Import from an Instagram Reel", "從 Instagram 影片匯入食譜")}
+        onPress={() => go("ImportInstagram")}
       />
       <Button
         disabled={st.busy}
@@ -974,8 +980,13 @@ export function SavedScreen({ go }: { go: (s: string) => void }) {
           />
           <Button
             quiet
-            title={t("Import a recipe from a video", "從短影片匯入食譜")}
+            title={t("Import from a YouTube video", "從 YouTube 影片匯入食譜")}
             onPress={() => go("Import")}
+          />
+          <Button
+            quiet
+            title={t("Import from an Instagram Reel", "從 Instagram 影片匯入食譜")}
+            onPress={() => go("ImportInstagram")}
           />
           {!(st.data.recipes || []).length && (
             <Empty
