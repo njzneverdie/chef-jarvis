@@ -35,5 +35,9 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      # Same suite as npm run test:edge, without the npx deno-bin download.
-      - run: deno test --no-lock -A tests/edge/
+      # Same suite and flags as npm run test:edge, without the npx deno-bin
+      # download. --node-modules-dir=none is required because this repo has a
+      # package.json (Playwright, serve) but the edge functions are Supabase
+      # Deno functions: their npm: imports belong in Deno's own cache, not in
+      # the npm-managed node_modules.
+      - run: deno test --no-lock --node-modules-dir=none -A tests/edge/
