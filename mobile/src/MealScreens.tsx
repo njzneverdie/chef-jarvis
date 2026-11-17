@@ -3,6 +3,7 @@ import { Alert, Image, Linking, Pressable, Text, View } from "react-native";
 import {
   Button,
   Card,
+  colors,
   Copy,
   Empty,
   Field,
@@ -250,6 +251,12 @@ export function PlanScreen({ go }: { go: (s: string) => void }) {
       <Text style={s.fieldLabel} accessibilityLiveRegion="polite">
         {domain.mealPlanningSummary(choices, st.lang)}
       </Text>
+      <Button
+        quiet
+        disabled={st.busy}
+        title={t("Import a recipe from a video", "從短影片匯入食譜")}
+        onPress={() => go("Import")}
+      />
       <Button
         disabled={st.busy}
         title={
@@ -510,7 +517,10 @@ export function RecipeCard({
     [usda, setUsda] = useState<any>(null),
     [showMore, setShowMore] = useState(false);
   const safe = validateMeasuredRecipe(r),
-    ephemeral = r.source_persistence === "session_only";
+    ephemeral = r.source_persistence === "session_only",
+    imported = r.source_type === "video_import",
+    estimatedIngredients = new Set(r.import_estimates?.ingredients || []),
+    estimatedSteps = new Set(r.import_estimates?.steps || []);
   async function grocery() {
     if (!safe)
       throw new Error(
@@ -618,6 +628,8 @@ export function RecipeCard({
         <Label>
           {ephemeral
             ? t("Sourced recipe · session only", "來源食譜・僅限本次使用")
+            : imported
+              ? t("Imported from a video", "影片匯入食譜")
             : r.fallback
               ? t("Measured fallback recipe", "備用食譜")
               : t("Your meal plan", "你的料理計畫")}
@@ -691,9 +703,11 @@ export function RecipeCard({
           <Button
             quiet
             title={
-              r.source_title ||
-              r.source_provider ||
-              t("Recipe source", "食譜來源")
+              imported
+                ? t(`Watch the original video (${r.source_provider})`, `看原影片（${r.source_provider}）`)
+                : r.source_title ||
+                  r.source_provider ||
+                  t("Recipe source", "食譜來源")
             }
             onPress={() => Linking.openURL(r.source_url!)}
           />
@@ -722,6 +736,11 @@ export function RecipeCard({
             {typeof i !== "string" && !!domain.ingredientPreparation(i) && (
               <Copy>{domain.ingredientPreparation(i)}</Copy>
             )}
+            {estimatedIngredients.has(index) && (
+              <Text style={[s.small, { color: colors.clay }]}>
+                {t("Estimate · amount not stated in the video", "推估・影片沒有說明份量")}
+              </Text>
+            )}
           </View>
         ))}
       </Card>
@@ -738,6 +757,11 @@ export function RecipeCard({
               <Copy>
                 <StepText text={step.instruction} ingredients={r.ingredients} lang={st.lang} />
               </Copy>
+            )}
+            {estimatedSteps.has(i) && (
+              <Text style={[s.small, { color: colors.clay }]}>
+                {t("Estimate · time or heat not stated in the video", "推估・影片沒有說明時間或火候")}
+              </Text>
             )}
           </View>
         ))}
@@ -947,6 +971,11 @@ export function SavedScreen({ go }: { go: (s: string) => void }) {
                 saved_recipe_id: row.id,
               })
             }
+          />
+          <Button
+            quiet
+            title={t("Import a recipe from a video", "從短影片匯入食譜")}
+            onPress={() => go("Import")}
           />
           {!(st.data.recipes || []).length && (
             <Empty

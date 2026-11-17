@@ -39,6 +39,13 @@
           "speechRecognitionPermission": "Chef Jarvis recognizes your cooking commands. Speech may be processed by Apple."
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Chef Jarvis reads only the cooking video you choose, uploads it for recipe analysis, and deletes it right after.",
+          "cameraPermission": false
+        }
+      ],
       "./plugins/with-standalone-run.cjs"
     ],
     "assetBundlePatterns": [

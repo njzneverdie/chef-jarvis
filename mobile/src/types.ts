@@ -36,6 +36,7 @@ export type Recipe = {
   source_title?: string;
   source_provider?: string;
   source_type?: string;
+  import_estimates?: { ingredients: number[]; steps: number[] };
   fallback?: boolean;
   saved_recipe_id?: string;
   nutrition_stale?: boolean;

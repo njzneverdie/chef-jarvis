@@ -91,6 +91,13 @@ Deno.serve(async (req) => {
   const admin = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  // Imported videos are normally deleted within one request; remove any
+  // leftover before the account disappears.
+  const videos = admin.storage.from("video-imports");
+  const { data: leftovers } = await videos.list(user.id, { limit: 100 });
+  if (leftovers?.length) {
+    await videos.remove(leftovers.map((item) => `${user.id}/${item.name}`));
+  }
   const { error } = await admin.auth.admin.deleteUser(user.id, false);
   if (error) {
     console.error("Account deletion failed", {
